@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-alpha.6
+
+- Retry all core download failures with bounded backoff instead of relying on curl's limited default retry classes.
+- Stop immediately after a failed or empty download and remove partial files before checksum or extraction steps.
+- Validate GitHub Release API responses and propagate lookup failures without silently converting `latest` into an invalid version.
+- Add deterministic retry/fail-fast coverage while retaining the real first-download smoke test.
+
 ## 0.1.0-alpha.5
 
 - Allow `AF_NETLINK` in the hardened systemd address-family policy so sing-box can subscribe to Linux route updates during startup.
