@@ -4,10 +4,21 @@
 ui_pause() { [[ -t 0 ]] && { printf '\n按 Enter 返回…'; read -r _; }; }
 ui_clear() { [[ -t 1 ]] && clear || true; }
 ui_header() {
+  local service_state enabled
   ui_clear
+  enabled=$(state_enabled_count)
+  if [[ "$SBM_SKIP_SYSTEMD" == 1 ]]; then
+    service_state='测试'
+  elif (( enabled == 0 )); then
+    service_state='待机'
+  elif service_active "$SBM_SERVICE"; then
+    service_state='运行中'
+  else
+    service_state='未运行'
+  fi
   printf '%s╭──────────────────── sb-manager ────────────────────╮%s\n' "$C_CYAN" "$C_RESET"
   printf '  版本 %-18s sing-box %-16s\n' "$SBM_VERSION" "$(core_current_version || echo '-')"
-  printf '  服务 %-18s Tunnel %-18s\n' "$([[ "$SBM_SKIP_SYSTEMD" == 1 ]] && echo 测试 || (service_active "$SBM_SERVICE" && echo 运行中 || echo 未运行))" "$(jq -r '.tunnel.mode' "$SBM_STATE")"
+  printf '  服务 %-18s Tunnel %-18s\n' "$service_state" "$(jq -r '.tunnel.mode' "$SBM_STATE")"
   printf '%s╰─────────────────────────────────────────────────────╯%s\n\n' "$C_CYAN" "$C_RESET"
 }
 
@@ -103,6 +114,40 @@ ui_update_menu() {
   esac
 }
 
+ui_doctor_menu() {
+  local c
+  printf '1. 运行完整诊断\n2. 自动修复权限、配置与服务\n3. 协调/重启 sing-box 服务\n4. 查看 sing-box 最近日志\n0. 返回\n'
+  prompt_value c '选择操作' '0'
+  case "$c" in
+    1) doctor_run || true;;
+    2) doctor_run 1 || true;;
+    3) singbox_service_reconcile && status_summary;;
+    4) show_logs singbox 100;;
+  esac
+}
+
+ui_uninstall_menu() {
+  local c phrase
+  printf '%s\n' \
+    '1. 卸载程序（保留节点、配置、证书、密钥和备份）' \
+    '2. 完全卸载（删除程序及全部数据）' \
+    '0. 返回'
+  prompt_value c '选择操作' '0'
+  case "$c" in
+    1)
+      uninstall_manager 0 0
+      ;;
+    2)
+      printf '%s警告：此操作会删除所有节点、证书、Token、核心和备份，无法撤销。%s\n' "$C_RED" "$C_RESET"
+      prompt_value phrase '请输入 DELETE 确认彻底卸载' ''
+      [[ "$phrase" == DELETE ]] || { log_warn '确认文字不匹配，已取消。'; return; }
+      uninstall_manager 1 1
+      ;;
+    0) return 0 ;;
+    *) log_error '选择无效' ;;
+  esac
+}
+
 ui_backup_menu() {
   local c path
   printf '1. 创建备份\n2. 从备份恢复\n0. 返回\n'; prompt_value c '选择操作' '0'
@@ -123,12 +168,14 @@ ui_main() {
   local choice
   while true; do
     ui_header
-    printf '1. 查看运行状态\n2. 添加协议节点\n3. 管理现有节点\n4. 分享链接与客户端导出\n5. 域名与证书管理\n6. Cloudflare Tunnel 管理\n7. 核心与组件更新\n8. 日志\n9. 诊断与修复\n10. 备份与恢复\n11. 全局设置\n0. 退出\n\n'
+    printf '1. 查看运行状态\n2. 添加协议节点\n3. 管理现有节点\n4. 分享链接与客户端导出\n5. 域名与证书管理\n6. Cloudflare Tunnel 管理\n7. 核心与组件更新\n8. 日志\n9. 诊断与修复\n10. 备份与恢复\n11. 全局设置\n12. 卸载与彻底清理\n0. 退出\n\n'
     prompt_value choice '请选择' '0'
     case "$choice" in
       1) status_summary; node_list;; 2) ui_add_node;; 3) ui_manage_nodes;;
       4) node_list; local id; prompt_value id '节点 ID（输入 all 导出全部）' 'all'; [[ "$id" == all ]] && { node_share_all; export_all_outbounds; } || node_share "$id" 1;;
-      5) ui_cert_menu;; 6) ui_tunnel_menu;; 7) ui_update_menu;; 8) show_logs all 100;; 9) doctor_run || true;; 10) ui_backup_menu;; 11) ui_settings_menu;; 0) return;; *) log_error '选择无效';;
+      5) ui_cert_menu;; 6) ui_tunnel_menu;; 7) ui_update_menu;; 8) show_logs all 100;; 9) ui_doctor_menu;; 10) ui_backup_menu;; 11) ui_settings_menu;;
+      12) ui_uninstall_menu; [[ ${SBM_UNINSTALLED:-0} == 1 ]] && return;;
+      0) return;; *) log_error '选择无效';;
     esac
     ui_pause
   done
