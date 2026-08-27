@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.0-alpha.3
+
+- Add Alpine Linux 3.21-3.24 support with the native OpenRC service manager and `apk` dependency installation.
+- Add a systemd/OpenRC service abstraction for start, stop, enable, status, logs, repair, Tunnel management, and uninstall.
+- Add OpenRC supervised services for sing-box and cloudflared, plus `dcron` periodic jobs for core updates, ACME renewal, and Quick Tunnel refresh.
+- Keep sing-box unprivileged on OpenRC by applying only `cap_net_bind_service` to installed cores for low-port listeners.
+- Add portable account/group, DNS lookup, and certificate-expiry helpers for musl/BusyBox environments.
+- Add OpenRC lifecycle tests and Alpine 3.21/3.22/3.23/3.24 musl smoke jobs using the real official sing-box and cloudflared assets.
+
 ## 0.1.0-alpha.2
 
 - Fix first installation requiring a second run: download progress logs no longer contaminate the binary path captured by command substitution.

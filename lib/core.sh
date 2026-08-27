@@ -78,6 +78,7 @@ core_download_version() {
   install -m 0755 "$found" "$target"
   ensure_program_permissions
   "$target" version >/dev/null
+  if [[ $(init_system 2>/dev/null || true) == openrc ]]; then ensure_singbox_bind_capability "$target"; fi
   rm -rf "$tmpdir"
   printf '%s\n' "$target"
 }
@@ -89,6 +90,7 @@ core_switch_to() {
   validate_runtime_binary_path sing-box "$binary"
   ensure_program_permissions
   if [[ -s "$SBM_CONFIG" ]]; then core_validate_config_with "$binary" "$SBM_CONFIG" "$SBM_RUN/core-candidate-check.log" || return 1; fi
+  if [[ $(init_system 2>/dev/null || true) == openrc ]]; then ensure_singbox_bind_capability "$binary"; fi
   current_target=$(readlink -f "$SBM_SING_BOX_BIN" 2>/dev/null || true)
   previous=${current_target:-none}
   mkdir -p "$SBM_BIN_DIR" "$SBM_VAR/core-history"
@@ -96,7 +98,7 @@ core_switch_to() {
   mv -Tf "$SBM_SING_BOX_BIN.new" "$SBM_SING_BOX_BIN"
   printf '%s\t%s\t%s\n' "$(now_iso)" "$previous" "$binary" >>"$SBM_VAR/core-history/sing-box.tsv"
   ensure_program_permissions
-  if [[ "$SBM_SKIP_SYSTEMD" != "1" ]] && service_exists "$SBM_SERVICE"; then
+  if [[ "$SBM_SKIP_INIT" != "1" ]] && service_exists "$SBM_SERVICE"; then
     if ! singbox_service_reconcile; then
       log_error "新核心启动失败，恢复旧核心。"
       if [[ -n "$current_target" && -x "$current_target" ]]; then
@@ -201,7 +203,7 @@ _cloudflared_update() {
   ensure_program_permissions
   if [[ "$old" == "$binary" ]]; then log_ok "cloudflared 已是最新版。"; return; fi
   ln -sfn "$binary" "$SBM_CLOUDFLARED_BIN.new"; mv -Tf "$SBM_CLOUDFLARED_BIN.new" "$SBM_CLOUDFLARED_BIN"
-  if [[ "$SBM_SKIP_SYSTEMD" != "1" ]] && service_exists "$SBM_TUNNEL_SERVICE" && service_enabled "$SBM_TUNNEL_SERVICE"; then
+  if [[ "$SBM_SKIP_INIT" != "1" ]] && service_exists "$SBM_TUNNEL_SERVICE" && service_enabled "$SBM_TUNNEL_SERVICE"; then
     if ! service_restart "$SBM_TUNNEL_SERVICE"; then [[ -n "$old" ]] && ln -sfn "$old" "$SBM_CLOUDFLARED_BIN"; service_try_restart "$SBM_TUNNEL_SERVICE" || true; return 1; fi
   fi
   log_ok "cloudflared 已更新至 $(cloudflared_current_version)。"

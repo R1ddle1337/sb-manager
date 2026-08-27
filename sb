@@ -12,6 +12,7 @@ SELF_DIR=$(cd -P -- "$(dirname -- "$SOURCE_PATH")" && pwd)
 SBM_LIB="${SBM_LIB:-$SELF_DIR}"
 # shellcheck source=lib/common.sh
 source "$SBM_LIB/lib/common.sh"
+source "$SBM_LIB/lib/service.sh"
 source "$SBM_LIB/lib/state.sh"
 source "$SBM_LIB/protocols/vmess_ws_cf.sh"
 source "$SBM_LIB/protocols/shadowsocks.sh"

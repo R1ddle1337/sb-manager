@@ -33,7 +33,7 @@ state_init_dirs() {
   mkdir -p "$SBM_ETC" "$SBM_GENERATED_DIR" "$SBM_SECRETS/nodes" "$SBM_CERTS" "$SBM_VAR" "$SBM_BACKUPS" "$SBM_EXPORTS" "$SBM_CACHE" "$SBM_RUN"
   chmod 0750 "$SBM_ETC" "$SBM_GENERATED_DIR" "$SBM_CERTS" 2>/dev/null || true
   chmod 0700 "$SBM_SECRETS/nodes" 2>/dev/null || true
-  if getent group "$SBM_SERVICE_USER" >/dev/null 2>&1; then
+  if group_exists "$SBM_SERVICE_USER"; then
     chown root:"$SBM_SERVICE_USER" "$SBM_SECRETS" 2>/dev/null || true
     chmod 0710 "$SBM_SECRETS" 2>/dev/null || true
   else
@@ -73,19 +73,20 @@ state_enabled_count() {
 }
 
 singbox_service_reconcile() {
-  [[ "$SBM_SKIP_SYSTEMD" == "1" ]] && return 0
+  [[ "$SBM_SKIP_INIT" == "1" ]] && return 0
   service_exists "$SBM_SERVICE" || return 0
-  systemctl daemon-reload
+  service_reload_manager
   if (( $(state_enabled_count) == 0 )); then
     # Keep an empty installation dormant across reboots. Adding the first
     # enabled node will enable and start the unit again below.
-    systemctl disable "$SBM_SERVICE" >/dev/null 2>&1 || true
-    systemctl stop "$SBM_SERVICE" >/dev/null 2>&1 || true
-    systemctl reset-failed "$SBM_SERVICE" >/dev/null 2>&1 || true
+    service_disable "$SBM_SERVICE"
+    service_stop "$SBM_SERVICE"
+    service_reset_failed "$SBM_SERVICE"
     return 0
   fi
-  systemctl enable "$SBM_SERVICE" >/dev/null 2>&1 || true
-  if ! systemctl restart "$SBM_SERVICE"; then
+  service_enable "$SBM_SERVICE" || true
+  service_reset_failed "$SBM_SERVICE"
+  if ! service_restart "$SBM_SERVICE"; then
     service_failure_report "$SBM_SERVICE"
     return 1
   fi
@@ -157,7 +158,7 @@ state_install_candidate() {
   mv -f "$state_tmp" "$SBM_STATE"
   mv -f "$config_tmp" "$SBM_CONFIG"
 
-  if [[ "$SBM_SKIP_SYSTEMD" != "1" ]] && service_exists "$SBM_SERVICE"; then
+  if [[ "$SBM_SKIP_INIT" != "1" ]] && service_exists "$SBM_SERVICE"; then
     if ! singbox_service_reconcile; then
       log_error "新配置启动失败，正在回滚。"
       [[ -f "$backup/state.json" ]] && cp -a "$backup/state.json" "$SBM_STATE"
