@@ -60,6 +60,9 @@ jobs:
       - name: systemd lifecycle test
         run: bash tests/service-lifecycle.sh
 
+      - name: systemd exec permission regression
+        run: bash tests/systemd-exec-smoke.sh
+
       - name: OpenRC lifecycle test
         run: bash tests/openrc-lifecycle.sh
 
@@ -119,6 +122,7 @@ jobs:
         run: |
           bash tests/install-smoke.sh
           bash tests/doctor-smoke.sh
+          bash tests/systemd-exec-smoke.sh
 
   alpine-smoke:
     runs-on: ubuntu-latest
