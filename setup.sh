@@ -5,6 +5,7 @@ umask 027
 SRC_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 TARGET_LIB=${SBM_LIB:-/usr/local/lib/sb-manager}
 TARGET_BIN=${SBM_BIN_DIR:-/usr/local/bin}
+PROGRAM_BACKUP_ROOT=${SBM_BACKUPS:-/var/lib/sb-manager/backups}
 NO_MENU=0
 NO_START=0
 CORE_VERSION=$(tr -d '[:space:]' <"$SRC_DIR/TESTED_CORE_VERSION" 2>/dev/null || true)
@@ -59,7 +60,7 @@ printf '[1/7] 安装依赖…\n'
 
 printf '[2/7] 安装程序文件…\n'
 if [[ -d "$TARGET_LIB" && -f "$TARGET_LIB/sb" ]]; then
-  backup="/var/lib/sb-manager/backups/program-$(date -u +%Y%m%dT%H%M%SZ)"
+  backup="$PROGRAM_BACKUP_ROOT/program-$(date -u +%Y%m%dT%H%M%SZ)"
   mkdir -p "$backup"
   cp -a "$TARGET_LIB" "$backup/" || true
 fi
@@ -121,6 +122,7 @@ fi
 ln -sfn "$cf_binary" "$SBM_CLOUDFLARED_BIN.new"; mv -Tf "$SBM_CLOUDFLARED_BIN.new" "$SBM_CLOUDFLARED_BIN"
 
 printf '[6/7] 生成配置与 systemd 服务…\n'
+mkdir -p "$SBM_SYSTEMD_DIR"
 render_current_config
 cat >"$SBM_SYSTEMD_DIR/$SBM_SERVICE" <<EOF_UNIT
 [Unit]
