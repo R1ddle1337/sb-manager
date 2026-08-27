@@ -75,10 +75,10 @@ prepare_singbox_binary_for_backend "$SBM_SING_BOX_BIN" openrc
 # the same critical execution restrictions as the permanent unit.
 prepare_singbox_binary_for_backend "$SBM_SING_BOX_BIN" systemd
 systemd_exec_preflight "$SBM_SING_BOX_BIN"
-grep -Fxq 'NoNewPrivileges=yes' "$SBM_FAKE_SYSTEMD_RUN_LOG"
-grep -Fxq 'AmbientCapabilities=CAP_NET_BIND_SERVICE' "$SBM_FAKE_SYSTEMD_RUN_LOG"
-grep -Fxq 'CapabilityBoundingSet=CAP_NET_BIND_SERVICE' "$SBM_FAKE_SYSTEMD_RUN_LOG"
-grep -Fxq 'User=sbmanager' "$SBM_FAKE_SYSTEMD_RUN_LOG"
+grep -Fxq -- '--property=NoNewPrivileges=yes' "$SBM_FAKE_SYSTEMD_RUN_LOG"
+grep -Fxq -- '--property=AmbientCapabilities=CAP_NET_BIND_SERVICE' "$SBM_FAKE_SYSTEMD_RUN_LOG"
+grep -Fxq -- '--property=CapabilityBoundingSet=CAP_NET_BIND_SERVICE' "$SBM_FAKE_SYSTEMD_RUN_LOG"
+grep -Fxq -- '--property=User=sbmanager' "$SBM_FAKE_SYSTEMD_RUN_LOG"
 grep -Fxq "$SBM_SING_BOX_BIN" "$SBM_FAKE_SYSTEMD_RUN_LOG"
 
 printf 'SYSTEMD EXEC SMOKE PASSED\n'
