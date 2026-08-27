@@ -76,6 +76,15 @@ now_stamp() { date -u +'%Y%m%dT%H%M%SZ'; }
 json_compact() { jq -c .; }
 json_pretty() { jq .; }
 
+extract_semver() {
+  local text=$1
+  if [[ $text =~ ([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?) ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+  else
+    return 1
+  fi
+}
+
 random_hex() {
   local bytes=${1:-16}
   openssl rand -hex "$bytes"
@@ -216,7 +225,7 @@ set_group_if_exists() {
   if group_exists "$group"; then chgrp "$group" "$path" 2>/dev/null || true; fi
 }
 
-version_lt() { [[ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n1)" != "$2" && "$1" != "$2" ]]; }
+version_lt() { [[ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | sed -n '1p')" != "$2" && "$1" != "$2" ]]; }
 version_ge() { ! version_lt "$1" "$2"; }
 
 confirm() {

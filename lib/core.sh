@@ -33,9 +33,10 @@ core_release_json() {
 
 core_latest_version() { core_release_json latest | jq -r '.tag_name' | sed 's/^v//'; }
 core_current_version() {
-  if [[ -x "$SBM_SING_BOX_BIN" ]]; then
-    "$SBM_SING_BOX_BIN" version 2>/dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?' | head -n1
-  fi
+  local output
+  [[ -x "$SBM_SING_BOX_BIN" ]] || return 0
+  output=$("$SBM_SING_BOX_BIN" version 2>/dev/null) || return 1
+  extract_semver "$output"
 }
 
 verify_asset_digest() {
@@ -50,8 +51,8 @@ core_download_version() {
   local version=$1 arch json asset_name asset_url digest checksum_url tmpdir archive target expected
   arch=$(sb_arch); json=$(core_release_json "$version"); version=$(jq -r '.tag_name' <<<"$json" | sed 's/^v//')
   asset_name="sing-box-${version}-linux-${arch}.tar.gz"
-  asset_url=$(jq -r --arg n "$asset_name" '.assets[] | select(.name==$n) | .browser_download_url' <<<"$json" | head -n1)
-  digest=$(jq -r --arg n "$asset_name" '.assets[] | select(.name==$n) | .digest // ""' <<<"$json" | head -n1)
+  asset_url=$(jq -r --arg n "$asset_name" 'first(.assets[] | select(.name==$n) | .browser_download_url) // empty' <<<"$json")
+  digest=$(jq -r --arg n "$asset_name" 'first(.assets[] | select(.name==$n) | (.digest // "")) // empty' <<<"$json")
   [[ -n "$asset_url" ]] || die "官方 Release 中未找到：$asset_name"
   target="$SBM_CORE_DIR/sing-box/$version/sing-box"
   if [[ -x "$target" ]]; then
@@ -63,7 +64,7 @@ core_download_version() {
   log_info "下载 sing-box $version ($arch)…"
   curl -fL --retry 3 --connect-timeout 15 "$asset_url" -o "$archive"
   if ! verify_asset_digest "$archive" "$digest"; then
-    checksum_url=$(jq -r '.assets[] | select(.name|test("checksums.*\\.txt$|checksum.*\\.txt$";"i")) | .browser_download_url' <<<"$json" | head -n1)
+    checksum_url=$(jq -r 'first(.assets[] | select(.name|test("checksums.*\\.txt$|checksum.*\\.txt$";"i")) | .browser_download_url) // empty' <<<"$json")
     [[ -n "$checksum_url" ]] || { rm -rf "$tmpdir"; die "Release 未提供可用 SHA-256 摘要，已拒绝安装。"; }
     curl -fL --retry 3 "$checksum_url" -o "$tmpdir/checksums.txt"
     expected=$(awk -v n="$asset_name" '$NF==n {print $1; exit}' "$tmpdir/checksums.txt")
@@ -73,7 +74,7 @@ core_download_version() {
   chmod 0755 "$SBM_CORE_DIR" "$SBM_CORE_DIR/sing-box" "$SBM_CORE_DIR/sing-box/$version"
   tar -xzf "$archive" -C "$tmpdir"
   local found
-  found=$(find "$tmpdir" -type f -name sing-box -perm -u+x | head -n1)
+  found=$(find "$tmpdir" -type f -name sing-box -perm -u+x -print -quit)
   [[ -n "$found" ]] || { rm -rf "$tmpdir"; die "压缩包中未找到 sing-box。"; }
   install -m 0755 "$found" "$target"
   ensure_program_permissions
@@ -174,16 +175,22 @@ core_rollback() {
 cloudflared_release_json() { github_api 'https://api.github.com/repos/cloudflare/cloudflared/releases/latest'; }
 cloudflared_latest_version() { cloudflared_release_json | jq -r '.tag_name' | sed 's/^v//'; }
 cloudflared_current_version() {
+  local output
   [[ -x "$SBM_CLOUDFLARED_BIN" ]] || return 0
-  "$SBM_CLOUDFLARED_BIN" version 2>/dev/null | grep -Eo '[0-9]{4}\.[0-9]+\.[0-9]+' | head -n1
+  output=$("$SBM_CLOUDFLARED_BIN" version 2>/dev/null) || return 1
+  if [[ $output =~ ([0-9]{4}\.[0-9]+\.[0-9]+) ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+  else
+    return 1
+  fi
 }
 
 cloudflared_download_latest() {
   local arch json version asset_name url digest tmp target
   arch=$(cloudflared_arch); json=$(cloudflared_release_json); version=$(jq -r '.tag_name' <<<"$json" | sed 's/^v//')
   asset_name="cloudflared-linux-${arch}"
-  url=$(jq -r --arg n "$asset_name" '.assets[]|select(.name==$n)|.browser_download_url' <<<"$json" | head -n1)
-  digest=$(jq -r --arg n "$asset_name" '.assets[]|select(.name==$n)|.digest // ""' <<<"$json" | head -n1)
+  url=$(jq -r --arg n "$asset_name" 'first(.assets[] | select(.name==$n) | .browser_download_url) // empty' <<<"$json")
+  digest=$(jq -r --arg n "$asset_name" 'first(.assets[] | select(.name==$n) | (.digest // "")) // empty' <<<"$json")
   [[ -n "$url" ]] || die "未找到 cloudflared 资产：$asset_name"
   target="$SBM_CORE_DIR/cloudflared/$version/cloudflared"
   if [[ -x "$target" ]]; then

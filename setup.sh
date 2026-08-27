@@ -258,7 +258,8 @@ chmod 0700 "$SBM_SECRETS/nodes"
 
 printf '[4/7] 安装 sing-box 核心…\n'
 if [[ "$TEST_MODE" == 1 ]]; then
-  test_version=$(${SBM_TEST_SING_BOX:?} version | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)
+  test_version_output=$(${SBM_TEST_SING_BOX:?} version)
+  test_version=$(extract_semver "$test_version_output") || die '无法识别测试 sing-box 核心版本。'
   mkdir -p "$SBM_CORE_DIR/sing-box/$test_version"
   install -m 0755 "$SBM_TEST_SING_BOX" "$SBM_CORE_DIR/sing-box/$test_version/sing-box"
   sb_binary="$SBM_CORE_DIR/sing-box/$test_version/sing-box"
