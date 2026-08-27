@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.0-alpha.4
+
+- Fix systemd `203/EXEC` / `Permission denied` failures caused by stale sing-box file capabilities left by an OpenRC-style installation or migration.
+- Make sing-box capability handling backend-specific: systemd receives `CAP_NET_BIND_SERVICE` only through the unit, while OpenRC keeps the minimal file capability.
+- Add a transient systemd sandbox preflight before starting the permanent service, using the same critical user, capability and hardening properties.
+- Stop an existing restart loop before replacing service definitions and limit repeated systemd startup failures to five attempts per minute.
+- Extend `sb doctor` and `sb repair` to detect, explain and safely repair file-capability, path-permission, mount and systemd sandbox execution problems.
+- Ensure core download, update, switch and rollback all normalize executable permissions and capabilities for the active service backend.
+- Add Debian/systemd regression coverage for capability cleanup and sandbox preflight.
+
 ## 0.1.0-alpha.3
 
 - Add Alpine Linux 3.21-3.24 support with the native OpenRC service manager and `apk` dependency installation, including `gcompat` for the official sing-box Linux core.
