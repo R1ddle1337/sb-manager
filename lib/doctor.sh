@@ -89,6 +89,13 @@ doctor_repair_runtime() {
         2) log_warn 'systemd-run 不可用，跳过沙箱执行预检。' ;;
         *) runtime_exec_diagnostics "$SBM_SING_BOX_BIN"; die 'systemd 沙箱仍无法执行 sing-box。' ;;
       esac
+      preflight_rc=0
+      systemd_runtime_preflight "$SBM_SING_BOX_BIN" "$SBM_CONFIG" || preflight_rc=$?
+      case "$preflight_rc" in
+        0) ;;
+        2) log_warn 'systemd-run 不可用，跳过实际启动预检。' ;;
+        *) runtime_exec_diagnostics "$SBM_SING_BOX_BIN"; die 'sing-box 仍无法在 systemd 沙箱中完成实际启动。' ;;
+      esac
     fi
     singbox_service_reconcile
     if [[ $(jq -r '.tunnel.mode' "$SBM_STATE") != none ]]; then tunnel_reconcile 1; fi
@@ -160,6 +167,17 @@ doctor_run() {
       check_line FAIL "systemd 核心残留 file capabilities，可能触发 203/EXEC：$caps"
       failures=$((failures + 1))
       check_line WARN '运行 sb repair 可安全清除；不会影响节点、证书或密钥'
+      warnings=$((warnings + 1))
+    fi
+  fi
+
+  if [[ "$backend" == systemd && "$SBM_SKIP_INIT" != 1 && -f "$SBM_SYSTEMD_DIR/$SBM_SERVICE" ]]; then
+    if systemd_unit_allows_netlink "$SBM_SERVICE"; then
+      check_line PASS 'systemd 地址族策略允许 AF_NETLINK 路由监听'
+    else
+      check_line FAIL 'systemd 地址族策略缺少 AF_NETLINK；sing-box 会在订阅路由更新时退出'
+      failures=$((failures + 1))
+      check_line WARN '重新运行最新版安装器，或执行临时修复命令更新 RestrictAddressFamilies'
       warnings=$((warnings + 1))
     fi
   fi

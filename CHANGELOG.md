@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-alpha.5
+
+- Allow `AF_NETLINK` in the hardened systemd address-family policy so sing-box can subscribe to Linux route updates during startup.
+- Add a real transient systemd startup preflight using the rendered sing-box configuration; the previous `version` check could not detect route-monitor failures.
+- Extend `sb doctor` with an explicit AF_NETLINK policy check and extend `sb repair` with the real startup preflight.
+- Add unit and real PID-1 systemd regressions that start an actual sing-box inbound under the production sandbox.
+
 ## 0.1.0-alpha.4
 
 - Fix systemd `203/EXEC` / `Permission denied` failures caused by stale sing-box file capabilities left by an OpenRC-style installation or migration.

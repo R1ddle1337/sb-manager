@@ -78,6 +78,7 @@ systemd_exec_preflight "$SBM_SING_BOX_BIN"
 grep -Fxq -- '--property=NoNewPrivileges=yes' "$SBM_FAKE_SYSTEMD_RUN_LOG"
 grep -Fxq -- '--property=AmbientCapabilities=CAP_NET_BIND_SERVICE' "$SBM_FAKE_SYSTEMD_RUN_LOG"
 grep -Fxq -- '--property=CapabilityBoundingSet=CAP_NET_BIND_SERVICE' "$SBM_FAKE_SYSTEMD_RUN_LOG"
+grep -Fxq -- '--property=RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK' "$SBM_FAKE_SYSTEMD_RUN_LOG"
 grep -Fxq -- '--property=User=sbmanager' "$SBM_FAKE_SYSTEMD_RUN_LOG"
 grep -Fxq "$SBM_SING_BOX_BIN" "$SBM_FAKE_SYSTEMD_RUN_LOG"
 
