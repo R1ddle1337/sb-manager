@@ -25,9 +25,46 @@ cloudflared_arch() {
   esac
 }
 
+download_file_with_retries() {
+  local url=$1 output=$2 label=${3:-文件} attempts=${4:-5} attempt delay
+  rm -f "$output"
+  for ((attempt=1; attempt<=attempts; attempt++)); do
+    if curl --fail --location --silent --show-error \
+      --connect-timeout 15 --max-time 600 \
+      "$url" -o "$output"; then
+      if [[ -s "$output" ]]; then
+        return 0
+      fi
+      log_warn "$label 下载结果为空（第 $attempt/$attempts 次）。"
+    else
+      log_warn "$label 下载失败（第 $attempt/$attempts 次）。"
+    fi
+    rm -f "$output"
+    (( attempt < attempts )) || break
+    delay=$((attempt * 2))
+    sleep "$delay"
+  done
+  die "$label 下载失败，已重试 $attempts 次。"
+}
+
 github_api() {
-  local url=$1
-  curl -fsSL --retry 3 --connect-timeout 15 -H 'Accept: application/vnd.github+json' -H 'User-Agent: sb-manager' "$url"
+  local url=$1 attempt output delay attempts=5
+  for ((attempt=1; attempt<=attempts; attempt++)); do
+    if output=$(curl --fail --silent --show-error --location \
+      --connect-timeout 15 --max-time 120 \
+      -H 'Accept: application/vnd.github+json' \
+      -H 'User-Agent: sb-manager' "$url"); then
+      if [[ -n "$output" ]]; then
+        printf '%s\n' "$output"
+        return 0
+      fi
+    fi
+    log_warn "GitHub API 请求失败（第 $attempt/$attempts 次）。"
+    (( attempt < attempts )) || break
+    delay=$((attempt * 2))
+    sleep "$delay"
+  done
+  return 1
 }
 
 core_release_json() {
@@ -36,7 +73,13 @@ core_release_json() {
   else github_api "https://api.github.com/repos/SagerNet/sing-box/releases/tags/v${version#v}"; fi
 }
 
-core_latest_version() { core_release_json latest | jq -r '.tag_name' | sed 's/^v//'; }
+core_latest_version() {
+  local json tag
+  json=$(core_release_json latest) || return 1
+  tag=$(jq -r '.tag_name // empty' <<<"$json")
+  [[ -n "$tag" ]] || return 1
+  printf '%s\n' "${tag#v}"
+}
 core_current_version() {
   local output
   [[ -x "$SBM_SING_BOX_BIN" ]] || return 0
@@ -54,7 +97,10 @@ verify_asset_digest() {
 
 core_download_version() {
   local version=$1 arch json asset_name asset_url digest checksum_url tmpdir archive target expected
-  arch=$(sb_arch); json=$(core_release_json "$version"); version=$(jq -r '.tag_name' <<<"$json" | sed 's/^v//')
+  arch=$(sb_arch)
+  json=$(core_release_json "$version") || die "无法获取 sing-box Release 信息。"
+  version=$(jq -r '.tag_name // empty' <<<"$json" | sed 's/^v//')
+  [[ -n "$version" ]] || die "sing-box Release 信息缺少版本号。"
   asset_name="sing-box-${version}-linux-${arch}.tar.gz"
   asset_url=$(jq -r --arg n "$asset_name" 'first(.assets[] | select(.name==$n) | .browser_download_url) // empty' <<<"$json")
   digest=$(jq -r --arg n "$asset_name" 'first(.assets[] | select(.name==$n) | (.digest // "")) // empty' <<<"$json")
@@ -68,17 +114,20 @@ core_download_version() {
   fi
   tmpdir=$(mktemp -d "$SBM_CACHE/sing-box.XXXXXX"); archive="$tmpdir/$asset_name"
   log_info "下载 sing-box $version ($arch)…"
-  curl -fL --retry 3 --connect-timeout 15 "$asset_url" -o "$archive"
+  download_file_with_retries "$asset_url" "$archive" "sing-box $version" 5
   if ! verify_asset_digest "$archive" "$digest"; then
     checksum_url=$(jq -r 'first(.assets[] | select(.name|test("checksums.*\\.txt$|checksum.*\\.txt$";"i")) | .browser_download_url) // empty' <<<"$json")
     [[ -n "$checksum_url" ]] || { rm -rf "$tmpdir"; die "Release 未提供可用 SHA-256 摘要，已拒绝安装。"; }
-    curl -fL --retry 3 "$checksum_url" -o "$tmpdir/checksums.txt"
+    download_file_with_retries "$checksum_url" "$tmpdir/checksums.txt" "sing-box checksum" 5
     expected=$(awk -v n="$asset_name" '$NF==n {print $1; exit}' "$tmpdir/checksums.txt")
     [[ -n "$expected" && "$expected" == "$(sha256sum "$archive" | awk '{print $1}')" ]] || { rm -rf "$tmpdir"; die "sing-box 下载文件校验失败。"; }
   fi
   mkdir -p "$SBM_CORE_DIR/sing-box/$version"
   chmod 0755 "$SBM_CORE_DIR" "$SBM_CORE_DIR/sing-box" "$SBM_CORE_DIR/sing-box/$version"
-  tar -xzf "$archive" -C "$tmpdir"
+  if ! tar -xzf "$archive" -C "$tmpdir"; then
+    rm -rf "$tmpdir"
+    die "sing-box 下载文件无法解压，可能已损坏。"
+  fi
   local found
   found=$(find "$tmpdir" -type f -name sing-box -perm -u+x -print -quit)
   [[ -n "$found" ]] || { rm -rf "$tmpdir"; die "压缩包中未找到 sing-box。"; }
@@ -127,7 +176,11 @@ core_switch_to() {
 
 _core_update() {
   local version=${1:-latest} latest current
-  [[ "$version" == latest ]] && latest=$(core_latest_version) || latest=${version#v}
+  if [[ "$version" == latest ]]; then
+    latest=$(core_latest_version) || die "无法查询 sing-box 最新稳定版本。"
+  else
+    latest=${version#v}
+  fi
   current=$(core_current_version || true)
   if [[ "$current" == "$latest" ]]; then log_ok "sing-box 已是目标版本 $latest。"; return 0; fi
   core_download_version "$latest" >/dev/null
@@ -137,7 +190,8 @@ core_update() { with_lock _core_update "${1:-latest}"; }
 
 core_check_update() {
   local current latest
-  current=$(core_current_version || true); latest=$(core_latest_version)
+  current=$(core_current_version || true)
+  latest=$(core_latest_version) || die "无法查询 sing-box 最新稳定版本。"
   printf '当前版本：%s\n最新稳定：%s\n' "${current:-未安装}" "$latest"
   [[ "$current" == "$latest" ]] || return 10
 }
@@ -156,7 +210,8 @@ core_auto_update() {
   local policy current latest cmj cmi lmj lmi
   policy=$(jq -r '.settings.core_update_policy // "notify"' "$SBM_STATE")
   [[ "$policy" != manual ]] || return 0
-  current=$(core_current_version || true); latest=$(core_latest_version)
+  current=$(core_current_version || true)
+  latest=$(core_latest_version) || { log_warn "无法查询 sing-box 最新稳定版本。"; return 1; }
   [[ "$current" != "$latest" ]] || return 0
   mkdir -p "$SBM_VAR/updates"
   jq -n --arg now "$(now_iso)" --arg current "$current" --arg latest "$latest" --arg policy "$policy" '{checked_at:$now,current:$current,latest:$latest,policy:$policy}' >"$SBM_VAR/updates/sing-box.json"
@@ -180,7 +235,13 @@ core_rollback() {
 }
 
 cloudflared_release_json() { github_api 'https://api.github.com/repos/cloudflare/cloudflared/releases/latest'; }
-cloudflared_latest_version() { cloudflared_release_json | jq -r '.tag_name' | sed 's/^v//'; }
+cloudflared_latest_version() {
+  local json tag
+  json=$(cloudflared_release_json) || return 1
+  tag=$(jq -r '.tag_name // empty' <<<"$json")
+  [[ -n "$tag" ]] || return 1
+  printf '%s\n' "${tag#v}"
+}
 cloudflared_current_version() {
   local output
   [[ -x "$SBM_CLOUDFLARED_BIN" ]] || return 0
@@ -194,7 +255,10 @@ cloudflared_current_version() {
 
 cloudflared_download_latest() {
   local arch json version asset_name url digest tmp target
-  arch=$(cloudflared_arch); json=$(cloudflared_release_json); version=$(jq -r '.tag_name' <<<"$json" | sed 's/^v//')
+  arch=$(cloudflared_arch)
+  json=$(cloudflared_release_json) || die "无法获取 cloudflared Release 信息。"
+  version=$(jq -r '.tag_name // empty' <<<"$json" | sed 's/^v//')
+  [[ -n "$version" ]] || die "cloudflared Release 信息缺少版本号。"
   asset_name="cloudflared-linux-${arch}"
   url=$(jq -r --arg n "$asset_name" 'first(.assets[] | select(.name==$n) | .browser_download_url) // empty' <<<"$json")
   digest=$(jq -r --arg n "$asset_name" 'first(.assets[] | select(.name==$n) | (.digest // "")) // empty' <<<"$json")
@@ -209,7 +273,7 @@ cloudflared_download_latest() {
   chmod 0755 "$SBM_CORE_DIR" "$SBM_CORE_DIR/cloudflared" "$(dirname "$target")"
   tmp=$(mktemp "$SBM_CACHE/cloudflared.XXXXXX")
   log_info "下载 cloudflared $version ($arch)…"
-  curl -fL --retry 3 --connect-timeout 15 "$url" -o "$tmp"
+  download_file_with_retries "$url" "$tmp" "cloudflared $version" 5
   if [[ -n "$digest" && "$digest" == sha256:* ]]; then verify_asset_digest "$tmp" "$digest" || { rm -f "$tmp"; die "cloudflared 校验失败。"; }
   else log_warn "该 Release API 未返回 cloudflared 摘要；仅完成 TLS 下载校验。"; fi
   install -m 0755 "$tmp" "$target"; rm -f "$tmp"; ensure_program_permissions

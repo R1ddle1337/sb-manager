@@ -37,7 +37,7 @@ bash "$PROJECT/setup.sh" --no-menu --no-start
 [[ -x "$SBM_BIN_DIR/sb" && -x "$SBM_SING_BOX_BIN" && -x "$SBM_CLOUDFLARED_BIN" ]]
 [[ "$(readlink "$SBM_SING_BOX_BIN")" != *$'\n'* ]]
 [[ "$(readlink "$SBM_CLOUDFLARED_BIN")" != *$'\n'* ]]
-env -u SBM_LIB "$SBM_BIN_DIR/sb" version | grep -q "0.1.0-alpha.5"
+env -u SBM_LIB "$SBM_BIN_DIR/sb" version | grep -q "0.1.0-alpha.6"
 [[ -z $(find "$SBM_LIB" -maxdepth 0 ! -perm -0001 -print -quit) ]]
 [[ -z $(find "$SBM_CORE_DIR" -type d ! -perm -0001 -print -quit) ]]
 chmod 0755 "$ROOT" "$ROOT/usr" "$ROOT/usr/local" "$ROOT/etc" "$ROOT/var" "$ROOT/var/lib"
