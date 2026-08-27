@@ -57,4 +57,15 @@ prepare_singbox_binary_for_backend "$SBM_SING_BOX_BIN" systemd
 # capability settings used by sb-sing-box.service.
 systemd_exec_preflight "$SBM_SING_BOX_BIN"
 
+RUNTIME_CONFIG="$SBM_ETC/runtime.json"
+PORT=$((30000 + RANDOM % 20000))
+jq -n --argjson port "$PORT" '{
+  log: {level: "error"},
+  inbounds: [{type: "mixed", tag: "mixed-in", listen: "127.0.0.1", listen_port: $port}],
+  outbounds: [{type: "direct", tag: "direct"}],
+  route: {final: "direct"}
+}' >"$RUNTIME_CONFIG"
+chmod 0644 "$RUNTIME_CONFIG"
+systemd_runtime_preflight "$SBM_SING_BOX_BIN" "$RUNTIME_CONFIG"
+
 printf 'REAL SYSTEMD EXEC PASSED\n'

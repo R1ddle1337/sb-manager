@@ -110,7 +110,7 @@ ProtectControlGroups=true
 LockPersonality=true
 RestrictSUIDSGID=true
 RestrictRealtime=true
-RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
 ReadOnlyPaths=$SBM_ETC $SBM_LIB
 
 [Install]
@@ -324,6 +324,13 @@ if [[ "$TEST_MODE" != 1 ]]; then
     case "$preflight_rc" in
       0) ;;
       2) log_warn 'systemd-run 不可用，跳过沙箱执行预检。' ;;
+      *) runtime_exec_diagnostics "$SBM_SING_BOX_BIN"; exit 1 ;;
+    esac
+    runtime_preflight_rc=0
+    systemd_runtime_preflight "$SBM_SING_BOX_BIN" "$SBM_CONFIG" || runtime_preflight_rc=$?
+    case "$runtime_preflight_rc" in
+      0) ;;
+      2) log_warn 'systemd-run 不可用，跳过实际启动预检。' ;;
       *) runtime_exec_diagnostics "$SBM_SING_BOX_BIN"; exit 1 ;;
     esac
   fi

@@ -98,7 +98,7 @@ systemd_exec_preflight() {
     --property=LockPersonality=yes \
     --property=RestrictSUIDSGID=yes \
     --property=RestrictRealtime=yes \
-    --property="RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX" \
+    --property="RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK" \
     --property="ReadOnlyPaths=$SBM_ETC $SBM_LIB" \
     "$binary" version >"$log" 2>&1 || rc=$?
   if (( rc == 0 )); then
@@ -108,6 +108,82 @@ systemd_exec_preflight() {
   log_error "sing-box 未通过 systemd 沙箱执行预检（退出码 $rc）。"
   [[ -s "$log" ]] && cat "$log" >&2
   return 1
+}
+
+
+systemd_runtime_preflight() {
+  local binary=${1:-$SBM_SING_BOX_BIN} config=${2:-$SBM_CONFIG} unit log state i stable=0 rc=0
+  [[ ${SBM_SKIP_INIT:-0} != 1 ]] || return 2
+  [[ $(init_system 2>/dev/null || true) == systemd ]] || return 2
+  command_exists systemd-run || return 2
+  command_exists systemctl || return 2
+  systemctl show-environment >/dev/null 2>&1 || return 2
+  [[ -r "$config" ]] || { log_error "systemd 运行预检无法读取配置：$config"; return 1; }
+
+  unit="sb-manager-runtime-preflight-${BASHPID:-$$}-${RANDOM}"
+  ensure_runtime_dirs
+  log="$SBM_RUN/${unit}.log"
+
+  systemd-run \
+    --quiet \
+    --collect \
+    --unit="$unit" \
+    --property=Type=simple \
+    --property="User=$SBM_SERVICE_USER" \
+    --property="Group=$SBM_SERVICE_USER" \
+    --property=NoNewPrivileges=yes \
+    --property=AmbientCapabilities=CAP_NET_BIND_SERVICE \
+    --property=CapabilityBoundingSet=CAP_NET_BIND_SERVICE \
+    --property=PrivateTmp=yes \
+    --property=ProtectHome=yes \
+    --property=ProtectSystem=strict \
+    --property=ProtectKernelTunables=yes \
+    --property=ProtectKernelModules=yes \
+    --property=ProtectControlGroups=yes \
+    --property=LockPersonality=yes \
+    --property=RestrictSUIDSGID=yes \
+    --property=RestrictRealtime=yes \
+    --property="RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK" \
+    --property="ReadOnlyPaths=$SBM_ETC $SBM_LIB" \
+    "$binary" run -c "$config" >/dev/null 2>"$log" || rc=$?
+
+  if (( rc == 0 )); then
+    for ((i=0; i<12; i++)); do
+      sleep 0.25
+      state=$(systemctl show "$unit" -p ActiveState --value 2>/dev/null || true)
+      case "$state" in
+        active)
+          stable=$((stable + 1))
+          (( stable >= 4 )) && break
+          ;;
+        activating) stable=0 ;;
+        failed|inactive|deactivating|'') rc=1; break ;;
+        *) stable=0 ;;
+      esac
+    done
+    (( stable >= 4 )) || rc=1
+  fi
+
+  if (( rc != 0 )); then
+    journalctl -u "$unit" -n 80 --no-pager -l >>"$log" 2>&1 || true
+  fi
+  systemctl stop "$unit" >/dev/null 2>&1 || true
+  systemctl reset-failed "$unit" >/dev/null 2>&1 || true
+
+  if (( rc == 0 )); then
+    rm -f "$log"
+    return 0
+  fi
+  log_error 'sing-box 未通过 systemd 实际启动预检。'
+  [[ -s "$log" ]] && cat "$log" >&2
+  return 1
+}
+
+systemd_unit_allows_netlink() {
+  local unit=${1:-$SBM_SERVICE} families
+  [[ $(init_system 2>/dev/null || true) == systemd ]] || return 2
+  families=$(systemctl show "$unit" -p RestrictAddressFamilies --value 2>/dev/null || true)
+  tr ' ' '\n' <<<"$families" | grep -Fxq AF_NETLINK
 }
 
 runtime_exec_diagnostics() {

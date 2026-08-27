@@ -2,7 +2,7 @@
 
 `sb-manager` 是一个面向 systemd/OpenRC Linux 的、状态驱动的 sing-box 多协议管理脚本。安装后输入 `sb` 即可打开中文交互面板，也可以使用完整的非交互 CLI。
 
-> 当前版本：`0.1.0-alpha.4`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
+> 当前版本：`0.1.0-alpha.5`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
 
 ## 功能
 
@@ -264,6 +264,16 @@ sb uninstall --purge         # 完全卸载并删除节点、证书、密钥和�
 sb uninstall --purge --yes   # 非交互完全卸载
 ```
 
+## Debian/systemd 路由监听说明
+
+sing-box 在 Linux 启动时会通过 Netlink 订阅路由变化。systemd 服务必须在 `RestrictAddressFamilies` 中允许 `AF_NETLINK`；缺失时日志会出现：
+
+```text
+start service: subscribe route updates: address family not supported by protocol
+```
+
+`0.1.0-alpha.5` 起，安装器、实际启动预检和 `sb doctor` 都会检查这一项。
+
 ## 诊断与修复
 
 ```bash
@@ -293,7 +303,7 @@ sb doctor
 
 `sb repair` 会停止重启循环、修复目录遍历权限、清除 systemd 后端不需要的旧 file capabilities，并在与正式服务相同的 systemd 沙箱中预检核心执行；不会删除节点、证书或密钥。
 
-尚未更新到 `0.1.0-alpha.4` 时，可手动执行：
+尚未更新到 `0.1.0-alpha.5` 时，可手动执行：
 
 ```bash
 systemctl stop sb-sing-box.service
