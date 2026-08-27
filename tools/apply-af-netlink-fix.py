@@ -1,0 +1,264 @@
+from pathlib import Path
+
+
+def read(path: str) -> str:
+    return Path(path).read_text()
+
+
+def write(path: str, text: str) -> None:
+    Path(path).write_text(text)
+
+
+# sing-box subscribes Linux route updates through a NETLINK_ROUTE socket
+# during startup. The systemd sandbox must allow AF_NETLINK.
+for path in ("setup.sh", "lib/runtime-security.sh"):
+    text = read(path)
+    old = "RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX"
+    if old not in text:
+        raise SystemExit(f"{path}: address-family policy not found")
+    write(path, text.replace(old, old + " AF_NETLINK"))
+
+# Add a real startup preflight. The old `version` preflight only proved
+# execve worked and could not detect route-monitor startup failures.
+runtime = read("lib/runtime-security.sh")
+marker = "\nruntime_exec_diagnostics() {\n"
+if marker not in runtime:
+    raise SystemExit("runtime diagnostic marker not found")
+runtime_fn = r'''
+
+systemd_runtime_preflight() {
+  local binary=${1:-$SBM_SING_BOX_BIN} config=${2:-$SBM_CONFIG} unit log state i stable=0 rc=0
+  [[ ${SBM_SKIP_INIT:-0} != 1 ]] || return 2
+  [[ $(init_system 2>/dev/null || true) == systemd ]] || return 2
+  command_exists systemd-run || return 2
+  command_exists systemctl || return 2
+  systemctl show-environment >/dev/null 2>&1 || return 2
+  [[ -r "$config" ]] || { log_error "systemd 运行预检无法读取配置：$config"; return 1; }
+
+  unit="sb-manager-runtime-preflight-${BASHPID:-$$}-${RANDOM}"
+  ensure_runtime_dirs
+  log="$SBM_RUN/${unit}.log"
+
+  systemd-run \
+    --quiet \
+    --collect \
+    --unit="$unit" \
+    --property=Type=simple \
+    --property="User=$SBM_SERVICE_USER" \
+    --property="Group=$SBM_SERVICE_USER" \
+    --property=NoNewPrivileges=yes \
+    --property=AmbientCapabilities=CAP_NET_BIND_SERVICE \
+    --property=CapabilityBoundingSet=CAP_NET_BIND_SERVICE \
+    --property=PrivateTmp=yes \
+    --property=ProtectHome=yes \
+    --property=ProtectSystem=strict \
+    --property=ProtectKernelTunables=yes \
+    --property=ProtectKernelModules=yes \
+    --property=ProtectControlGroups=yes \
+    --property=LockPersonality=yes \
+    --property=RestrictSUIDSGID=yes \
+    --property=RestrictRealtime=yes \
+    --property="RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK" \
+    --property="ReadOnlyPaths=$SBM_ETC $SBM_LIB" \
+    "$binary" run -c "$config" >/dev/null 2>"$log" || rc=$?
+
+  if (( rc == 0 )); then
+    for ((i=0; i<12; i++)); do
+      sleep 0.25
+      state=$(systemctl show "$unit" -p ActiveState --value 2>/dev/null || true)
+      case "$state" in
+        active)
+          stable=$((stable + 1))
+          (( stable >= 4 )) && break
+          ;;
+        activating) stable=0 ;;
+        failed|inactive|deactivating|'') rc=1; break ;;
+        *) stable=0 ;;
+      esac
+    done
+    (( stable >= 4 )) || rc=1
+  fi
+
+  if (( rc != 0 )); then
+    journalctl -u "$unit" -n 80 --no-pager -l >>"$log" 2>&1 || true
+  fi
+  systemctl stop "$unit" >/dev/null 2>&1 || true
+  systemctl reset-failed "$unit" >/dev/null 2>&1 || true
+
+  if (( rc == 0 )); then
+    rm -f "$log"
+    return 0
+  fi
+  log_error 'sing-box 未通过 systemd 实际启动预检。'
+  [[ -s "$log" ]] && cat "$log" >&2
+  return 1
+}
+
+systemd_unit_allows_netlink() {
+  local unit=${1:-$SBM_SERVICE} families
+  [[ $(init_system 2>/dev/null || true) == systemd ]] || return 2
+  families=$(systemctl show "$unit" -p RestrictAddressFamilies --value 2>/dev/null || true)
+  tr ' ' '\n' <<<"$families" | grep -Fxq AF_NETLINK
+}
+'''
+if "systemd_runtime_preflight()" not in runtime:
+    runtime = runtime.replace(marker, runtime_fn + marker, 1)
+write("lib/runtime-security.sh", runtime)
+
+# Installer: actually start the rendered configuration under the same sandbox
+# for one stable second before starting the permanent service.
+setup = read("setup.sh")
+old = '''    case "$preflight_rc" in
+      0) ;;
+      2) log_warn 'systemd-run 不可用，跳过沙箱执行预检。' ;;
+      *) runtime_exec_diagnostics "$SBM_SING_BOX_BIN"; exit 1 ;;
+    esac
+  fi
+fi
+'''
+new = '''    case "$preflight_rc" in
+      0) ;;
+      2) log_warn 'systemd-run 不可用，跳过沙箱执行预检。' ;;
+      *) runtime_exec_diagnostics "$SBM_SING_BOX_BIN"; exit 1 ;;
+    esac
+    runtime_preflight_rc=0
+    systemd_runtime_preflight "$SBM_SING_BOX_BIN" "$SBM_CONFIG" || runtime_preflight_rc=$?
+    case "$runtime_preflight_rc" in
+      0) ;;
+      2) log_warn 'systemd-run 不可用，跳过实际启动预检。' ;;
+      *) runtime_exec_diagnostics "$SBM_SING_BOX_BIN"; exit 1 ;;
+    esac
+  fi
+fi
+'''
+if old not in setup:
+    raise SystemExit("setup preflight block not found")
+write("setup.sh", setup.replace(old, new, 1))
+
+# Repair should fix and validate the real startup path too.
+doctor = read("lib/doctor.sh")
+old = '''      case "$preflight_rc" in
+        0) ;;
+        2) log_warn 'systemd-run 不可用，跳过沙箱执行预检。' ;;
+        *) runtime_exec_diagnostics "$SBM_SING_BOX_BIN"; die 'systemd 沙箱仍无法执行 sing-box。' ;;
+      esac
+    fi
+    singbox_service_reconcile
+'''
+new = '''      case "$preflight_rc" in
+        0) ;;
+        2) log_warn 'systemd-run 不可用，跳过沙箱执行预检。' ;;
+        *) runtime_exec_diagnostics "$SBM_SING_BOX_BIN"; die 'systemd 沙箱仍无法执行 sing-box。' ;;
+      esac
+      preflight_rc=0
+      systemd_runtime_preflight "$SBM_SING_BOX_BIN" "$SBM_CONFIG" || preflight_rc=$?
+      case "$preflight_rc" in
+        0) ;;
+        2) log_warn 'systemd-run 不可用，跳过实际启动预检。' ;;
+        *) runtime_exec_diagnostics "$SBM_SING_BOX_BIN"; die 'sing-box 仍无法在 systemd 沙箱中完成实际启动。' ;;
+      esac
+    fi
+    singbox_service_reconcile
+'''
+if old not in doctor:
+    raise SystemExit("doctor repair preflight block not found")
+doctor = doctor.replace(old, new, 1)
+
+# Report an explicit failure when an old/custom unit still omits AF_NETLINK.
+marker = '''  if id "$SBM_SERVICE_USER" >/dev/null 2>&1; then
+'''
+check = '''  if [[ "$backend" == systemd && "$SBM_SKIP_INIT" != 1 && -f "$SBM_SYSTEMD_DIR/$SBM_SERVICE" ]]; then
+    if systemd_unit_allows_netlink "$SBM_SERVICE"; then
+      check_line PASS 'systemd 地址族策略允许 AF_NETLINK 路由监听'
+    else
+      check_line FAIL 'systemd 地址族策略缺少 AF_NETLINK；sing-box 会在订阅路由更新时退出'
+      failures=$((failures + 1))
+      check_line WARN '重新运行最新版安装器，或执行临时修复命令更新 RestrictAddressFamilies'
+      warnings=$((warnings + 1))
+    fi
+  fi
+
+'''
+doctor_run_pos = doctor.index("doctor_run() {")
+marker_pos = doctor.index(marker, doctor_run_pos)
+if "systemd 地址族策略允许 AF_NETLINK" not in doctor:
+    doctor = doctor[:marker_pos] + check + doctor[marker_pos:]
+write("lib/doctor.sh", doctor)
+
+# Unit regression asserts the exact address-family property.
+test = read("tests/systemd-exec-smoke.sh")
+needle = "grep -Fxq -- '--property=CapabilityBoundingSet=CAP_NET_BIND_SERVICE' \"$SBM_FAKE_SYSTEMD_RUN_LOG\"\n"
+addition = needle + "grep -Fxq -- '--property=RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK' \"$SBM_FAKE_SYSTEMD_RUN_LOG\"\n"
+if needle not in test:
+    raise SystemExit("systemd exec assertion marker not found")
+write("tests/systemd-exec-smoke.sh", test.replace(needle, addition, 1))
+
+# The real PID-1 systemd test starts a real sing-box inbound. This reproduces
+# the route-subscription path that `sing-box version` never exercises.
+real = read("tests/systemd-real-exec.sh")
+old = '''# This invokes the real system manager with the same critical hardening and
+# capability settings used by sb-sing-box.service.
+systemd_exec_preflight "$SBM_SING_BOX_BIN"
+
+printf 'REAL SYSTEMD EXEC PASSED\\n'
+'''
+new = '''# This invokes the real system manager with the same critical hardening and
+# capability settings used by sb-sing-box.service.
+systemd_exec_preflight "$SBM_SING_BOX_BIN"
+
+RUNTIME_CONFIG="$SBM_ETC/runtime.json"
+PORT=$((30000 + RANDOM % 20000))
+jq -n --argjson port "$PORT" '{
+  log: {level: "error"},
+  inbounds: [{type: "mixed", tag: "mixed-in", listen: "127.0.0.1", listen_port: $port}],
+  outbounds: [{type: "direct", tag: "direct"}],
+  route: {final: "direct"}
+}' >"$RUNTIME_CONFIG"
+chmod 0644 "$RUNTIME_CONFIG"
+systemd_runtime_preflight "$SBM_SING_BOX_BIN" "$RUNTIME_CONFIG"
+
+printf 'REAL SYSTEMD EXEC PASSED\\n'
+'''
+if old not in real:
+    raise SystemExit("real systemd test marker not found")
+write("tests/systemd-real-exec.sh", real.replace(old, new, 1))
+
+# Release metadata and docs.
+write("VERSION", "0.1.0-alpha.5\n")
+for path in ("lib/common.sh", "README.md", "tests/install-smoke.sh"):
+    text = read(path)
+    if "0.1.0-alpha.4" not in text:
+        raise SystemExit(f"{path}: alpha.4 version marker missing")
+    write(path, text.replace("0.1.0-alpha.4", "0.1.0-alpha.5"))
+
+changelog = read("CHANGELOG.md")
+entry = '''# Changelog
+
+## 0.1.0-alpha.5
+
+- Allow `AF_NETLINK` in the hardened systemd address-family policy so sing-box can subscribe to Linux route updates during startup.
+- Add a real transient systemd startup preflight using the rendered sing-box configuration; the previous `version` check could not detect route-monitor failures.
+- Extend `sb doctor` with an explicit AF_NETLINK policy check and extend `sb repair` with the real startup preflight.
+- Add unit and real PID-1 systemd regressions that start an actual sing-box inbound under the production sandbox.
+
+'''
+if not changelog.startswith("# Changelog\n\n"):
+    raise SystemExit("unexpected changelog header")
+write("CHANGELOG.md", entry + changelog[len("# Changelog\n\n"):])
+
+readme = read("README.md")
+anchor = "## 诊断与修复\n"
+note = '''## Debian/systemd 路由监听说明
+
+sing-box 在 Linux 启动时会通过 Netlink 订阅路由变化。systemd 服务必须在 `RestrictAddressFamilies` 中允许 `AF_NETLINK`；缺失时日志会出现：
+
+```text
+start service: subscribe route updates: address family not supported by protocol
+```
+
+`0.1.0-alpha.5` 起，安装器、实际启动预检和 `sb doctor` 都会检查这一项。
+
+'''
+if anchor not in readme:
+    raise SystemExit("README diagnostics anchor missing")
+write("README.md", readme.replace(anchor, note + anchor, 1))
