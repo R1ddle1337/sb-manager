@@ -61,7 +61,7 @@ apk add --no-cache bash curl ca-certificates
 bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/main/install.sh)
 ```
 
-安装器会继续补齐 OpenRC、dcron、libcap、shadow、jq、openssl、iproute2 等依赖。OpenRC 服务日志位于：
+安装器会继续补齐 OpenRC、dcron、libcap、gcompat、shadow、jq、openssl、iproute2 等依赖。OpenRC 服务日志位于：
 
 ```text
 /var/log/sb-manager/sing-box.log
@@ -70,7 +70,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/main/i
 /var/log/sb-manager/cloudflared.err.log
 ```
 
-AnyTLS/Hysteria2 使用 443 等低位端口时，安装器会为 sing-box 核心设置最小的 `cap_net_bind_service` 文件能力，服务本身仍以 `sbmanager` 低权限用户运行。自动更新和 ACME 续期使用 Alpine `dcron` 的 `/etc/periodic` 任务。
+官方 sing-box Linux 核心使用 glibc ABI，Alpine 由 `gcompat` 提供运行时兼容。AnyTLS/Hysteria2 使用 443 等低位端口时，安装器会为 sing-box 核心设置最小的 `cap_net_bind_service` 文件能力，服务本身仍以 `sbmanager` 低权限用户运行。自动更新和 ACME 续期使用 Alpine `dcron` 的 `/etc/periodic` 任务。
 
 ### systemd 发行版
 
