@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 
+if ! declare -F prepare_singbox_binary_for_backend >/dev/null 2>&1; then
+  # shellcheck source=lib/runtime-security.sh
+  source "$SBM_LIB/lib/runtime-security.sh"
+fi
+
 sb_arch() {
   case "$(uname -m)" in
     x86_64|amd64) printf 'amd64\n' ;;
@@ -57,6 +62,7 @@ core_download_version() {
   target="$SBM_CORE_DIR/sing-box/$version/sing-box"
   if [[ -x "$target" ]]; then
     ensure_program_permissions
+    prepare_singbox_binary_for_backend "$target"
     printf '%s\n' "$target"
     return 0
   fi
@@ -85,7 +91,7 @@ core_download_version() {
     fi
     die "下载的 sing-box 核心无法执行。"
   fi
-  if [[ $(init_system 2>/dev/null || true) == openrc ]]; then ensure_singbox_bind_capability "$target"; fi
+  prepare_singbox_binary_for_backend "$target"
   rm -rf "$tmpdir"
   printf '%s\n' "$target"
 }
@@ -96,8 +102,8 @@ core_switch_to() {
   [[ -x "$binary" ]] || binary=$(core_download_version "$version")
   validate_runtime_binary_path sing-box "$binary"
   ensure_program_permissions
+  prepare_singbox_binary_for_backend "$binary"
   if [[ -s "$SBM_CONFIG" ]]; then core_validate_config_with "$binary" "$SBM_CONFIG" "$SBM_RUN/core-candidate-check.log" || return 1; fi
-  if [[ $(init_system 2>/dev/null || true) == openrc ]]; then ensure_singbox_bind_capability "$binary"; fi
   current_target=$(readlink -f "$SBM_SING_BOX_BIN" 2>/dev/null || true)
   previous=${current_target:-none}
   mkdir -p "$SBM_BIN_DIR" "$SBM_VAR/core-history"
@@ -109,6 +115,7 @@ core_switch_to() {
     if ! singbox_service_reconcile; then
       log_error "新核心启动失败，恢复旧核心。"
       if [[ -n "$current_target" && -x "$current_target" ]]; then
+        prepare_singbox_binary_for_backend "$current_target"
         ln -sfn "$current_target" "$SBM_SING_BOX_BIN"
         singbox_service_reconcile || true
       fi
