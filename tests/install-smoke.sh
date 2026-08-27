@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+
+if [[ ${EUID:-$(id -u)} -ne 0 ]]; then
+  command -v sudo >/dev/null 2>&1 || { echo 'install smoke test requires root or sudo' >&2; exit 1; }
+  exec sudo env SBM_TEST_SING_BOX="${SBM_TEST_SING_BOX:?Set SBM_TEST_SING_BOX}" NO_COLOR=1 bash "$0" "$@"
+fi
 ROOT=$(mktemp -d)
 trap 'rm -rf "$ROOT"' EXIT
 PROJECT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -24,10 +29,23 @@ export SBM_CORE_DIR="$SBM_LIB/cores"
 export SBM_LOCK="$SBM_RUN/manager.lock"
 export SBM_SING_BOX_BIN="$SBM_BIN_DIR/sing-box"
 export SBM_CLOUDFLARED_BIN="$SBM_BIN_DIR/cloudflared"
+# Use an existing unprivileged account with a matching group so the isolated
+# install can verify real directory traversal and read permissions.
+export SBM_SERVICE_USER=daemon
 
 bash "$PROJECT/setup.sh" --no-menu --no-start
 [[ -x "$SBM_BIN_DIR/sb" && -x "$SBM_SING_BOX_BIN" && -x "$SBM_CLOUDFLARED_BIN" ]]
-env -u SBM_LIB "$SBM_BIN_DIR/sb" version | grep -q "0.1.0-alpha.1"
+[[ "$(readlink "$SBM_SING_BOX_BIN")" != *$'\n'* ]]
+[[ "$(readlink "$SBM_CLOUDFLARED_BIN")" != *$'\n'* ]]
+env -u SBM_LIB "$SBM_BIN_DIR/sb" version | grep -q "0.1.0-alpha.2"
+[[ -z $(find "$SBM_LIB" -maxdepth 0 ! -perm -0001 -print -quit) ]]
+[[ -z $(find "$SBM_CORE_DIR" -type d ! -perm -0001 -print -quit) ]]
+chmod 0755 "$ROOT" "$ROOT/usr" "$ROOT/usr/local" "$ROOT/etc" "$ROOT/var" "$ROOT/var/lib"
+runuser -u "$SBM_SERVICE_USER" -- "$SBM_SING_BOX_BIN" version >/dev/null
+runuser -u "$SBM_SERVICE_USER" -- "$SBM_CLOUDFLARED_BIN" version >/dev/null
+runuser -u "$SBM_SERVICE_USER" -- test -r "$SBM_CONFIG"
+runuser -u "$SBM_SERVICE_USER" -- test -x "$SBM_VAR"
+runuser -u "$SBM_SERVICE_USER" -- test -w "$SBM_VAR/cloudflared-home"
 [[ -f "$SBM_SYSTEMD_DIR/sb-sing-box.service" && -f "$SBM_SYSTEMD_DIR/sb-core-update.timer" ]]
 "$SBM_BIN_DIR/sb" node add vmess --id persist-test --port 29111 --domain cdn.example.com --address cdn.example.com
 [[ $(jq '.nodes|length' "$SBM_STATE") == 1 ]]
@@ -60,5 +78,11 @@ core_switch_to 9.9.9
 sleep 1
 core_rollback
 [[ $(core_current_version) == "$old" ]]
+
+# Non-interactive full uninstall must remain available even if the state file
+# is damaged, and must remove program and data from the isolated root.
+printf '{broken-json\n' >"$SBM_STATE"
+"$SBM_BIN_DIR/sb" uninstall --purge --yes
+[[ ! -e "$SBM_BIN_DIR/sb" && ! -e "$SBM_LIB" && ! -e "$SBM_ETC" && ! -e "$SBM_VAR" ]]
 
 printf 'INSTALL SMOKE PASSED\n'

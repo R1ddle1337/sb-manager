@@ -2,7 +2,7 @@
 
 `sb-manager` 是一个面向 systemd Linux 的、状态驱动的 sing-box 多协议管理脚本。安装后输入 `sb` 即可打开中文交互面板，也可以使用完整的非交互 CLI。
 
-> 当前版本：`0.1.0-alpha.1`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
+> 当前版本：`0.1.0-alpha.2`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
 
 ## 功能
 
@@ -16,7 +16,7 @@
 - 节点添加、编辑、启停、删除和凭据轮换
 - 分享 URI 与 sing-box outbound JSON 导出
 - 原子配置写入、`sing-box check`、快照和失败回滚
-- 备份、恢复、日志与 `sb doctor` 诊断
+- 备份、恢复、日志、`sb doctor` 诊断与 `sb repair` 自动修复
 - 低权限 systemd 服务；不会关闭或清空系统防火墙
 
 ## 网络模型
@@ -232,6 +232,26 @@ sb --help
 - sing-box 以独立的 `sbmanager` 低权限用户运行。
 - 脚本不会关闭 UFW/firewalld，也不会清空 iptables/nftables。
 - 直连协议的安全组和防火墙端口由管理员明确开放。
+
+## 卸载
+
+交互面板中选择“卸载与彻底清理”，或使用命令行：
+
+```bash
+sb uninstall                 # 卸载程序，保留节点和数据
+sb uninstall --purge         # 完全卸载并删除节点、证书、密钥和备份
+sb uninstall --purge --yes   # 非交互完全卸载
+```
+
+## 诊断与修复
+
+```bash
+sb doctor                    # 只检查，不修改系统
+sb repair                    # 修复核心目录权限、重建配置并协调 systemd 服务
+sb doctor --repair           # 与 sb repair 等价
+```
+
+没有启用节点时，`sb-sing-box.service` 保持停止属于正常待命状态；添加第一个启用节点后会自动启动。
 
 ## 开发与测试
 

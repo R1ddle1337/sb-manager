@@ -5,7 +5,7 @@ umask 027
 SRC_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 TARGET_LIB=${SBM_LIB:-/usr/local/lib/sb-manager}
 TARGET_BIN=${SBM_BIN_DIR:-/usr/local/bin}
-PROGRAM_BACKUP_ROOT=${SBM_BACKUPS:-/var/lib/sb-manager/backups}
+PROGRAM_BACKUP_ROOT=${SBM_BACKUPS:-${SBM_VAR:-/var/lib/sb-manager}/backups}
 NO_MENU=0
 NO_START=0
 CORE_VERSION=$(tr -d '[:space:]' <"$SRC_DIR/TESTED_CORE_VERSION" 2>/dev/null || true)
@@ -34,7 +34,7 @@ if [[ "$TEST_MODE" != 1 ]]; then
 fi
 
 install_dependencies() {
-  local packages=(curl ca-certificates jq openssl tar gzip coreutils util-linux procps)
+  local packages=(curl ca-certificates jq openssl tar gzip coreutils util-linux procps findutils)
   if command -v apt-get >/dev/null 2>&1; then
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -y
@@ -56,18 +56,31 @@ install_dependencies() {
 printf '[1/7] 安装依赖…\n'
 [[ "$TEST_MODE" == 1 ]] || install_dependencies
 
-[[ "$TEST_MODE" == 1 ]] || command -v useradd >/dev/null 2>&1 || { echo '缺少 useradd，无法创建低权限服务用户。' >&2; exit 1; }
+if [[ "$TEST_MODE" != 1 ]]; then
+  for account_cmd in useradd groupadd usermod; do
+    command -v "$account_cmd" >/dev/null 2>&1 || { echo "缺少 $account_cmd，无法创建低权限服务用户。" >&2; exit 1; }
+  done
+fi
 
 printf '[2/7] 安装程序文件…\n'
-if [[ -d "$TARGET_LIB" && -f "$TARGET_LIB/sb" ]]; then
-  backup="$PROGRAM_BACKUP_ROOT/program-$(date -u +%Y%m%dT%H%M%SZ)"
-  mkdir -p "$backup"
-  cp -a "$TARGET_LIB" "$backup/" || true
-fi
 mkdir -p "$TARGET_LIB" "$TARGET_BIN"
-find "$TARGET_LIB" -mindepth 1 -maxdepth 1 ! -name cores -exec rm -rf {} + 2>/dev/null || true
-cp -a "$SRC_DIR"/. "$TARGET_LIB"/
-chmod 0755 "$TARGET_LIB/sb" "$TARGET_LIB/setup.sh" "$TARGET_LIB/lib/"*.sh "$TARGET_LIB/protocols/"*.sh
+chmod 0755 "$(dirname "$TARGET_LIB")" "$TARGET_LIB" "$TARGET_BIN"
+src_real=$(readlink -f "$SRC_DIR")
+target_real=$(readlink -m "$TARGET_LIB")
+if [[ "$src_real" != "$target_real" ]]; then
+  if [[ -f "$TARGET_LIB/sb" ]]; then
+    backup="$PROGRAM_BACKUP_ROOT/program-$(date -u +%Y%m%dT%H%M%SZ)"
+    mkdir -p "$backup"
+    cp -a "$TARGET_LIB" "$backup/" || true
+  fi
+  find "$TARGET_LIB" -mindepth 1 -maxdepth 1 ! -name cores -exec rm -rf {} + 2>/dev/null || true
+  cp -a "$SRC_DIR"/. "$TARGET_LIB"/
+  rm -rf "$TARGET_LIB/.git"
+else
+  printf '      检测到从已安装目录执行，跳过自覆盖复制。\n'
+fi
+find "$TARGET_LIB/lib" "$TARGET_LIB/protocols" -type d -exec chmod 0755 {} +
+chmod 0755 "$TARGET_LIB" "$TARGET_LIB/sb" "$TARGET_LIB/setup.sh" "$TARGET_LIB/install.sh" "$TARGET_LIB/build-standalone.sh" "$TARGET_LIB/lib/"*.sh "$TARGET_LIB/protocols/"*.sh
 ln -sfn "$TARGET_LIB/sb" "$TARGET_BIN/sb"
 
 # shellcheck source=lib/common.sh
@@ -82,14 +95,22 @@ source "$TARGET_LIB/lib/core.sh"
 source "$TARGET_LIB/lib/tunnel.sh"
 
 printf '[3/7] 创建低权限服务用户和数据目录…\n'
-if [[ "$TEST_MODE" != 1 ]] && ! id "$SBM_SERVICE_USER" >/dev/null 2>&1; then
-  nologin=$(command -v nologin || echo /usr/sbin/nologin)
-  useradd --system --home-dir "$SBM_VAR" --create-home --shell "$nologin" "$SBM_SERVICE_USER"
+if [[ "$TEST_MODE" != 1 ]]; then
+  if ! getent group "$SBM_SERVICE_USER" >/dev/null 2>&1; then
+    groupadd --system "$SBM_SERVICE_USER"
+  fi
+  if ! id "$SBM_SERVICE_USER" >/dev/null 2>&1; then
+    nologin=$(command -v nologin || echo /usr/sbin/nologin)
+    useradd --system --gid "$SBM_SERVICE_USER" --home-dir "$SBM_VAR" --create-home --shell "$nologin" "$SBM_SERVICE_USER"
+  elif [[ $(id -gn "$SBM_SERVICE_USER") != "$SBM_SERVICE_USER" ]]; then
+    usermod --gid "$SBM_SERVICE_USER" "$SBM_SERVICE_USER"
+  fi
 fi
 state_init
 chown root:"$SBM_SERVICE_USER" "$SBM_ETC" "$SBM_GENERATED_DIR" "$SBM_CERTS" 2>/dev/null || true
 mkdir -p "$SBM_VAR/cloudflared-home"
-chown root:root "$SBM_VAR" "$SBM_RUN" 2>/dev/null || true
+chown root:"$SBM_SERVICE_USER" "$SBM_VAR" 2>/dev/null || true
+chown root:root "$SBM_RUN" 2>/dev/null || true
 chown "$SBM_SERVICE_USER":"$SBM_SERVICE_USER" "$SBM_VAR/cloudflared-home" 2>/dev/null || true
 chmod 0750 "$SBM_ETC" "$SBM_GENERATED_DIR" "$SBM_CERTS" "$SBM_VAR" "$SBM_VAR/cloudflared-home"
 chown root:"$SBM_SERVICE_USER" "$SBM_SECRETS" 2>/dev/null || true
@@ -105,6 +126,8 @@ if [[ "$TEST_MODE" == 1 ]]; then
 else
   sb_binary=$(core_download_version "$CORE_VERSION")
 fi
+validate_runtime_binary_path sing-box "$sb_binary"
+ensure_program_permissions
 ln -sfn "$sb_binary" "$SBM_SING_BOX_BIN.new"; mv -Tf "$SBM_SING_BOX_BIN.new" "$SBM_SING_BOX_BIN"
 
 printf '[5/7] 安装 cloudflared…\n'
@@ -119,7 +142,10 @@ EOF_CF
 else
   cf_binary=$(cloudflared_download_latest)
 fi
+validate_runtime_binary_path cloudflared "$cf_binary"
+ensure_program_permissions
 ln -sfn "$cf_binary" "$SBM_CLOUDFLARED_BIN.new"; mv -Tf "$SBM_CLOUDFLARED_BIN.new" "$SBM_CLOUDFLARED_BIN"
+ensure_program_permissions
 
 printf '[6/7] 生成配置与 systemd 服务…\n'
 mkdir -p "$SBM_SYSTEMD_DIR"
@@ -206,11 +232,27 @@ WantedBy=timers.target
 EOF_UNIT
 chmod 0644 "$SBM_SYSTEMD_DIR/$SBM_SERVICE" "$SBM_SYSTEMD_DIR"/sb-*.service "$SBM_SYSTEMD_DIR"/sb-*.timer
 
+if [[ "$TEST_MODE" != 1 ]]; then
+  if ! service_user_can_execute_core; then
+    log_error "$SBM_SERVICE_USER 无法执行 sing-box 核心。"
+    command -v namei >/dev/null 2>&1 && namei -l "$SBM_SING_BOX_BIN" >&2 || true
+    exit 1
+  fi
+  if ! service_user_can_read_config; then
+    log_error "$SBM_SERVICE_USER 无法读取生成配置。"
+    command -v namei >/dev/null 2>&1 && namei -l "$SBM_CONFIG" >&2 || true
+    exit 1
+  fi
+fi
+
 printf '[7/7] 启动服务…\n'
-if [[ "$TEST_MODE" != 1 ]]; then systemctl daemon-reload; fi
+if [[ "$TEST_MODE" != 1 ]]; then
+  systemctl daemon-reload
+  systemctl reset-failed "$SBM_SERVICE" >/dev/null 2>&1 || true
+fi
 if [[ "$NO_START" == 0 && "$TEST_MODE" != 1 ]]; then
-  systemctl enable --now "$SBM_SERVICE" sb-core-update.timer sb-acme-renew.timer
-  systemctl is-active --quiet "$SBM_SERVICE" || { journalctl -u "$SBM_SERVICE" -n 60 --no-pager >&2 || true; exit 1; }
+  systemctl enable --now sb-core-update.timer sb-acme-renew.timer
+  singbox_service_reconcile || exit 1
   tunnel_reconcile 1 || true
 else
   tunnel_reconcile 0 || true
@@ -219,8 +261,11 @@ fi
 printf '\n安装完成。\n'
 printf '  面板命令：sb\n'
 printf '  状态检查：sb status\n'
-printf '  诊断命令：sb doctor\n'
+printf '  诊断命令：sb doctor（自动修复：sb doctor --repair）\n'
 printf '  数据目录：%s\n' "$SBM_ETC"
+if (( $(state_enabled_count) == 0 )); then
+  printf '  sing-box：暂无启用节点，服务保持待命；添加首个节点后会自动启动。\n'
+fi
 printf '\n注意：脚本不会关闭防火墙，也不会自动开放直连协议端口。\n'
 
 if [[ "$NO_MENU" == 0 && -t 0 ]]; then "$SBM_BIN_DIR/sb"; fi
