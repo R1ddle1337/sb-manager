@@ -1,0 +1,16 @@
+# Generated release files
+dist/
+*.tar.gz
+*.zip
+SHA256SUMS
+
+# Local/editor files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.tmp
+
+# Test and runtime leftovers
+coverage/
+.tmp/

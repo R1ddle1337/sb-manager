@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  syntax-and-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends jq openssl iproute2 shellcheck
+
+      - name: Bash syntax
+        run: find . -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
+
+      - name: ShellCheck
+        run: shellcheck -x --severity=error sb setup.sh install.sh build-standalone.sh lib/*.sh protocols/*.sh tests/*.sh
+
+      - name: Download tested sing-box core
+        id: core
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          version=$(tr -d '[:space:]' < TESTED_CORE_VERSION)
+          arch=amd64
+          asset="sing-box-${version}-linux-${arch}.tar.gz"
+          url="https://github.com/SagerNet/sing-box/releases/download/v${version}/${asset}"
+          mkdir -p "$RUNNER_TEMP/sing-box"
+          curl -fL --retry 3 "$url" -o "$RUNNER_TEMP/$asset"
+          tar -xzf "$RUNNER_TEMP/$asset" -C "$RUNNER_TEMP/sing-box"
+          binary=$(find "$RUNNER_TEMP/sing-box" -type f -name sing-box -perm -u+x -print -quit)
+          test -n "$binary"
+          echo "binary=$binary" >> "$GITHUB_OUTPUT"
+
+      - name: Protocol and transaction tests
+        env:
+          SBM_TEST_SING_BOX: ${{ steps.core.outputs.binary }}
+        run: bash tests/run.sh
+
+      - name: Installer smoke test
+        env:
+          SBM_TEST_SING_BOX: ${{ steps.core.outputs.binary }}
+        run: bash tests/install-smoke.sh
+
+      - name: Build standalone installer
+        run: |
+          mkdir -p dist
+          ./build-standalone.sh dist/sb-manager-install.sh
+          bash -n dist/sb-manager-install.sh
+          sha256sum dist/sb-manager-install.sh > dist/SHA256SUMS
+
+      - name: Upload standalone installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: sb-manager-installer
+          path: |
+            dist/sb-manager-install.sh
+            dist/SHA256SUMS

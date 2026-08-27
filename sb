@@ -1,0 +1,160 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 027
+
+SOURCE_PATH=${BASH_SOURCE[0]}
+while [[ -L "$SOURCE_PATH" ]]; do
+  SOURCE_DIR=$(cd -P -- "$(dirname -- "$SOURCE_PATH")" && pwd)
+  SOURCE_PATH=$(readlink "$SOURCE_PATH")
+  [[ "$SOURCE_PATH" == /* ]] || SOURCE_PATH="$SOURCE_DIR/$SOURCE_PATH"
+done
+SELF_DIR=$(cd -P -- "$(dirname -- "$SOURCE_PATH")" && pwd)
+SBM_LIB="${SBM_LIB:-$SELF_DIR}"
+# shellcheck source=lib/common.sh
+source "$SBM_LIB/lib/common.sh"
+source "$SBM_LIB/lib/state.sh"
+source "$SBM_LIB/protocols/vmess_ws_cf.sh"
+source "$SBM_LIB/protocols/shadowsocks.sh"
+source "$SBM_LIB/protocols/anytls.sh"
+source "$SBM_LIB/protocols/hysteria2.sh"
+source "$SBM_LIB/lib/render.sh"
+source "$SBM_LIB/lib/core.sh"
+source "$SBM_LIB/lib/node.sh"
+source "$SBM_LIB/lib/export.sh"
+source "$SBM_LIB/lib/cert.sh"
+source "$SBM_LIB/lib/tunnel.sh"
+source "$SBM_LIB/lib/backup.sh"
+source "$SBM_LIB/lib/doctor.sh"
+source "$SBM_LIB/lib/uninstall.sh"
+source "$SBM_LIB/lib/ui.sh"
+
+sb_help() {
+  cat <<'EOF_HELP'
+sb-manager：状态驱动的 sing-box 多协议管理器
+
+用法：
+  sb                              打开交互面板
+  sb status                       查看状态
+  sb node list [--json]           列出节点
+  sb node add <vmess|ss|anytls|hy2> [参数]
+  sb node show <ID>
+  sb node enable|disable|delete|rotate <ID>
+  sb node set <ID> --port N|--address HOST|--domain DOMAIN|--name NAME|--path PATH
+  sb share <ID> [--qr]
+  sb share all
+  sb export outbounds
+
+  sb cert setup-cloudflare [TOKEN] [ZONE_ID] [EMAIL]
+  sb cert issue <DOMAIN> [EMAIL]
+  sb cert list|renew|inspect <DOMAIN>
+
+  sb tunnel fixed <NODE_ID> <DOMAIN> [TOKEN] [CLIENT_ADDRESS]
+  sb tunnel quick <NODE_ID>
+  sb tunnel refresh|set-token|status|stop
+
+  sb core check|update [VERSION]|rollback|policy <manual|notify|patch|stable>|auto
+  sb cloudflared update
+  sb acme update
+  sb doctor
+  sb logs [all|singbox|tunnel|follow] [行数]
+  sb backup [文件]
+  sb restore <文件> [--yes]
+  sb restart
+  sb uninstall [--purge]
+
+节点添加常用参数：
+  --id ID --name NAME --port PORT --domain DOMAIN --address HOST
+  VMess: --path PATH
+  SS:    --method 2022-blake3-aes-128-gcm|... --network tcp
+  HY2:   --obfs salamander --masquerade URL
+  通用:  --disabled
+EOF_HELP
+}
+
+main() {
+  local cmd=${1:-menu}
+  case "$cmd" in
+    -h|--help|help) sb_help; return 0;;
+    -V|--version|version) printf 'sb-manager %s\n' "$SBM_VERSION"; return 0;;
+  esac
+
+  require_root
+  require_command jq; require_command openssl; require_command flock
+  state_init
+
+  case "$cmd" in
+    menu) ui_main ;;
+    status) status_summary; node_list ;;
+    node)
+      local action=${2:-list}; shift 2 || true
+      case "$action" in
+        list) [[ ${1:-} == --json ]] && node_list 1 || node_list 0 ;;
+        add) (($# >= 1)) || die '缺少协议'; node_add "$@" ;;
+        show) (($# == 1)) || die '用法：sb node show ID'; node_show "$1" ;;
+        enable) node_enable "${1:?缺少节点 ID}" ;;
+        disable) node_disable "${1:?缺少节点 ID}" ;;
+        delete) node_delete "${1:?缺少节点 ID}" ;;
+        rotate) node_rotate "${1:?缺少节点 ID}" ;;
+        set) local id=${1:?缺少节点 ID}; shift; (($# >= 2)) || die '缺少修改参数'; node_set "$id" "$@" ;;
+        *) die "未知 node 操作：$action" ;;
+      esac
+      ;;
+    share)
+      local id=${2:-all}; local qr=0; [[ ${3:-} == --qr ]] && qr=1
+      [[ "$id" == all ]] && node_share_all || node_share "$id" "$qr"
+      ;;
+    export)
+      case ${2:-outbounds} in outbounds) export_all_outbounds;; *) die '当前仅支持：sb export outbounds';; esac
+      ;;
+    cert)
+      local action=${2:-list}
+      case "$action" in
+        setup-cloudflare) cert_setup_cloudflare "${3:-}" "${4:-}" "${5:-}" ;;
+        issue) cert_issue "${3:?缺少域名}" "${4:-}" ;;
+        list) cert_list ;;
+        renew) cert_renew "$([[ ${3:-} == --quiet ]] && echo 1 || echo 0)" ;;
+        inspect) cert_inspect "${3:?缺少域名}" ;;
+        hook) cert_hook "${3:?缺少域名}" ;;
+        *) die "未知 cert 操作：$action" ;;
+      esac
+      ;;
+    tunnel)
+      local action=${2:-status}
+      case "$action" in
+        fixed) tunnel_setup_fixed "${3:?缺少节点 ID}" "${4:?缺少域名}" "${5:-}" "${6:-}" ;;
+        quick) tunnel_setup_quick "${3:?缺少节点 ID}" ;;
+        refresh) tunnel_refresh_quick ;;
+        refresh-auto) tunnel_refresh_auto ;;
+        set-token) tunnel_set_token "${3:-}" ;;
+        status) tunnel_status ;;
+        stop) tunnel_stop ;;
+        *) die "未知 tunnel 操作：$action" ;;
+      esac
+      ;;
+    core)
+      local action=${2:-check}
+      case "$action" in
+        check) local rc=0; core_check_update || rc=$?; [[ "$rc" == 0 || "$rc" == 10 ]] || return "$rc" ;;
+        update) core_update "${3:-latest}" ;;
+        rollback) core_rollback ;;
+        policy) core_set_policy "${3:?缺少策略}" ;;
+        auto) core_auto_update ;;
+        *) die "未知 core 操作：$action" ;;
+      esac
+      ;;
+    cloudflared) [[ ${2:-} == update ]] || die '用法：sb cloudflared update'; cloudflared_update ;;
+    acme) [[ ${2:-} == update ]] || die '用法：sb acme update'; acme_update ;;
+    doctor) doctor_run ;;
+    logs) show_logs "${2:-all}" "${3:-100}" ;;
+    backup) backup_create "${2:-$SBM_BACKUPS/sb-manager-$(now_stamp).tar.gz}" ;;
+    restore) backup_restore "${2:?缺少备份路径}" "$([[ ${3:-} == --yes ]] && echo 1 || echo 0)" ;;
+    restart) service_restart "$SBM_SERVICE"; [[ $(jq -r '.tunnel.mode' "$SBM_STATE") != none ]] && service_try_restart "$SBM_TUNNEL_SERVICE"; status_summary ;;
+    settings)
+      case ${2:-} in address) settings_set_default_address "${3:?缺少地址}";; *) die '用法：sb settings address HOST';; esac
+      ;;
+    uninstall) uninstall_manager "$([[ ${2:-} == --purge ]] && echo 1 || echo 0)" ;;
+    *) die "未知命令：$cmd；运行 sb help 查看帮助。" ;;
+  esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then main "$@"; fi
