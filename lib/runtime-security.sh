@@ -33,6 +33,13 @@ clear_singbox_file_capabilities() {
   log_info "已清除 systemd 后端不需要的 sing-box 文件能力：$target"
 }
 
+apply_singbox_bind_capability() {
+  local target
+  target=$(singbox_resolved_binary "${1:-$SBM_SING_BOX_BIN}")
+  command_exists setcap || die 'OpenRC 低权限服务需要 setcap；请安装 Alpine 的 libcap 包。'
+  setcap 'cap_net_bind_service=+ep' "$target" || die "无法为 sing-box 设置低端口能力：$target"
+}
+
 prepare_singbox_binary_for_backend() {
   local binary=${1:-$SBM_SING_BOX_BIN} backend=${2:-} target
   target=$(singbox_resolved_binary "$binary")
@@ -48,7 +55,7 @@ prepare_singbox_binary_for_backend() {
       clear_singbox_file_capabilities "$target"
       ;;
     openrc)
-      ensure_singbox_bind_capability "$target"
+      apply_singbox_bind_capability "$target"
       ;;
     none|'')
       ;;
