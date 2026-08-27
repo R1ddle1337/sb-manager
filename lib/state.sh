@@ -67,6 +67,33 @@ state_node_exists() { jq -e --arg id "$1" '.nodes[]? | select(.id==$id)' "$SBM_S
 state_get_node() { jq -c --arg id "$1" '.nodes[]? | select(.id==$id)' "$SBM_STATE"; }
 state_list_nodes() { jq -c '.nodes[]?' "$SBM_STATE"; }
 state_enabled_nodes() { jq -c '.nodes[]? | select(.enabled==true)' "$1"; }
+state_enabled_count() {
+  local state=${1:-$SBM_STATE}
+  jq '[.nodes[]? | select(.enabled==true)] | length' "$state"
+}
+
+singbox_service_reconcile() {
+  [[ "$SBM_SKIP_SYSTEMD" == "1" ]] && return 0
+  service_exists "$SBM_SERVICE" || return 0
+  systemctl daemon-reload
+  if (( $(state_enabled_count) == 0 )); then
+    # Keep an empty installation dormant across reboots. Adding the first
+    # enabled node will enable and start the unit again below.
+    systemctl disable "$SBM_SERVICE" >/dev/null 2>&1 || true
+    systemctl stop "$SBM_SERVICE" >/dev/null 2>&1 || true
+    systemctl reset-failed "$SBM_SERVICE" >/dev/null 2>&1 || true
+    return 0
+  fi
+  systemctl enable "$SBM_SERVICE" >/dev/null 2>&1 || true
+  if ! systemctl restart "$SBM_SERVICE"; then
+    service_failure_report "$SBM_SERVICE"
+    return 1
+  fi
+  if ! service_wait_active "$SBM_SERVICE" 20; then
+    service_failure_report "$SBM_SERVICE"
+    return 1
+  fi
+}
 state_secret_path() { printf '%s/nodes/%s.json\n' "$SBM_SECRETS" "$1"; }
 state_get_secret() {
   local id=$1 path
@@ -131,11 +158,11 @@ state_install_candidate() {
   mv -f "$config_tmp" "$SBM_CONFIG"
 
   if [[ "$SBM_SKIP_SYSTEMD" != "1" ]] && service_exists "$SBM_SERVICE"; then
-    if ! service_restart "$SBM_SERVICE" || ! service_active "$SBM_SERVICE"; then
+    if ! singbox_service_reconcile; then
       log_error "新配置启动失败，正在回滚。"
       [[ -f "$backup/state.json" ]] && cp -a "$backup/state.json" "$SBM_STATE"
       [[ -f "$backup/config.json" ]] && cp -a "$backup/config.json" "$SBM_CONFIG"
-      service_try_restart "$SBM_SERVICE" || true
+      singbox_service_reconcile || true
       return 1
     fi
   fi
