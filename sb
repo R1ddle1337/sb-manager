@@ -78,7 +78,7 @@ main() {
     -V|--version|version) printf 'sb-manager %s\n' "$SBM_VERSION"; return 0;;
   esac
 
-  require_root
+  [[ ${SBM_TEST_MODE:-0} == 1 ]] || require_root
   require_command jq; require_command openssl; require_command flock
   state_init
 
