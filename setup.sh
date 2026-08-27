@@ -36,7 +36,7 @@ done
 install_dependencies() {
   local packages=(curl ca-certificates jq openssl tar gzip coreutils util-linux procps findutils)
   if command -v apk >/dev/null 2>&1; then
-    apk add --no-cache bash "${packages[@]}" iproute2 shadow openrc dcron libcap musl-utils
+    apk add --no-cache bash "${packages[@]}" iproute2 shadow openrc dcron libcap musl-utils gcompat
   elif command -v apt-get >/dev/null 2>&1; then
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -y
