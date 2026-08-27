@@ -26,7 +26,7 @@ export SBM_SING_BOX_BIN="$SBM_BIN_DIR/sing-box"
 export SBM_CLOUDFLARED_BIN="$SBM_BIN_DIR/cloudflared"
 export SBM_SERVICE_USER
 SBM_SERVICE_USER=$(id -un)
-export SBM_SKIP_SYSTEMD=1 NO_COLOR=1
+export SBM_SKIP_INIT=1 SBM_SKIP_SYSTEMD=1 NO_COLOR=1
 
 mkdir -p "$SBM_CORE_DIR/sing-box/test" "$SBM_BIN_DIR"
 install -m 0755 "$REAL" "$SBM_CORE_DIR/sing-box/test/sing-box"
@@ -34,6 +34,7 @@ ln -s "$SBM_CORE_DIR/sing-box/test/sing-box" "$SBM_SING_BOX_BIN"
 
 # shellcheck source=lib/common.sh
 source "$PROJECT/lib/common.sh"
+source "$PROJECT/lib/service.sh"
 source "$PROJECT/lib/state.sh"
 source "$PROJECT/protocols/vmess_ws_cf.sh"
 source "$PROJECT/protocols/shadowsocks.sh"

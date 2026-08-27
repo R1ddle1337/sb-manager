@@ -7,7 +7,7 @@ ui_header() {
   local service_state enabled
   ui_clear
   enabled=$(state_enabled_count)
-  if [[ "$SBM_SKIP_SYSTEMD" == 1 ]]; then
+  if [[ "$SBM_SKIP_INIT" == 1 ]]; then
     service_state='测试'
   elif (( enabled == 0 )); then
     service_state='待机'
@@ -18,6 +18,7 @@ ui_header() {
   fi
   printf '%s╭──────────────────── sb-manager ────────────────────╮%s\n' "$C_CYAN" "$C_RESET"
   printf '  版本 %-18s sing-box %-16s\n' "$SBM_VERSION" "$(core_current_version || echo '-')"
+  printf '  服务管理 %-16s\n' "$(init_system_label)"
   printf '  服务 %-18s Tunnel %-18s\n' "$service_state" "$(jq -r '.tunnel.mode' "$SBM_STATE")"
   printf '%s╰─────────────────────────────────────────────────────╯%s\n\n' "$C_CYAN" "$C_RESET"
 }

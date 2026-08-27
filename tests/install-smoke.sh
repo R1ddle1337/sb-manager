@@ -9,7 +9,7 @@ ROOT=$(mktemp -d)
 trap 'rm -rf "$ROOT"' EXIT
 PROJECT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 REAL=${SBM_TEST_SING_BOX:?Set SBM_TEST_SING_BOX}
-export SBM_TEST_MODE=1 SBM_SKIP_SYSTEMD=1 SBM_TEST_SING_BOX="$REAL" NO_COLOR=1
+export SBM_TEST_MODE=1 SBM_SKIP_INIT=1 SBM_SKIP_SYSTEMD=1 SBM_TEST_SING_BOX="$REAL" NO_COLOR=1
 export SBM_PREFIX="$ROOT/usr/local"
 export SBM_LIB="$ROOT/usr/local/lib/sb-manager"
 export SBM_BIN_DIR="$ROOT/usr/local/bin"
@@ -37,7 +37,7 @@ bash "$PROJECT/setup.sh" --no-menu --no-start
 [[ -x "$SBM_BIN_DIR/sb" && -x "$SBM_SING_BOX_BIN" && -x "$SBM_CLOUDFLARED_BIN" ]]
 [[ "$(readlink "$SBM_SING_BOX_BIN")" != *$'\n'* ]]
 [[ "$(readlink "$SBM_CLOUDFLARED_BIN")" != *$'\n'* ]]
-env -u SBM_LIB "$SBM_BIN_DIR/sb" version | grep -q "0.1.0-alpha.2"
+env -u SBM_LIB "$SBM_BIN_DIR/sb" version | grep -q "0.1.0-alpha.3"
 [[ -z $(find "$SBM_LIB" -maxdepth 0 ! -perm -0001 -print -quit) ]]
 [[ -z $(find "$SBM_CORE_DIR" -type d ! -perm -0001 -print -quit) ]]
 chmod 0755 "$ROOT" "$ROOT/usr" "$ROOT/usr/local" "$ROOT/etc" "$ROOT/var" "$ROOT/var/lib"
@@ -65,6 +65,7 @@ EOF_WRAPPER
 chmod +x "$SBM_CORE_DIR/sing-box/9.9.9/sing-box"
 # Source installed libraries so we can select local version without network.
 source "$SBM_LIB/lib/common.sh"
+source "$SBM_LIB/lib/service.sh"
 source "$SBM_LIB/lib/state.sh"
 source "$SBM_LIB/protocols/vmess_ws_cf.sh"
 source "$SBM_LIB/protocols/shadowsocks.sh"

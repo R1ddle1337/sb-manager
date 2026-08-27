@@ -33,9 +33,10 @@ core_release_json() {
 
 core_latest_version() { core_release_json latest | jq -r '.tag_name' | sed 's/^v//'; }
 core_current_version() {
-  if [[ -x "$SBM_SING_BOX_BIN" ]]; then
-    "$SBM_SING_BOX_BIN" version 2>/dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?' | head -n1
-  fi
+  local output
+  [[ -x "$SBM_SING_BOX_BIN" ]] || return 0
+  output=$("$SBM_SING_BOX_BIN" version 2>/dev/null) || return 1
+  extract_semver "$output"
 }
 
 verify_asset_digest() {
@@ -50,8 +51,8 @@ core_download_version() {
   local version=$1 arch json asset_name asset_url digest checksum_url tmpdir archive target expected
   arch=$(sb_arch); json=$(core_release_json "$version"); version=$(jq -r '.tag_name' <<<"$json" | sed 's/^v//')
   asset_name="sing-box-${version}-linux-${arch}.tar.gz"
-  asset_url=$(jq -r --arg n "$asset_name" '.assets[] | select(.name==$n) | .browser_download_url' <<<"$json" | head -n1)
-  digest=$(jq -r --arg n "$asset_name" '.assets[] | select(.name==$n) | .digest // ""' <<<"$json" | head -n1)
+  asset_url=$(jq -r --arg n "$asset_name" 'first(.assets[] | select(.name==$n) | .browser_download_url) // empty' <<<"$json")
+  digest=$(jq -r --arg n "$asset_name" 'first(.assets[] | select(.name==$n) | (.digest // "")) // empty' <<<"$json")
   [[ -n "$asset_url" ]] || die "官方 Release 中未找到：$asset_name"
   target="$SBM_CORE_DIR/sing-box/$version/sing-box"
   if [[ -x "$target" ]]; then
@@ -63,7 +64,7 @@ core_download_version() {
   log_info "下载 sing-box $version ($arch)…"
   curl -fL --retry 3 --connect-timeout 15 "$asset_url" -o "$archive"
   if ! verify_asset_digest "$archive" "$digest"; then
-    checksum_url=$(jq -r '.assets[] | select(.name|test("checksums.*\\.txt$|checksum.*\\.txt$";"i")) | .browser_download_url' <<<"$json" | head -n1)
+    checksum_url=$(jq -r 'first(.assets[] | select(.name|test("checksums.*\\.txt$|checksum.*\\.txt$";"i")) | .browser_download_url) // empty' <<<"$json")
     [[ -n "$checksum_url" ]] || { rm -rf "$tmpdir"; die "Release 未提供可用 SHA-256 摘要，已拒绝安装。"; }
     curl -fL --retry 3 "$checksum_url" -o "$tmpdir/checksums.txt"
     expected=$(awk -v n="$asset_name" '$NF==n {print $1; exit}' "$tmpdir/checksums.txt")
@@ -73,11 +74,18 @@ core_download_version() {
   chmod 0755 "$SBM_CORE_DIR" "$SBM_CORE_DIR/sing-box" "$SBM_CORE_DIR/sing-box/$version"
   tar -xzf "$archive" -C "$tmpdir"
   local found
-  found=$(find "$tmpdir" -type f -name sing-box -perm -u+x | head -n1)
+  found=$(find "$tmpdir" -type f -name sing-box -perm -u+x -print -quit)
   [[ -n "$found" ]] || { rm -rf "$tmpdir"; die "压缩包中未找到 sing-box。"; }
   install -m 0755 "$found" "$target"
   ensure_program_permissions
-  "$target" version >/dev/null
+  if ! "$target" version >/dev/null 2>&1; then
+    rm -rf "$tmpdir"
+    if [[ -f /etc/alpine-release ]]; then
+      die "sing-box 官方核心无法在当前 Alpine 运行；请确认已安装 gcompat。"
+    fi
+    die "下载的 sing-box 核心无法执行。"
+  fi
+  if [[ $(init_system 2>/dev/null || true) == openrc ]]; then ensure_singbox_bind_capability "$target"; fi
   rm -rf "$tmpdir"
   printf '%s\n' "$target"
 }
@@ -89,6 +97,7 @@ core_switch_to() {
   validate_runtime_binary_path sing-box "$binary"
   ensure_program_permissions
   if [[ -s "$SBM_CONFIG" ]]; then core_validate_config_with "$binary" "$SBM_CONFIG" "$SBM_RUN/core-candidate-check.log" || return 1; fi
+  if [[ $(init_system 2>/dev/null || true) == openrc ]]; then ensure_singbox_bind_capability "$binary"; fi
   current_target=$(readlink -f "$SBM_SING_BOX_BIN" 2>/dev/null || true)
   previous=${current_target:-none}
   mkdir -p "$SBM_BIN_DIR" "$SBM_VAR/core-history"
@@ -96,7 +105,7 @@ core_switch_to() {
   mv -Tf "$SBM_SING_BOX_BIN.new" "$SBM_SING_BOX_BIN"
   printf '%s\t%s\t%s\n' "$(now_iso)" "$previous" "$binary" >>"$SBM_VAR/core-history/sing-box.tsv"
   ensure_program_permissions
-  if [[ "$SBM_SKIP_SYSTEMD" != "1" ]] && service_exists "$SBM_SERVICE"; then
+  if [[ "$SBM_SKIP_INIT" != "1" ]] && service_exists "$SBM_SERVICE"; then
     if ! singbox_service_reconcile; then
       log_error "新核心启动失败，恢复旧核心。"
       if [[ -n "$current_target" && -x "$current_target" ]]; then
@@ -166,16 +175,22 @@ core_rollback() {
 cloudflared_release_json() { github_api 'https://api.github.com/repos/cloudflare/cloudflared/releases/latest'; }
 cloudflared_latest_version() { cloudflared_release_json | jq -r '.tag_name' | sed 's/^v//'; }
 cloudflared_current_version() {
+  local output
   [[ -x "$SBM_CLOUDFLARED_BIN" ]] || return 0
-  "$SBM_CLOUDFLARED_BIN" version 2>/dev/null | grep -Eo '[0-9]{4}\.[0-9]+\.[0-9]+' | head -n1
+  output=$("$SBM_CLOUDFLARED_BIN" version 2>/dev/null) || return 1
+  if [[ $output =~ ([0-9]{4}\.[0-9]+\.[0-9]+) ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+  else
+    return 1
+  fi
 }
 
 cloudflared_download_latest() {
   local arch json version asset_name url digest tmp target
   arch=$(cloudflared_arch); json=$(cloudflared_release_json); version=$(jq -r '.tag_name' <<<"$json" | sed 's/^v//')
   asset_name="cloudflared-linux-${arch}"
-  url=$(jq -r --arg n "$asset_name" '.assets[]|select(.name==$n)|.browser_download_url' <<<"$json" | head -n1)
-  digest=$(jq -r --arg n "$asset_name" '.assets[]|select(.name==$n)|.digest // ""' <<<"$json" | head -n1)
+  url=$(jq -r --arg n "$asset_name" 'first(.assets[] | select(.name==$n) | .browser_download_url) // empty' <<<"$json")
+  digest=$(jq -r --arg n "$asset_name" 'first(.assets[] | select(.name==$n) | (.digest // "")) // empty' <<<"$json")
   [[ -n "$url" ]] || die "未找到 cloudflared 资产：$asset_name"
   target="$SBM_CORE_DIR/cloudflared/$version/cloudflared"
   if [[ -x "$target" ]]; then
@@ -190,7 +205,8 @@ cloudflared_download_latest() {
   curl -fL --retry 3 --connect-timeout 15 "$url" -o "$tmp"
   if [[ -n "$digest" && "$digest" == sha256:* ]]; then verify_asset_digest "$tmp" "$digest" || { rm -f "$tmp"; die "cloudflared 校验失败。"; }
   else log_warn "该 Release API 未返回 cloudflared 摘要；仅完成 TLS 下载校验。"; fi
-  install -m 0755 "$tmp" "$target"; rm -f "$tmp"; ensure_program_permissions; "$target" version >/dev/null
+  install -m 0755 "$tmp" "$target"; rm -f "$tmp"; ensure_program_permissions
+  "$target" version >/dev/null 2>&1 || die "下载的 cloudflared 核心无法执行。"
   printf '%s\n' "$target"
 }
 
@@ -201,7 +217,7 @@ _cloudflared_update() {
   ensure_program_permissions
   if [[ "$old" == "$binary" ]]; then log_ok "cloudflared 已是最新版。"; return; fi
   ln -sfn "$binary" "$SBM_CLOUDFLARED_BIN.new"; mv -Tf "$SBM_CLOUDFLARED_BIN.new" "$SBM_CLOUDFLARED_BIN"
-  if [[ "$SBM_SKIP_SYSTEMD" != "1" ]] && service_exists "$SBM_TUNNEL_SERVICE" && service_enabled "$SBM_TUNNEL_SERVICE"; then
+  if [[ "$SBM_SKIP_INIT" != "1" ]] && service_exists "$SBM_TUNNEL_SERVICE" && service_enabled "$SBM_TUNNEL_SERVICE"; then
     if ! service_restart "$SBM_TUNNEL_SERVICE"; then [[ -n "$old" ]] && ln -sfn "$old" "$SBM_CLOUDFLARED_BIN"; service_try_restart "$SBM_TUNNEL_SERVICE" || true; return 1; fi
   fi
   log_ok "cloudflared 已更新至 $(cloudflared_current_version)。"

@@ -1,8 +1,8 @@
 # sb-manager
 
-`sb-manager` 是一个面向 systemd Linux 的、状态驱动的 sing-box 多协议管理脚本。安装后输入 `sb` 即可打开中文交互面板，也可以使用完整的非交互 CLI。
+`sb-manager` 是一个面向 systemd/OpenRC Linux 的、状态驱动的 sing-box 多协议管理脚本。安装后输入 `sb` 即可打开中文交互面板，也可以使用完整的非交互 CLI。
 
-> 当前版本：`0.1.0-alpha.2`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
+> 当前版本：`0.1.0-alpha.3`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
 
 ## 功能
 
@@ -17,7 +17,7 @@
 - 分享 URI 与 sing-box outbound JSON 导出
 - 原子配置写入、`sing-box check`、快照和失败回滚
 - 备份、恢复、日志、`sb doctor` 诊断与 `sb repair` 自动修复
-- 低权限 systemd 服务；不会关闭或清空系统防火墙
+- 低权限 systemd/OpenRC 服务；不会关闭或清空系统防火墙
 
 ## 网络模型
 
@@ -34,25 +34,45 @@ AnyTLS 的 `443/TCP` 与 Hysteria2 的 `443/UDP` 可以同时使用。VMess-WS �
 
 推荐：
 
-- Debian 11/12/13
-- Ubuntu 20.04/22.04/24.04
-- Rocky Linux 8/9
-- AlmaLinux 8/9
-- Fedora
-- Arch Linux
-- openSUSE
+- Debian 11/12/13（systemd）
+- Ubuntu 20.04/22.04/24.04（systemd）
+- Alpine Linux 3.21/3.22/3.23/3.24（OpenRC）
+- Rocky Linux 8/9、AlmaLinux 8/9、Fedora（systemd）
+- Arch Linux、openSUSE（systemd）
 
 要求：
 
-- systemd 为 PID 1
+- systemd 或 OpenRC 作为实际服务管理器
 - Bash 4+
 - root 权限
 - `x86_64/amd64`、`aarch64/arm64`、ARMv7 或 x86 32 位
 - 服务器可访问 GitHub Releases、Cloudflare 和 ACME 服务
 
-当前不支持 Alpine/OpenRC、OpenWrt/procd、macOS、Windows、FreeBSD 以及没有运行 systemd 的精简容器。
+当前不支持 OpenWrt/procd、macOS、Windows、FreeBSD，以及没有真正运行 systemd/OpenRC 的普通精简容器。Alpine 的 Docker 基础镜像默认没有以 OpenRC 作为 PID 1，不能当作常驻服务器直接安装。
 
 ## 一键安装
+
+### Alpine Linux
+
+Alpine 默认可能没有 Bash 和 curl，先安装最小引导依赖：
+
+```bash
+apk add --no-cache bash curl ca-certificates
+bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/main/install.sh)
+```
+
+安装器会继续补齐 OpenRC、dcron、libcap、gcompat、shadow、jq、openssl、iproute2 等依赖。OpenRC 服务日志位于：
+
+```text
+/var/log/sb-manager/sing-box.log
+/var/log/sb-manager/sing-box.err.log
+/var/log/sb-manager/cloudflared.log
+/var/log/sb-manager/cloudflared.err.log
+```
+
+官方 sing-box Linux 核心使用 glibc ABI，Alpine 由 `gcompat` 提供运行时兼容。AnyTLS/Hysteria2 使用 443 等低位端口时，安装器会为 sing-box 核心设置最小的 `cap_net_bind_service` 文件能力，服务本身仍以 `sbmanager` 低权限用户运行。自动更新和 ACME 续期使用 Alpine `dcron` 的 `/etc/periodic` 任务。
+
+### systemd 发行版
 
 建议先查看安装脚本，再执行：
 
@@ -228,7 +248,7 @@ sb --help
 ```
 
 - 状态、Token、节点密码、私钥及导出文件不会提交到仓库。
-- Tunnel Token 使用受限文件保存，不直接写入 systemd `ExecStart`。
+- Tunnel Token 使用受限文件保存，不直接写入 systemd `ExecStart` 或 OpenRC 脚本。
 - sing-box 以独立的 `sbmanager` 低权限用户运行。
 - 脚本不会关闭 UFW/firewalld，也不会清空 iptables/nftables。
 - 直连协议的安全组和防火墙端口由管理员明确开放。
@@ -247,11 +267,11 @@ sb uninstall --purge --yes   # 非交互完全卸载
 
 ```bash
 sb doctor                    # 只检查，不修改系统
-sb repair                    # 修复核心目录权限、重建配置并协调 systemd 服务
+sb repair                    # 修复核心目录权限、重建配置并协调 systemd/OpenRC 服务
 sb doctor --repair           # 与 sb repair 等价
 ```
 
-没有启用节点时，`sb-sing-box.service` 保持停止属于正常待命状态；添加第一个启用节点后会自动启动。
+没有启用节点时，systemd 的 `sb-sing-box.service` 或 OpenRC 的 `sb-sing-box` 保持停止属于正常待命状态；添加第一个启用节点后会自动启动。
 
 ## 开发与测试
 
@@ -266,6 +286,7 @@ find . -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
 ```bash
 SBM_TEST_SING_BOX=/path/to/sing-box bash tests/run.sh
 SBM_TEST_SING_BOX=/path/to/sing-box bash tests/install-smoke.sh
+bash tests/openrc-lifecycle.sh
 ```
 
 生成离线单文件安装器：

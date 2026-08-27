@@ -6,12 +6,16 @@ SBM_LIB="${SBM_LIB:-${SBM_PREFIX}/lib/sb-manager}"
 SBM_BIN_DIR="${SBM_BIN_DIR:-${SBM_PREFIX}/bin}"
 if [[ -z ${SBM_VERSION:-} ]]; then
   if [[ -r "$SBM_LIB/VERSION" ]]; then SBM_VERSION=$(tr -d '[:space:]' <"$SBM_LIB/VERSION" 2>/dev/null || true); fi
-  SBM_VERSION=${SBM_VERSION:-0.1.0-alpha.2}
+  SBM_VERSION=${SBM_VERSION:-0.1.0-alpha.3}
 fi
 SBM_ETC="${SBM_ETC:-/etc/sb-manager}"
 SBM_VAR="${SBM_VAR:-/var/lib/sb-manager}"
 SBM_RUN="${SBM_RUN:-/run/sb-manager}"
 SBM_SYSTEMD_DIR="${SBM_SYSTEMD_DIR:-/etc/systemd/system}"
+SBM_OPENRC_DIR="${SBM_OPENRC_DIR:-/etc/init.d}"
+SBM_PERIODIC_DIR="${SBM_PERIODIC_DIR:-/etc/periodic}"
+SBM_OPENRC_RUNLEVEL="${SBM_OPENRC_RUNLEVEL:-default}"
+SBM_LOG_DIR="${SBM_LOG_DIR:-/var/log/sb-manager}"
 SBM_STATE="${SBM_STATE:-${SBM_ETC}/state.json}"
 SBM_GENERATED_DIR="${SBM_GENERATED_DIR:-${SBM_ETC}/generated}"
 SBM_CONFIG="${SBM_CONFIG:-${SBM_GENERATED_DIR}/config.json}"
@@ -27,7 +31,13 @@ SBM_CLOUDFLARED_BIN="${SBM_CLOUDFLARED_BIN:-${SBM_BIN_DIR}/cloudflared}"
 SBM_SERVICE="${SBM_SERVICE:-sb-sing-box.service}"
 SBM_TUNNEL_SERVICE="${SBM_TUNNEL_SERVICE:-sb-cloudflared.service}"
 SBM_SERVICE_USER="${SBM_SERVICE_USER:-sbmanager}"
-SBM_SKIP_SYSTEMD="${SBM_SKIP_SYSTEMD:-0}"
+SBM_INIT_SYSTEM="${SBM_INIT_SYSTEM:-auto}"
+SBM_SKIP_INIT="${SBM_SKIP_INIT:-${SBM_SKIP_SYSTEMD:-0}}"
+SBM_SKIP_SYSTEMD="${SBM_SKIP_SYSTEMD:-$SBM_SKIP_INIT}" # backward compatibility
+SBM_SINGBOX_LOG="${SBM_SINGBOX_LOG:-$SBM_LOG_DIR/sing-box.log}"
+SBM_SINGBOX_ERROR_LOG="${SBM_SINGBOX_ERROR_LOG:-$SBM_LOG_DIR/sing-box.err.log}"
+SBM_TUNNEL_LOG="${SBM_TUNNEL_LOG:-$SBM_LOG_DIR/cloudflared.log}"
+SBM_TUNNEL_ERROR_LOG="${SBM_TUNNEL_ERROR_LOG:-$SBM_LOG_DIR/cloudflared.err.log}"
 
 if [[ -t 1 && "${NO_COLOR:-}" == "" ]]; then
   C_RESET=$'\033[0m'; C_BOLD=$'\033[1m'; C_RED=$'\033[31m'; C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'; C_BLUE=$'\033[34m'; C_CYAN=$'\033[36m'
@@ -44,12 +54,6 @@ die() { log_error "$*"; exit 1; }
 command_exists() { command -v "$1" >/dev/null 2>&1; }
 require_command() { command_exists "$1" || die "缺少命令：$1"; }
 require_root() { [[ ${EUID:-$(id -u)} -eq 0 ]] || die "此操作需要 root 权限，请使用 sudo。"; }
-require_systemd() {
-  [[ "$SBM_SKIP_SYSTEMD" == "1" ]] && return 0
-  command_exists systemctl || die "未发现 systemctl；当前版本仅支持 systemd Linux。"
-  [[ "$(ps -p 1 -o comm= 2>/dev/null | tr -d ' ')" == "systemd" ]] || die "PID 1 不是 systemd；当前版本不能安装服务。"
-}
-
 ensure_runtime_dirs() {
   mkdir -p "$SBM_RUN" "$SBM_CACHE" "$SBM_BACKUPS" "$SBM_EXPORTS"
 }
@@ -59,8 +63,8 @@ with_lock() {
   ensure_runtime_dirs
   exec 9>"$SBM_LOCK"
   flock -x 9
-  "$fn" "$@"
-  local rc=$?
+  local rc=0
+  "$fn" "$@" || rc=$?
   flock -u 9 || true
   exec 9>&-
   return "$rc"
@@ -71,6 +75,15 @@ now_stamp() { date -u +'%Y%m%dT%H%M%SZ'; }
 
 json_compact() { jq -c .; }
 json_pretty() { jq .; }
+
+extract_semver() {
+  local text=$1
+  if [[ $text =~ ([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?) ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+  else
+    return 1
+  fi
+}
 
 random_hex() {
   local bytes=${1:-16}
@@ -126,48 +139,6 @@ format_hostport() {
   if [[ "$host" == *:* && "$host" != \[*\] ]]; then printf '[%s]:%s' "$host" "$port"; else printf '%s:%s' "$host" "$port"; fi
 }
 
-is_systemd_present() { [[ "$SBM_SKIP_SYSTEMD" != "1" ]] && command_exists systemctl; }
-service_exists() { [[ -f "$SBM_SYSTEMD_DIR/$1" ]] || { is_systemd_present && systemctl cat "$1" >/dev/null 2>&1; }; }
-service_active() { is_systemd_present && systemctl is-active --quiet "$1"; }
-service_enabled() { is_systemd_present && systemctl is-enabled --quiet "$1" 2>/dev/null; }
-service_restart() {
-  [[ "$SBM_SKIP_SYSTEMD" == "1" ]] && return 0
-  systemctl daemon-reload
-  systemctl restart "$1"
-}
-service_try_restart() {
-  [[ "$SBM_SKIP_SYSTEMD" == "1" ]] && return 0
-  if service_exists "$1"; then systemctl daemon-reload; systemctl restart "$1"; fi
-}
-service_wait_active() {
-  local unit=$1 attempts=${2:-20} stable_checks=${3:-3} i state stable=0
-  [[ "$SBM_SKIP_SYSTEMD" == "1" ]] && return 0
-  for ((i=0; i<attempts; i++)); do
-    state=$(systemctl is-active "$unit" 2>/dev/null || true)
-    if [[ "$state" == active ]]; then
-      ((++stable))
-      (( stable >= stable_checks )) && return 0
-    else
-      stable=0
-    fi
-    [[ "$state" == failed ]] && break
-    sleep 0.5
-  done
-  return 1
-}
-service_failure_report() {
-  local unit=$1
-  [[ "$SBM_SKIP_SYSTEMD" == "1" ]] && return 0
-  log_error "$unit 启动失败。"
-  systemctl status "$unit" --no-pager -l >&2 || true
-  journalctl -u "$unit" -n 80 --no-pager -l >&2 || true
-  command_exists namei && {
-    printf '%s\n' '---- 可执行文件路径权限 ----' >&2
-    namei -l "$SBM_SING_BOX_BIN" >&2 || true
-    printf '%s\n' '---- 配置文件路径权限 ----' >&2
-    namei -l "$SBM_CONFIG" >&2 || true
-  }
-}
 ensure_program_permissions() {
   local path
   for path in "$(dirname "$SBM_LIB")" "$SBM_LIB" "$SBM_BIN_DIR" "$SBM_CORE_DIR"; do
@@ -217,16 +188,44 @@ safe_install_file() {
   mv -f "$tmp" "$dst"
 }
 
+group_exists() {
+  local group=$1
+  if command_exists getent; then getent group "$group" >/dev/null 2>&1; else grep -qE "^${group}:" /etc/group 2>/dev/null; fi
+}
+account_entry() {
+  local user=$1
+  if command_exists getent; then getent passwd "$user" 2>/dev/null; else grep -E "^${user}:" /etc/passwd 2>/dev/null; fi
+}
+host_resolves() {
+  local host=$1
+  if command_exists getent; then getent ahosts "$host" >/dev/null 2>&1 || getent hosts "$host" >/dev/null 2>&1
+  elif command_exists nslookup; then nslookup "$host" >/dev/null 2>&1
+  else return 1; fi
+}
+portable_date_epoch() {
+  local value=$1
+  if date -d "$value" +%s >/dev/null 2>&1; then date -d "$value" +%s
+  elif command_exists gdate && gdate -d "$value" +%s >/dev/null 2>&1; then gdate -d "$value" +%s
+  else return 1; fi
+}
+x509_days_remaining() {
+  local cert=$1 end epoch now
+  end=$(openssl x509 -in "$cert" -noout -enddate 2>/dev/null | cut -d= -f2-) || return 1
+  epoch=$(portable_date_epoch "$end") || return 1
+  now=$(date +%s)
+  printf '%s\n' "$(( (epoch-now)/86400 ))"
+}
+
 set_owner_if_exists() {
   local owner=$1 path=$2
   if id "$owner" >/dev/null 2>&1; then chown "$owner" "$path" 2>/dev/null || true; fi
 }
 set_group_if_exists() {
   local group=$1 path=$2
-  if getent group "$group" >/dev/null 2>&1; then chgrp "$group" "$path" 2>/dev/null || true; fi
+  if group_exists "$group"; then chgrp "$group" "$path" 2>/dev/null || true; fi
 }
 
-version_lt() { [[ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n1)" != "$2" && "$1" != "$2" ]]; }
+version_lt() { [[ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | sed -n '1p')" != "$2" && "$1" != "$2" ]]; }
 version_ge() { ! version_lt "$1" "$2"; }
 
 confirm() {

@@ -21,7 +21,7 @@ export SBM_EXPORTS="$SBM_VAR/exports"
 export SBM_CACHE="$SBM_VAR/cache"
 export SBM_CORE_DIR="$ROOT/cores"
 export SBM_LOCK="$SBM_RUN/manager.lock"
-export SBM_SKIP_SYSTEMD=0
+export SBM_SKIP_INIT=0 SBM_SKIP_SYSTEMD=0 SBM_INIT_SYSTEM=systemd
 export SBM_FAKE_SYSTEMCTL_LOG="$ROOT/systemctl.log"
 export SBM_FAKE_SYSTEMCTL_ACTIVE="$ROOT/systemctl.active"
 export NO_COLOR=1
@@ -52,6 +52,7 @@ export PATH="$ROOT/bin:$PATH"
 
 # shellcheck source=lib/common.sh
 source "$PROJECT/lib/common.sh"
+source "$PROJECT/lib/service.sh"
 source "$PROJECT/lib/state.sh"
 
 # Progress logs must stay on stderr so command substitutions return only paths.

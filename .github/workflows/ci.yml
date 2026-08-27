@@ -9,17 +9,21 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   syntax-and-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
       - name: Install test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends jq openssl iproute2 shellcheck
+          sudo apt-get install -y --no-install-recommends jq openssl iproute2 shellcheck libcap2-bin
 
       - name: Bash syntax
         run: find . -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
@@ -53,8 +57,11 @@ jobs:
           SBM_TEST_SING_BOX: ${{ steps.core.outputs.binary }}
         run: bash tests/doctor-smoke.sh
 
-      - name: Service lifecycle test
+      - name: systemd lifecycle test
         run: bash tests/service-lifecycle.sh
+
+      - name: OpenRC lifecycle test
+        run: bash tests/openrc-lifecycle.sh
 
       - name: First-download path regression
         run: bash tests/core-download-smoke.sh
@@ -78,6 +85,7 @@ jobs:
           path: |
             dist/sb-manager-install.sh
             dist/SHA256SUMS
+
   debian-13-smoke:
     runs-on: ubuntu-latest
     container:
@@ -87,7 +95,7 @@ jobs:
       - name: Install Debian 13 test dependencies
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends bash ca-certificates curl git jq openssl iproute2 util-linux procps tar gzip coreutils findutils passwd
+          apt-get install -y --no-install-recommends bash ca-certificates curl git jq openssl iproute2 util-linux procps tar gzip coreutils findutils passwd libcap2-bin
 
       - uses: actions/checkout@v4
 
@@ -111,3 +119,26 @@ jobs:
         run: |
           bash tests/install-smoke.sh
           bash tests/doctor-smoke.sh
+
+  alpine-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        alpine: ['3.21', '3.22', '3.23', '3.24']
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Alpine ${{ matrix.alpine }} OpenRC and musl smoke
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/src:ro" \
+            alpine:${{ matrix.alpine }} \
+            /bin/sh -ec '
+              apk add --no-cache bash ca-certificates curl jq openssl iproute2 util-linux procps tar gzip coreutils findutils shadow openrc dcron libcap musl-utils gcompat
+              mkdir -p /work
+              cp -a /src/. /work/
+              cd /work
+              bash tests/alpine-smoke.sh
+            '

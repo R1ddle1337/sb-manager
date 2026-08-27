@@ -62,7 +62,7 @@ cert_hook() {
   chmod 0640 "$dir/key.pem"
   set_group_if_exists "$SBM_SERVICE_USER" "$dir"; set_group_if_exists "$SBM_SERVICE_USER" "$dir/key.pem"
   chmod 0750 "$dir"
-  if [[ "$SBM_SKIP_SYSTEMD" != "1" ]] && service_active "$SBM_SERVICE"; then systemctl try-reload-or-restart "$SBM_SERVICE" >/dev/null 2>&1 || true; fi
+  if [[ "$SBM_SKIP_INIT" != "1" ]] && service_active "$SBM_SERVICE"; then service_restart "$SBM_SERVICE" >/dev/null 2>&1 || true; fi
 }
 
 _cert_record_state() {
@@ -116,7 +116,7 @@ cert_list() {
     domain=$(jq -r '.domain' <<<"$cert"); path=$(jq -r '.certificate_path' <<<"$cert")
     if [[ ! -s "$path" ]]; then printf '%-30s %-12s %-24s %s\n' "$domain" '-' '-' '文件缺失'; continue; fi
     end=$(openssl x509 -in "$path" -noout -enddate 2>/dev/null | cut -d= -f2-)
-    epoch=$(date -d "$end" +%s 2>/dev/null || echo 0); now=$(date +%s); days=$(( (epoch-now)/86400 ))
+    days=$(x509_days_remaining "$path" 2>/dev/null || echo -1)
     subject='正常'; (( days < 20 )) && subject='即将过期'; (( days < 7 )) && subject='危险'
     printf '%-30s %-12s %-24s %s\n' "$domain" "$days" "$end" "$subject"
   done < <(jq -c '.certificates[]?' "$SBM_STATE")
