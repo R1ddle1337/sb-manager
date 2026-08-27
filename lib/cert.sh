@@ -62,7 +62,7 @@ cert_hook() {
   chmod 0640 "$dir/key.pem"
   set_group_if_exists "$SBM_SERVICE_USER" "$dir"; set_group_if_exists "$SBM_SERVICE_USER" "$dir/key.pem"
   chmod 0750 "$dir"
-  if [[ "$SBM_SKIP_SYSTEMD" != "1" ]] && service_exists "$SBM_SERVICE"; then systemctl try-reload-or-restart "$SBM_SERVICE" >/dev/null 2>&1 || true; fi
+  if [[ "$SBM_SKIP_SYSTEMD" != "1" ]] && service_active "$SBM_SERVICE"; then systemctl try-reload-or-restart "$SBM_SERVICE" >/dev/null 2>&1 || true; fi
 }
 
 _cert_record_state() {
