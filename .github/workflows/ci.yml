@@ -63,6 +63,11 @@ jobs:
       - name: systemd exec permission regression
         run: bash tests/systemd-exec-smoke.sh
 
+      - name: Real hardened systemd execution
+        env:
+          SBM_TEST_SING_BOX: ${{ steps.core.outputs.binary }}
+        run: bash tests/systemd-real-exec.sh
+
       - name: OpenRC lifecycle test
         run: bash tests/openrc-lifecycle.sh
 
