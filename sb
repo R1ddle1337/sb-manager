@@ -55,12 +55,13 @@ sb-manager：状态驱动的 sing-box 多协议管理器
   sb core check|update [VERSION]|rollback|policy <manual|notify|patch|stable>|auto
   sb cloudflared update
   sb acme update
-  sb doctor
+  sb doctor [--repair]
+  sb repair                      修复权限、配置与服务状态
   sb logs [all|singbox|tunnel|follow] [行数]
   sb backup [文件]
   sb restore <文件> [--yes]
   sb restart
-  sb uninstall [--purge]
+  sb uninstall [--purge] [--yes]
 
 节点添加常用参数：
   --id ID --name NAME --port PORT --domain DOMAIN --address HOST
@@ -76,6 +77,16 @@ main() {
   case "$cmd" in
     -h|--help|help) sb_help; return 0;;
     -V|--version|version) printf 'sb-manager %s\n' "$SBM_VERSION"; return 0;;
+    uninstall)
+      [[ ${SBM_TEST_MODE:-0} == 1 ]] || require_root
+      local purge=0 assume_yes=0 arg
+      shift
+      for arg in "$@"; do
+        case "$arg" in --purge) purge=1;; --yes|-y) assume_yes=1;; *) die "未知卸载参数：$arg";; esac
+      done
+      uninstall_manager "$purge" "$assume_yes"
+      return 0
+      ;;
   esac
 
   [[ ${SBM_TEST_MODE:-0} == 1 ]] || require_root
@@ -144,15 +155,15 @@ main() {
       ;;
     cloudflared) [[ ${2:-} == update ]] || die '用法：sb cloudflared update'; cloudflared_update ;;
     acme) [[ ${2:-} == update ]] || die '用法：sb acme update'; acme_update ;;
-    doctor) doctor_run ;;
+    doctor) if [[ ${2:-} == --repair ]]; then doctor_run 1; else doctor_run; fi ;;
+    repair) doctor_run 1 ;;
     logs) show_logs "${2:-all}" "${3:-100}" ;;
     backup) backup_create "${2:-$SBM_BACKUPS/sb-manager-$(now_stamp).tar.gz}" ;;
     restore) backup_restore "${2:?缺少备份路径}" "$([[ ${3:-} == --yes ]] && echo 1 || echo 0)" ;;
-    restart) service_restart "$SBM_SERVICE"; [[ $(jq -r '.tunnel.mode' "$SBM_STATE") != none ]] && service_try_restart "$SBM_TUNNEL_SERVICE"; status_summary ;;
+    restart) singbox_service_reconcile; [[ $(jq -r '.tunnel.mode' "$SBM_STATE") != none ]] && service_try_restart "$SBM_TUNNEL_SERVICE"; status_summary ;;
     settings)
       case ${2:-} in address) settings_set_default_address "${3:?缺少地址}";; *) die '用法：sb settings address HOST';; esac
       ;;
-    uninstall) uninstall_manager "$([[ ${2:-} == --purge ]] && echo 1 || echo 0)" ;;
     *) die "未知命令：$cmd；运行 sb help 查看帮助。" ;;
   esac
 }
