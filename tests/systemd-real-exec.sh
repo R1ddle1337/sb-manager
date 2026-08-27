@@ -13,7 +13,9 @@ if [[ "$pid1" != systemd ]] || ! systemctl show-environment >/dev/null 2>&1; the
 fi
 
 REAL=${SBM_TEST_SING_BOX:?Set SBM_TEST_SING_BOX}
-ROOT=$(mktemp -d /var/tmp/sb-manager-systemd-exec.XXXXXX)
+# PrivateTmp intentionally hides /tmp and /var/tmp from the transient unit.
+# Keep the test core under /opt, matching production's non-temporary location.
+ROOT=$(mktemp -d /opt/sb-manager-systemd-exec.XXXXXX)
 trap 'rm -rf "$ROOT"' EXIT
 PROJECT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 
