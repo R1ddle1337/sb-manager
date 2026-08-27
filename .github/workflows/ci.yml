@@ -41,7 +41,7 @@ jobs:
           asset="sing-box-${version}-linux-${arch}.tar.gz"
           url="https://github.com/SagerNet/sing-box/releases/download/v${version}/${asset}"
           mkdir -p "$RUNNER_TEMP/sing-box"
-          curl -fL --retry 3 "$url" -o "$RUNNER_TEMP/$asset"
+          curl -fL --retry 5 --retry-all-errors --retry-delay 2 "$url" -o "$RUNNER_TEMP/$asset"
           tar -xzf "$RUNNER_TEMP/$asset" -C "$RUNNER_TEMP/sing-box"
           binary=$(find "$RUNNER_TEMP/sing-box" -type f -name sing-box -perm -u+x -print -quit)
           test -n "$binary"
@@ -73,6 +73,9 @@ jobs:
 
       - name: First-download path regression
         run: bash tests/core-download-smoke.sh
+
+      - name: Download retry and fail-fast regression
+        run: bash tests/download-retry-smoke.sh
 
       - name: Installer smoke test
         env:
@@ -114,7 +117,7 @@ jobs:
           set -Eeuo pipefail
           version=$(tr -d '[:space:]' < TESTED_CORE_VERSION)
           asset="sing-box-${version}-linux-amd64.tar.gz"
-          curl -fL --retry 3 "https://github.com/SagerNet/sing-box/releases/download/v${version}/${asset}" -o "/tmp/${asset}"
+          curl -fL --retry 5 --retry-all-errors --retry-delay 2 "https://github.com/SagerNet/sing-box/releases/download/v${version}/${asset}" -o "/tmp/${asset}"
           mkdir -p /tmp/sing-box
           tar -xzf "/tmp/${asset}" -C /tmp/sing-box
           binary=$(find /tmp/sing-box -type f -name sing-box -perm -u+x -print -quit)
