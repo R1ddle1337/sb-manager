@@ -1,0 +1,76 @@
+name: Apply protocol suite
+
+on:
+  push:
+    branches: [feat/public-ip-and-protocol-suite]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/public-ip-and-protocol-suite
+
+      - name: Reassemble and apply source patch
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cat tools/suite-patch/00 tools/suite-patch/01 tools/suite-patch/02 tools/suite-patch/03 tools/suite-patch/04 > /tmp/apply-suite.gz.b64
+          base64 -d /tmp/apply-suite.gz.b64 | gzip -d > /tmp/apply-suite.py
+          python3 /tmp/apply-suite.py
+
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends jq openssl iproute2 shellcheck libcap2-bin
+
+      - name: Download tested sing-box core
+        id: core
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          version=$(tr -d '[:space:]' < TESTED_CORE_VERSION)
+          asset="sing-box-${version}-linux-amd64.tar.gz"
+          curl -fL --retry 5 --retry-all-errors \
+            "https://github.com/SagerNet/sing-box/releases/download/v${version}/${asset}" \
+            -o "/tmp/${asset}"
+          mkdir -p /tmp/sing-box
+          tar -xzf "/tmp/${asset}" -C /tmp/sing-box
+          binary=$(find /tmp/sing-box -type f -name sing-box -perm -u+x -print -quit)
+          test -n "$binary"
+          echo "binary=$binary" >> "$GITHUB_OUTPUT"
+
+      - name: Bash syntax and ShellCheck
+        run: |
+          find . -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
+          shellcheck -x --severity=error sb setup.sh install.sh build-standalone.sh lib/*.sh protocols/*.sh tests/*.sh
+
+      - name: Protocol suite regression
+        env:
+          SBM_TEST_SING_BOX: ${{ steps.core.outputs.binary }}
+        run: bash tests/run.sh
+
+      - name: Installer smoke
+        env:
+          SBM_TEST_SING_BOX: ${{ steps.core.outputs.binary }}
+        run: bash tests/install-smoke.sh
+
+      - name: Commit generated sources
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          chmod 0755 sb tests/run.sh tests/install-smoke.sh
+          git config user.name "sb-manager automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add VERSION CHANGELOG.md README.md sb \
+            lib/common.sh lib/state.sh lib/node.sh lib/render.sh lib/export.sh lib/ui.sh \
+            protocols tests/run.sh tests/install-smoke.sh
+          git diff --cached --check
+          git commit -m "feat: add automatic public IP and protocol suite"
+          git push origin HEAD:feat/public-ip-and-protocol-suite
