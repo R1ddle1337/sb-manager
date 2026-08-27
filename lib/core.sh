@@ -54,7 +54,11 @@ core_download_version() {
   digest=$(jq -r --arg n "$asset_name" '.assets[] | select(.name==$n) | .digest // ""' <<<"$json" | head -n1)
   [[ -n "$asset_url" ]] || die "官方 Release 中未找到：$asset_name"
   target="$SBM_CORE_DIR/sing-box/$version/sing-box"
-  [[ -x "$target" ]] && { printf '%s\n' "$target"; return 0; }
+  if [[ -x "$target" ]]; then
+    ensure_program_permissions
+    printf '%s\n' "$target"
+    return 0
+  fi
   tmpdir=$(mktemp -d "$SBM_CACHE/sing-box.XXXXXX"); archive="$tmpdir/$asset_name"
   log_info "下载 sing-box $version ($arch)…"
   curl -fL --retry 3 --connect-timeout 15 "$asset_url" -o "$archive"
@@ -66,11 +70,13 @@ core_download_version() {
     [[ -n "$expected" && "$expected" == "$(sha256sum "$archive" | awk '{print $1}')" ]] || { rm -rf "$tmpdir"; die "sing-box 下载文件校验失败。"; }
   fi
   mkdir -p "$SBM_CORE_DIR/sing-box/$version"
+  chmod 0755 "$SBM_CORE_DIR" "$SBM_CORE_DIR/sing-box" "$SBM_CORE_DIR/sing-box/$version"
   tar -xzf "$archive" -C "$tmpdir"
   local found
   found=$(find "$tmpdir" -type f -name sing-box -perm -u+x | head -n1)
   [[ -n "$found" ]] || { rm -rf "$tmpdir"; die "压缩包中未找到 sing-box。"; }
   install -m 0755 "$found" "$target"
+  ensure_program_permissions
   "$target" version >/dev/null
   rm -rf "$tmpdir"
   printf '%s\n' "$target"
@@ -80,6 +86,8 @@ core_switch_to() {
   local version=$1 binary current_target previous
   binary="$SBM_CORE_DIR/sing-box/${version#v}/sing-box"
   [[ -x "$binary" ]] || binary=$(core_download_version "$version")
+  validate_runtime_binary_path sing-box "$binary"
+  ensure_program_permissions
   if [[ -s "$SBM_CONFIG" ]]; then core_validate_config_with "$binary" "$SBM_CONFIG" "$SBM_RUN/core-candidate-check.log" || return 1; fi
   current_target=$(readlink -f "$SBM_SING_BOX_BIN" 2>/dev/null || true)
   previous=${current_target:-none}
@@ -87,10 +95,14 @@ core_switch_to() {
   ln -sfn "$binary" "$SBM_SING_BOX_BIN.new"
   mv -Tf "$SBM_SING_BOX_BIN.new" "$SBM_SING_BOX_BIN"
   printf '%s\t%s\t%s\n' "$(now_iso)" "$previous" "$binary" >>"$SBM_VAR/core-history/sing-box.tsv"
+  ensure_program_permissions
   if [[ "$SBM_SKIP_SYSTEMD" != "1" ]] && service_exists "$SBM_SERVICE"; then
-    if ! service_restart "$SBM_SERVICE" || ! service_active "$SBM_SERVICE"; then
+    if ! singbox_service_reconcile; then
       log_error "新核心启动失败，恢复旧核心。"
-      if [[ -n "$current_target" && -x "$current_target" ]]; then ln -sfn "$current_target" "$SBM_SING_BOX_BIN"; service_try_restart "$SBM_SERVICE" || true; fi
+      if [[ -n "$current_target" && -x "$current_target" ]]; then
+        ln -sfn "$current_target" "$SBM_SING_BOX_BIN"
+        singbox_service_reconcile || true
+      fi
       return 1
     fi
   fi
@@ -166,19 +178,27 @@ cloudflared_download_latest() {
   digest=$(jq -r --arg n "$asset_name" '.assets[]|select(.name==$n)|.digest // ""' <<<"$json" | head -n1)
   [[ -n "$url" ]] || die "未找到 cloudflared 资产：$asset_name"
   target="$SBM_CORE_DIR/cloudflared/$version/cloudflared"
-  [[ -x "$target" ]] && { printf '%s\n' "$target"; return; }
-  mkdir -p "$(dirname "$target")"; tmp=$(mktemp "$SBM_CACHE/cloudflared.XXXXXX")
+  if [[ -x "$target" ]]; then
+    ensure_program_permissions
+    printf '%s\n' "$target"
+    return 0
+  fi
+  mkdir -p "$(dirname "$target")"
+  chmod 0755 "$SBM_CORE_DIR" "$SBM_CORE_DIR/cloudflared" "$(dirname "$target")"
+  tmp=$(mktemp "$SBM_CACHE/cloudflared.XXXXXX")
   log_info "下载 cloudflared $version ($arch)…"
   curl -fL --retry 3 --connect-timeout 15 "$url" -o "$tmp"
   if [[ -n "$digest" && "$digest" == sha256:* ]]; then verify_asset_digest "$tmp" "$digest" || { rm -f "$tmp"; die "cloudflared 校验失败。"; }
   else log_warn "该 Release API 未返回 cloudflared 摘要；仅完成 TLS 下载校验。"; fi
-  install -m 0755 "$tmp" "$target"; rm -f "$tmp"; "$target" version >/dev/null
+  install -m 0755 "$tmp" "$target"; rm -f "$tmp"; ensure_program_permissions; "$target" version >/dev/null
   printf '%s\n' "$target"
 }
 
 _cloudflared_update() {
   local binary old
   binary=$(cloudflared_download_latest); old=$(readlink -f "$SBM_CLOUDFLARED_BIN" 2>/dev/null || true)
+  validate_runtime_binary_path cloudflared "$binary"
+  ensure_program_permissions
   if [[ "$old" == "$binary" ]]; then log_ok "cloudflared 已是最新版。"; return; fi
   ln -sfn "$binary" "$SBM_CLOUDFLARED_BIN.new"; mv -Tf "$SBM_CLOUDFLARED_BIN.new" "$SBM_CLOUDFLARED_BIN"
   if [[ "$SBM_SKIP_SYSTEMD" != "1" ]] && service_exists "$SBM_TUNNEL_SERVICE" && service_enabled "$SBM_TUNNEL_SERVICE"; then
