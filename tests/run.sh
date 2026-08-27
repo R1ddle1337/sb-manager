@@ -121,7 +121,7 @@ node_delete sschacha-test
 
 # TCP 443 + UDP 443 is legal; duplicate TCP is not.
 node_add ss --id conflict-test --port 24443 --address 192.0.2.1 --disabled
-if node_enable conflict-test >/dev/null 2>&1; then echo 'expected TCP conflict rejection' >&2; exit 1; fi
+if (node_enable conflict-test >/dev/null 2>&1); then echo 'expected TCP conflict rejection' >&2; exit 1; fi
 
 jq -e '.schema_version==1' "$SBM_STATE" >/dev/null
 printf 'ALL TESTS PASSED\n'
