@@ -2,7 +2,7 @@
 
 `sb-manager` 是一个面向 systemd/OpenRC Linux 的、状态驱动的 sing-box 多协议管理脚本。安装后输入 `sb` 即可打开中文交互面板，也可以使用完整的非交互 CLI。
 
-> 当前版本：`0.1.0-alpha.3`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
+> 当前版本：`0.1.0-alpha.4`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
 
 ## 功能
 
@@ -250,6 +250,7 @@ sb --help
 - 状态、Token、节点密码、私钥及导出文件不会提交到仓库。
 - Tunnel Token 使用受限文件保存，不直接写入 systemd `ExecStart` 或 OpenRC 脚本。
 - sing-box 以独立的 `sbmanager` 低权限用户运行。
+- systemd 通过 unit 的 ambient capability 提供低端口绑定能力；OpenRC 才在核心文件上设置 `cap_net_bind_service`。
 - 脚本不会关闭 UFW/firewalld，也不会清空 iptables/nftables。
 - 直连协议的安全组和防火墙端口由管理员明确开放。
 
@@ -267,11 +268,55 @@ sb uninstall --purge --yes   # 非交互完全卸载
 
 ```bash
 sb doctor                    # 只检查，不修改系统
-sb repair                    # 修复核心目录权限、重建配置并协调 systemd/OpenRC 服务
+sb repair                    # 修复核心权限/能力、重建配置并协调服务
 sb doctor --repair           # 与 sb repair 等价
 ```
 
 没有启用节点时，systemd 的 `sb-sing-box.service` 或 OpenRC 的 `sb-sing-box` 保持停止属于正常待命状态；添加第一个启用节点后会自动启动。
+
+### systemd 报 `203/EXEC` 或 `Permission denied`
+
+典型日志：
+
+```text
+Failed to execute /usr/local/bin/sing-box: Permission denied
+Failed at step EXEC spawning /usr/local/bin/sing-box
+status=203/EXEC
+```
+
+先运行自动修复：
+
+```bash
+sb repair
+sb doctor
+```
+
+`sb repair` 会停止重启循环、修复目录遍历权限、清除 systemd 后端不需要的旧 file capabilities，并在与正式服务相同的 systemd 沙箱中预检核心执行；不会删除节点、证书或密钥。
+
+尚未更新到 `0.1.0-alpha.4` 时，可手动执行：
+
+```bash
+systemctl stop sb-sing-box.service
+target="$(readlink -f /usr/local/bin/sing-box)"
+setcap -r "$target" 2>/dev/null || true
+chmod 755 /usr/local /usr/local/bin /usr/local/lib \
+  /usr/local/lib/sb-manager /usr/local/lib/sb-manager/cores \
+  /usr/local/lib/sb-manager/cores/sing-box \
+  "$(dirname "$target")" "$target"
+systemctl daemon-reload
+systemctl reset-failed sb-sing-box.service
+systemctl start sb-sing-box.service
+journalctl -u sb-sing-box.service -n 50 --no-pager -l
+```
+
+进一步诊断：
+
+```bash
+getcap "$(readlink -f /usr/local/bin/sing-box)"
+namei -l /usr/local/bin/sing-box
+findmnt -T "$(readlink -f /usr/local/bin/sing-box)" -o TARGET,SOURCE,FSTYPE,OPTIONS
+systemctl show sb-sing-box.service -p Result -p ExecMainStatus
+```
 
 ## 开发与测试
 
@@ -286,6 +331,7 @@ find . -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
 ```bash
 SBM_TEST_SING_BOX=/path/to/sing-box bash tests/run.sh
 SBM_TEST_SING_BOX=/path/to/sing-box bash tests/install-smoke.sh
+bash tests/systemd-exec-smoke.sh
 bash tests/openrc-lifecycle.sh
 ```
 

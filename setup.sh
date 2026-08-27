@@ -87,6 +87,8 @@ Description=sb-manager managed sing-box service
 Documentation=https://sing-box.sagernet.org/
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -268,8 +270,9 @@ else
 fi
 validate_runtime_binary_path sing-box "$sb_binary"
 ensure_program_permissions
-if [[ "$BACKEND" == openrc ]]; then ensure_singbox_bind_capability "$sb_binary"; fi
+prepare_singbox_binary_for_backend "$sb_binary" "$BACKEND"
 ln -sfn "$sb_binary" "$SBM_SING_BOX_BIN.new"; mv -Tf "$SBM_SING_BOX_BIN.new" "$SBM_SING_BOX_BIN"
+prepare_singbox_binary_for_backend "$SBM_SING_BOX_BIN" "$BACKEND"
 
 printf '[5/7] 安装 cloudflared…\n'
 if [[ "$TEST_MODE" == 1 ]]; then
@@ -287,10 +290,15 @@ validate_runtime_binary_path cloudflared "$cf_binary"
 ensure_program_permissions
 ln -sfn "$cf_binary" "$SBM_CLOUDFLARED_BIN.new"; mv -Tf "$SBM_CLOUDFLARED_BIN.new" "$SBM_CLOUDFLARED_BIN"
 ensure_program_permissions
-if [[ "$BACKEND" == openrc ]]; then ensure_singbox_bind_capability "$sb_binary"; fi
 
 printf '[6/7] 生成配置与 %s 服务…\n' "$BACKEND"
 render_current_config
+if [[ "$TEST_MODE" != 1 ]] && service_exists "$SBM_SERVICE"; then
+  # Stop a stale restart loop before replacing the service definition. The
+  # final reconcile below restores the correct state based on enabled nodes.
+  service_stop "$SBM_SERVICE"
+  service_reset_failed "$SBM_SERVICE"
+fi
 case "$BACKEND" in
   systemd) write_systemd_runtime ;;
   openrc) write_openrc_runtime ;;
@@ -298,9 +306,11 @@ case "$BACKEND" in
 esac
 
 if [[ "$TEST_MODE" != 1 ]]; then
+  service_reload_manager
+  service_reset_failed "$SBM_SERVICE"
   if ! service_user_can_execute_core; then
     log_error "$SBM_SERVICE_USER 无法执行 sing-box 核心。"
-    command -v namei >/dev/null 2>&1 && namei -l "$SBM_SING_BOX_BIN" >&2 || true
+    runtime_exec_diagnostics "$SBM_SING_BOX_BIN"
     exit 1
   fi
   if ! service_user_can_read_config; then
@@ -308,16 +318,24 @@ if [[ "$TEST_MODE" != 1 ]]; then
     command -v namei >/dev/null 2>&1 && namei -l "$SBM_CONFIG" >&2 || true
     exit 1
   fi
+  if [[ "$BACKEND" == systemd && "$NO_START" == 0 ]]; then
+    preflight_rc=0
+    systemd_exec_preflight "$SBM_SING_BOX_BIN" || preflight_rc=$?
+    case "$preflight_rc" in
+      0) ;;
+      2) log_warn 'systemd-run 不可用，跳过沙箱执行预检。' ;;
+      *) runtime_exec_diagnostics "$SBM_SING_BOX_BIN"; exit 1 ;;
+    esac
+  fi
 fi
 
 printf '[7/7] 启动服务…\n'
-if [[ "$TEST_MODE" != 1 ]]; then
-  service_reload_manager
-  service_reset_failed "$SBM_SERVICE"
-fi
 if [[ "$NO_START" == 0 && "$TEST_MODE" != 1 ]]; then
   scheduler_reconcile
-  singbox_service_reconcile || exit 1
+  if ! singbox_service_reconcile; then
+    runtime_exec_diagnostics "$SBM_SING_BOX_BIN"
+    exit 1
+  fi
   tunnel_reconcile 1 || true
 else
   tunnel_reconcile 0 || true
