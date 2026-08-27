@@ -77,7 +77,13 @@ core_download_version() {
   [[ -n "$found" ]] || { rm -rf "$tmpdir"; die "压缩包中未找到 sing-box。"; }
   install -m 0755 "$found" "$target"
   ensure_program_permissions
-  "$target" version >/dev/null
+  if ! "$target" version >/dev/null 2>&1; then
+    rm -rf "$tmpdir"
+    if [[ -f /etc/alpine-release ]]; then
+      die "sing-box 官方核心无法在当前 Alpine 运行；请确认已安装 gcompat。"
+    fi
+    die "下载的 sing-box 核心无法执行。"
+  fi
   if [[ $(init_system 2>/dev/null || true) == openrc ]]; then ensure_singbox_bind_capability "$target"; fi
   rm -rf "$tmpdir"
   printf '%s\n' "$target"
@@ -192,7 +198,8 @@ cloudflared_download_latest() {
   curl -fL --retry 3 --connect-timeout 15 "$url" -o "$tmp"
   if [[ -n "$digest" && "$digest" == sha256:* ]]; then verify_asset_digest "$tmp" "$digest" || { rm -f "$tmp"; die "cloudflared 校验失败。"; }
   else log_warn "该 Release API 未返回 cloudflared 摘要；仅完成 TLS 下载校验。"; fi
-  install -m 0755 "$tmp" "$target"; rm -f "$tmp"; ensure_program_permissions; "$target" version >/dev/null
+  install -m 0755 "$tmp" "$target"; rm -f "$tmp"; ensure_program_permissions
+  "$target" version >/dev/null 2>&1 || die "下载的 cloudflared 核心无法执行。"
   printf '%s\n' "$target"
 }
 
