@@ -13,9 +13,11 @@ source "$PROJECT/lib/core.sh"
 mkdir -p "$SBM_CACHE" "$SBM_CORE_DIR"
 version=$(tr -d '[:space:]' <"$PROJECT/TESTED_CORE_VERSION")
 sb=$(core_download_version "$version")
+[[ "$sb" != *$'\n'* ]]
 [[ -x "$sb" ]]
 "$sb" version | grep -q "$version"
 cf=$(cloudflared_download_latest)
+[[ "$cf" != *$'\n'* ]]
 [[ -x "$cf" ]]
 "$cf" version | grep -qi cloudflared
 printf 'CORE DOWNLOAD SMOKE PASSED\n'
