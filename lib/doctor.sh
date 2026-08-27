@@ -44,7 +44,7 @@ status_summary() {
 
 doctor_repair_runtime() {
   require_root
-  local candidate
+  local candidate preflight_rc=0
   log_info "修复核心链接、路径权限、配置权限与 $(init_system_label) 运行状态…"
   if [[ ! -x "$SBM_SING_BOX_BIN" ]]; then
     candidate=$(find "$SBM_CORE_DIR/sing-box" -mindepth 2 -maxdepth 2 -type f -name sing-box -perm -u+x -printf '%T@ %p\n' 2>/dev/null | sort -nr | awk 'NR==1 {sub(/^[^ ]+ /, ""); print; exit}')
@@ -56,7 +56,7 @@ doctor_repair_runtime() {
     [[ -z "$candidate" ]] || ln -sfn "$candidate" "$SBM_CLOUDFLARED_BIN"
   fi
   ensure_program_permissions
-  if [[ $(init_system 2>/dev/null || true) == openrc ]]; then ensure_singbox_bind_capability "$(readlink -f "$SBM_SING_BOX_BIN")"; fi
+  prepare_singbox_binary_for_backend "$(readlink -f "$SBM_SING_BOX_BIN")"
   if id "$SBM_SERVICE_USER" >/dev/null 2>&1; then
     set_group_if_exists "$SBM_SERVICE_USER" "$SBM_ETC"
     set_group_if_exists "$SBM_SERVICE_USER" "$SBM_GENERATED_DIR"
@@ -79,8 +79,17 @@ doctor_repair_runtime() {
   service_user_can_read_config || die "$SBM_SERVICE_USER 仍无法读取生成配置。"
   if [[ "$SBM_SKIP_INIT" != 1 ]]; then
     service_exists "$SBM_SERVICE" || die "缺少 $(service_file_path "$SBM_SERVICE")，请重新执行安装命令。"
+    service_stop "$SBM_SERVICE"
     service_reload_manager
     service_reset_failed "$SBM_SERVICE"
+    if [[ $(init_system 2>/dev/null || true) == systemd ]]; then
+      systemd_exec_preflight "$SBM_SING_BOX_BIN" || preflight_rc=$?
+      case "$preflight_rc" in
+        0) ;;
+        2) log_warn 'systemd-run 不可用，跳过沙箱执行预检。' ;;
+        *) runtime_exec_diagnostics "$SBM_SING_BOX_BIN"; die 'systemd 沙箱仍无法执行 sing-box。' ;;
+      esac
+    fi
     singbox_service_reconcile
     if [[ $(jq -r '.tunnel.mode' "$SBM_STATE") != none ]]; then tunnel_reconcile 1; fi
   fi
@@ -106,7 +115,7 @@ doctor_service_failure_detail() {
 
 doctor_run() {
   local repair=${1:-0} failures=0 warnings=0 tmp node id protocol port kind domain path days
-  local enabled endpoint core_target backend low_port_required=0
+  local enabled endpoint core_target backend low_port_required=0 caps preflight_rc
 
   if [[ "$repair" == 1 ]]; then
     if ! (doctor_repair_runtime); then log_error '自动修复未完成，继续输出诊断结果。'; fi
@@ -143,6 +152,18 @@ doctor_run() {
     failures=$((failures + 1))
   fi
 
+  if [[ "$backend" == systemd && -n "$core_target" ]]; then
+    caps=$(singbox_file_capabilities "$core_target")
+    if [[ -z "$caps" ]]; then
+      check_line PASS 'systemd 核心未携带 file capabilities（低端口能力由 unit 提供）'
+    else
+      check_line FAIL "systemd 核心残留 file capabilities，可能触发 203/EXEC：$caps"
+      failures=$((failures + 1))
+      check_line WARN '运行 sb repair 可安全清除；不会影响节点、证书或密钥'
+      warnings=$((warnings + 1))
+    fi
+  fi
+
   if id "$SBM_SERVICE_USER" >/dev/null 2>&1; then
     if service_user_can_execute_core; then check_line PASS "$SBM_SERVICE_USER 可执行 sing-box 核心"
     else check_line FAIL "$SBM_SERVICE_USER 无法执行 sing-box；通常是核心目录缺少遍历权限"; failures=$((failures + 1)); fi
@@ -151,6 +172,20 @@ doctor_run() {
   else
     check_line FAIL "服务用户 $SBM_SERVICE_USER 不存在"
     failures=$((failures + 1))
+  fi
+
+  if [[ "$backend" == systemd && "$SBM_SKIP_INIT" != 1 && "$core_usable" == 1 ]]; then
+    preflight_rc=0
+    systemd_exec_preflight "$SBM_SING_BOX_BIN" || preflight_rc=$?
+    case "$preflight_rc" in
+      0) check_line PASS 'sing-box 通过 systemd 沙箱执行预检' ;;
+      2) check_line WARN 'systemd-run 不可用，未执行沙箱预检'; warnings=$((warnings + 1)) ;;
+      *)
+        check_line FAIL 'sing-box 无法在与正式服务相同的 systemd 沙箱中执行'
+        failures=$((failures + 1))
+        runtime_exec_diagnostics "$SBM_SING_BOX_BIN"
+        ;;
+    esac
   fi
 
   if [[ -x "$SBM_CLOUDFLARED_BIN" ]]; then
@@ -192,6 +227,7 @@ doctor_run() {
       check_line FAIL "$(service_native_name "$SBM_SERVICE") 未运行（$(doctor_service_failure_detail "$SBM_SERVICE")）"
       failures=$((failures + 1))
       service_failure_report "$SBM_SERVICE"
+      runtime_exec_diagnostics "$SBM_SING_BOX_BIN"
       check_line WARN '可运行：sb repair；仍失败时运行：sb logs singbox 100'
       warnings=$((warnings + 1))
     fi
