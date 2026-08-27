@@ -2,7 +2,7 @@
 
 ## 0.1.0-alpha.3
 
-- Add Alpine Linux 3.21-3.24 support with the native OpenRC service manager and `apk` dependency installation.
+- Add Alpine Linux 3.21-3.24 support with the native OpenRC service manager and `apk` dependency installation, including `gcompat` for the official sing-box Linux core.
 - Add a systemd/OpenRC service abstraction for start, stop, enable, status, logs, repair, Tunnel management, and uninstall.
 - Add OpenRC supervised services for sing-box and cloudflared, plus `dcron` periodic jobs for core updates, ACME renewal, and Quick Tunnel refresh.
 - Keep sing-box unprivileged on OpenRC by applying only `cap_net_bind_service` to installed cores for low-port listeners.
