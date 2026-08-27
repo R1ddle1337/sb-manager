@@ -26,7 +26,7 @@ jobs:
           chmod 0755 tests/download-retry-smoke.sh
           git config user.name "sb-manager automation"
           git config user.email "actions@users.noreply.github.com"
-          git add lib/core.sh tests/download-retry-smoke.sh .github/workflows/ci.yml \
+          git add lib/core.sh tests/download-retry-smoke.sh \
             VERSION lib/common.sh tests/install-smoke.sh README.md CHANGELOG.md
           git diff --cached --check
           git commit -m "fix: retry downloads and fail fast on partial assets"
