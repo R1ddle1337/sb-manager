@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 
-SBM_VERSION="${SBM_VERSION:-0.1.0-alpha.1}"
 SBM_PREFIX="${SBM_PREFIX:-/usr/local}"
 SBM_LIB="${SBM_LIB:-${SBM_PREFIX}/lib/sb-manager}"
 SBM_BIN_DIR="${SBM_BIN_DIR:-${SBM_PREFIX}/bin}"
+if [[ -z ${SBM_VERSION:-} ]]; then
+  if [[ -r "$SBM_LIB/VERSION" ]]; then SBM_VERSION=$(tr -d '[:space:]' <"$SBM_LIB/VERSION" 2>/dev/null || true); fi
+  SBM_VERSION=${SBM_VERSION:-0.1.0-alpha.2}
+fi
 SBM_ETC="${SBM_ETC:-/etc/sb-manager}"
 SBM_VAR="${SBM_VAR:-/var/lib/sb-manager}"
 SBM_RUN="${SBM_RUN:-/run/sb-manager}"
@@ -32,7 +35,7 @@ else
   C_RESET=''; C_BOLD=''; C_RED=''; C_GREEN=''; C_YELLOW=''; C_BLUE=''; C_CYAN=''
 fi
 
-log_info() { printf '%s[INFO]%s %s\n' "$C_BLUE" "$C_RESET" "$*"; }
+log_info() { printf '%s[INFO]%s %s\n' "$C_BLUE" "$C_RESET" "$*" >&2; }
 log_ok() { printf '%s[ OK ]%s %s\n' "$C_GREEN" "$C_RESET" "$*"; }
 log_warn() { printf '%s[WARN]%s %s\n' "$C_YELLOW" "$C_RESET" "$*" >&2; }
 log_error() { printf '%s[FAIL]%s %s\n' "$C_RED" "$C_RESET" "$*" >&2; }
@@ -135,6 +138,75 @@ service_restart() {
 service_try_restart() {
   [[ "$SBM_SKIP_SYSTEMD" == "1" ]] && return 0
   if service_exists "$1"; then systemctl daemon-reload; systemctl restart "$1"; fi
+}
+service_wait_active() {
+  local unit=$1 attempts=${2:-20} stable_checks=${3:-3} i state stable=0
+  [[ "$SBM_SKIP_SYSTEMD" == "1" ]] && return 0
+  for ((i=0; i<attempts; i++)); do
+    state=$(systemctl is-active "$unit" 2>/dev/null || true)
+    if [[ "$state" == active ]]; then
+      ((++stable))
+      (( stable >= stable_checks )) && return 0
+    else
+      stable=0
+    fi
+    [[ "$state" == failed ]] && break
+    sleep 0.5
+  done
+  return 1
+}
+service_failure_report() {
+  local unit=$1
+  [[ "$SBM_SKIP_SYSTEMD" == "1" ]] && return 0
+  log_error "$unit 启动失败。"
+  systemctl status "$unit" --no-pager -l >&2 || true
+  journalctl -u "$unit" -n 80 --no-pager -l >&2 || true
+  command_exists namei && {
+    printf '%s\n' '---- 可执行文件路径权限 ----' >&2
+    namei -l "$SBM_SING_BOX_BIN" >&2 || true
+    printf '%s\n' '---- 配置文件路径权限 ----' >&2
+    namei -l "$SBM_CONFIG" >&2 || true
+  }
+}
+ensure_program_permissions() {
+  local path
+  for path in "$(dirname "$SBM_LIB")" "$SBM_LIB" "$SBM_BIN_DIR" "$SBM_CORE_DIR"; do
+    [[ -d "$path" ]] && chmod 0755 "$path"
+  done
+  if [[ -d "$SBM_CORE_DIR" ]]; then
+    find "$SBM_CORE_DIR" -type d -exec chmod 0755 {} +
+    find "$SBM_CORE_DIR" -type f \( -name sing-box -o -name cloudflared \) -exec chmod 0755 {} +
+  fi
+}
+validate_runtime_binary_path() {
+  local label=$1 path=$2
+  [[ -n "$path" ]] || die "$label 安装结果为空。"
+  [[ "$path" != *$'\n'* && "$path" == /* ]] || die "$label 安装结果不是单一绝对路径：$(printf %q "$path")"
+  [[ -x "$path" ]] || die "$label 可执行文件不存在或不可执行：$path"
+}
+service_user_can_execute_core() {
+  local target_uid
+  id "$SBM_SERVICE_USER" >/dev/null 2>&1 || return 1
+  target_uid=$(id -u "$SBM_SERVICE_USER")
+  if [[ ${EUID:-$(id -u)} == "$target_uid" ]]; then
+    "$SBM_SING_BOX_BIN" version >/dev/null 2>&1
+  elif command_exists runuser; then
+    runuser -u "$SBM_SERVICE_USER" -- "$SBM_SING_BOX_BIN" version >/dev/null 2>&1
+  else
+    su -s /bin/sh -c "'$SBM_SING_BOX_BIN' version >/dev/null 2>&1" "$SBM_SERVICE_USER"
+  fi
+}
+service_user_can_read_config() {
+  local target_uid
+  id "$SBM_SERVICE_USER" >/dev/null 2>&1 || return 1
+  target_uid=$(id -u "$SBM_SERVICE_USER")
+  if [[ ${EUID:-$(id -u)} == "$target_uid" ]]; then
+    [[ -r "$SBM_CONFIG" ]]
+  elif command_exists runuser; then
+    runuser -u "$SBM_SERVICE_USER" -- test -r "$SBM_CONFIG"
+  else
+    su -s /bin/sh -c "test -r '$SBM_CONFIG'" "$SBM_SERVICE_USER"
+  fi
 }
 
 safe_install_file() {
