@@ -33,7 +33,7 @@ node_add snell --id snell-http-test --name 'Snell HTTP test' --port 24617 --addr
 [[ $(jq -r '.nodes[]|select(.id=="snell-http-test")|.obfs_mode' "$SBM_STATE") == http ]]
 [[ $(jq -r '.nodes[]|select(.id=="snell-http-test")|.obfs_host' "$SBM_STATE") == example.com ]]
 jq -e '.inbounds[]|select(.tag=="in-snell-test")|.type=="snell" and .version==5 and (.psk|length)>=24 and .users[0].userkey' "$SBM_CONFIG" >/dev/null
-jq -e '.inbounds[]|select(.tag=="in-snell-http-test")|.obfs_mode=="http" and .obfs_host=="example.com"' "$SBM_CONFIG" >/dev/null
+jq -e '.inbounds[]|select(.tag=="in-snell-http-test")|.obfs_mode=="http" and (.obfs_host|not)' "$SBM_CONFIG" >/dev/null
 "$SBM_SING_BOX_BIN" check -c "$SBM_CONFIG"
 "$SBM_SING_BOX_BIN" run -c "$SBM_CONFIG" >"$ROOT/runtime.log" 2>&1 &
 runtime_pid=$!

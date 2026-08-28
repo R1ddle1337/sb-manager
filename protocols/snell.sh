@@ -5,9 +5,8 @@
 # wire protocol is compatible; v5 is the server-side version that exposes the
 # optional HTTP obfuscation setting.
 protocol_snell_render() {
-  local node=$1 credentials=$2 node_secret=${3:-'{}'} obfs_mode obfs_host base
+  local node=$1 credentials=$2 node_secret=${3:-'{}'} obfs_mode base
   obfs_mode=$(jq -r '.obfs_mode // "none"' <<<"$node")
-  obfs_host=$(jq -r '.obfs_host // "bing.com"' <<<"$node")
   base=$(jq -n \
     --arg tag "in-$(jq -r '.id' <<<"$node")" \
     --arg listen "$(jq -r '.listen // "::"' <<<"$node")" \
@@ -16,11 +15,7 @@ protocol_snell_render() {
     --argjson users "$(jq '[.[] | {name,userkey}]' <<<"$credentials")" \
     --arg obfs_mode "$obfs_mode" \
     '{type:"snell",tag:$tag,listen:$listen,listen_port:$port,version:5,psk:$psk,users:$users,obfs_mode:$obfs_mode}')
-  if [[ "$obfs_mode" == http ]]; then
-    jq --arg host "$obfs_host" '. + {obfs_host:$host}' <<<"$base"
-  else
-    printf '%s\n' "$base"
-  fi
+  printf '%s\n' "$base"
 }
 
 protocol_snell_share() {
