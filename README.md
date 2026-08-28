@@ -2,7 +2,7 @@
 
 `sb-manager` 是一个面向 systemd/OpenRC Linux 的、状态驱动的 sing-box 多协议管理脚本。安装后输入 `sb` 即可打开中文交互面板，也可以使用完整的非交互 CLI。
 
-> 当前版本：`0.1.0-alpha.14`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
+> 当前版本：`0.1.0-alpha.15`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
 
 ## 功能
 
@@ -37,6 +37,8 @@ AnyTLS 的 `443/TCP` 与 Hysteria2 的 `443/UDP` 可以同时使用。VMess-WS �
 ### 端口规划
 
 sing-box 官方不会为这些协议强制规定唯一端口，文档示例常用 `443`（TLS/QUIC）、`8388`（Shadowsocks）和 `8443`（TLS/QUIC 备用）。同一 IP 上的多个 TCP/TLS 入站不能同时绑定 `443/TCP`；要统一走 443，需要显式启用下面的 Nginx Stream SNI 透传功能。面板会按传输类型检查端口冲突：TCP 与 UDP 可以使用同一个数字端口，但两个 TCP 入站不能重复占用；推荐端口被占用时会依次建议 `8443`、`9443`、`10443`，也可以手工输入其他端口。API `9090`、订阅服务 `9080` 和 mixed 客户端 `2080` 默认只监听 loopback。
+
+证书按域名保存，AnyTLS、Trojan、VLESS TLS、NaiveProxy 等节点可以复用同一域名证书，不需要按协议重复申请。证书复用不等于端口复用：同一证书的多个 TCP 节点仍需使用不同端口；如果要让它们共同使用公网 `443/TCP`，请为每个节点配置唯一 SNI 并启用 Nginx Stream 复用。`443/TCP` 与 `443/UDP` 可以并存，但 Hysteria2、TUIC 等 UDP 入站之间仍不能直接共用同一端口。
 
 ### 可选 Nginx Stream 端口复用
 
@@ -109,7 +111,7 @@ sudo bash install.sh
 bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/install.sh)
 ```
 
-`install.sh` 默认先解析 `main` 的最新 commit SHA，再按该不可变 commit 下载源码；也可设置 `SBM_INSTALL_REF=v0.1.0-alpha.14` 固定版本。显式指定 `main` 等可变分支仍需 `SBM_ALLOW_MUTABLE_REF=1`。离线发布包可使用 `build-release.sh` 生成，并核验 `SHA256SUMS`、`PROVENANCE-SHA256SUMS` 及可选的 GPG 签名文件。
+`install.sh` 默认先解析 `main` 的最新 commit SHA，再按该不可变 commit 下载源码；也可设置 `SBM_INSTALL_REF=v0.1.0-alpha.15` 固定版本。显式指定 `main` 等可变分支仍需 `SBM_ALLOW_MUTABLE_REF=1`。离线发布包可使用 `build-release.sh` 生成，并核验 `SHA256SUMS`、`PROVENANCE-SHA256SUMS` 及可选的 GPG 签名文件。
 
 安装完成后：
 

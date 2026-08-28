@@ -6,7 +6,7 @@ SBM_LIB="${SBM_LIB:-${SBM_PREFIX}/lib/sb-manager}"
 SBM_BIN_DIR="${SBM_BIN_DIR:-${SBM_PREFIX}/bin}"
 if [[ -z ${SBM_VERSION:-} ]]; then
   if [[ -r "$SBM_LIB/VERSION" ]]; then SBM_VERSION=$(tr -d '[:space:]' <"$SBM_LIB/VERSION" 2>/dev/null || true); fi
-  SBM_VERSION=${SBM_VERSION:-0.1.0-alpha.14}
+  SBM_VERSION=${SBM_VERSION:-0.1.0-alpha.15}
 fi
 SBM_ETC="${SBM_ETC:-/etc/sb-manager}"
 SBM_VAR="${SBM_VAR:-/var/lib/sb-manager}"
@@ -282,9 +282,9 @@ confirm() {
 }
 
 prompt_value() {
-  local __var=$1 prompt=$2 default=${3:-} value
-  if [[ -n "$default" ]]; then read -r -p "$prompt [$default]: " value; value=${value:-$default}; else read -r -p "$prompt: " value; fi
-  printf -v "$__var" '%s' "$value"
+  local __var=$1 prompt=$2 default=${3:-} input_value
+  if [[ -n "$default" ]]; then read -r -p "$prompt [$default]: " input_value; input_value=${input_value:-$default}; else read -r -p "$prompt: " input_value; fi
+  printf -v "$__var" '%s' "$input_value"
 }
 prompt_secret() {
   local __var=$1 prompt=$2 value

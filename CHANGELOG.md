@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-alpha.15
+
+- Use the numbered node selector for the panel's share-link and client-export action, with an explicit all-nodes option.
+- Document certificate reuse separately from listener-port reuse and clarify the direct TCP/UDP and Nginx Stream constraints.
+
 ## 0.1.0-alpha.14
 
 - Keep Reality SNI and ShadowTLS handshake targets separate from the client endpoint: omitted endpoints now use the detected public IPv4.

@@ -26,30 +26,35 @@ ui_header() {
 }
 
 ui_select_node() {
-  local __var=$1 id choice node i
+  local __var=$1 allow_all=${2:-0} selected_id choice node i
   local -a ids=()
   while IFS= read -r node; do
     [[ -n "$node" ]] || continue
-    id=$(jq -r '.id' <<<"$node")
-    ids+=("$id")
-    printf '%d. %-18s %s\n' "${#ids[@]}" "$id" "$(node_protocol_label "$(jq -r '.protocol' <<<"$node")")"
+    selected_id=$(jq -r '.id' <<<"$node")
+    ids+=("$selected_id")
+    printf '%d. %-18s %s\n' "${#ids[@]}" "$selected_id" "$(node_protocol_label "$(jq -r '.protocol' <<<"$node")")"
   done < <(state_list_nodes)
   ((${#ids[@]} > 0)) || { log_warn '当前没有节点。'; return 1; }
+  [[ "$allow_all" == 1 ]] && printf 'a. 全部节点\n'
   printf 'm. 手动输入节点 ID\n0. 返回\n'
   prompt_value choice '选择节点' '1'
   case "$choice" in
     0) return 1;;
-    m|M) prompt_value id '输入节点 ID' '';;
+    a|A)
+      [[ "$allow_all" == 1 ]] || { log_error '选择无效'; return 1; }
+      selected_id=all
+      ;;
+    m|M) prompt_value selected_id '输入节点 ID' '';;
     * )
       if [[ "$choice" =~ ^[1-9][0-9]*$ ]] && (( choice <= ${#ids[@]} )); then
-        id=${ids[$((choice - 1))]}
+        selected_id=${ids[$((choice - 1))]}
       else
-        id=$choice
+        selected_id=$choice
       fi
       ;;
   esac
-  state_node_exists "$id" || { log_error "节点不存在：$id"; return 1; }
-  printf -v "$__var" '%s' "$id"
+  [[ "$selected_id" == all ]] || state_node_exists "$selected_id" || { log_error "节点不存在：$selected_id"; return 1; }
+  printf -v "$__var" '%s' "$selected_id"
 }
 
 ui_client_address_default() {
@@ -71,13 +76,13 @@ ui_require_certificate() {
 }
 
 ui_select_certificate_domain() {
-  local __var=$1 choice domain days i
+  local __var=$1 choice selected_domain days i cert_domain
   local -a domains=()
-  while IFS= read -r domain; do
-    [[ -n "$domain" ]] || continue
-    [[ -s "$SBM_CERTS/$domain/fullchain.pem" && -s "$SBM_CERTS/$domain/key.pem" ]] || continue
-    openssl x509 -in "$SBM_CERTS/$domain/fullchain.pem" -noout -checkend 0 >/dev/null 2>&1 || continue
-    domains+=("$domain")
+  while IFS= read -r cert_domain; do
+    [[ -n "$cert_domain" ]] || continue
+    [[ -s "$SBM_CERTS/$cert_domain/fullchain.pem" && -s "$SBM_CERTS/$cert_domain/key.pem" ]] || continue
+    openssl x509 -in "$SBM_CERTS/$cert_domain/fullchain.pem" -noout -checkend 0 >/dev/null 2>&1 || continue
+    domains+=("$cert_domain")
   done < <(jq -r '[.certificates[]?.domain] | unique[]' "$SBM_STATE")
 
   if ((${#domains[@]} == 0)); then
@@ -90,25 +95,25 @@ ui_select_certificate_domain() {
 
   printf '可用的 TLS 证书：\n'
   for ((i=0; i<${#domains[@]}; i++)); do
-    domain=${domains[$i]}
-    days=$(x509_days_remaining "$SBM_CERTS/$domain/fullchain.pem" 2>/dev/null || printf '?')
-    printf '%d. %s（剩余 %s 天）\n' "$((i + 1))" "$domain" "$days"
+    selected_domain=${domains[$i]}
+    days=$(x509_days_remaining "$SBM_CERTS/$selected_domain/fullchain.pem" 2>/dev/null || printf '?')
+    printf '%d. %s（剩余 %s 天）\n' "$((i + 1))" "$selected_domain" "$days"
   done
   printf 'm. 手动输入域名\n0. 返回\n'
   prompt_value choice '选择 TLS 证书域名' '1'
   case "$choice" in
     m|M)
-      prompt_value domain 'TLS 域名（必须已有证书）' ''
+      prompt_value selected_domain 'TLS 域名（必须已有证书）' ''
       ;;
     0) return 1;;
     * )
       [[ "$choice" =~ ^[1-9][0-9]*$ ]] || { log_error '选择无效'; return 1; }
       (( choice <= ${#domains[@]} )) || { log_error '选择无效'; return 1; }
-      domain=${domains[$((choice - 1))]}
+      selected_domain=${domains[$((choice - 1))]}
       ;;
   esac
-  ui_require_certificate "$domain" || return 1
-  printf -v "$__var" '%s' "$domain"
+  ui_require_certificate "$selected_domain" || return 1
+  printf -v "$__var" '%s' "$selected_domain"
 }
 
 ui_port_default() {
@@ -229,6 +234,17 @@ ui_manage_nodes() {
     7) confirm '轮换后旧链接会立即失效，继续？' N && node_rotate "$id";;
     8) confirm "确认删除 $id？" N && node_delete "$id";;
   esac
+}
+
+ui_share_export_menu() {
+  local id
+  ui_select_node id 1 || return
+  if [[ "$id" == all ]]; then
+    node_share_all
+    export_all_outbounds
+  else
+    node_share "$id" 1
+  fi
 }
 
 ui_cert_menu() {
@@ -357,7 +373,7 @@ ui_main() {
     prompt_value choice '请选择' '0'
     case "$choice" in
       1) status_summary; node_list;; 2) ui_add_node;; 3) ui_manage_nodes;;
-      4) node_list; local id; prompt_value id '节点 ID（输入 all 导出全部）' 'all'; [[ "$id" == all ]] && { node_share_all; export_all_outbounds; } || node_share "$id" 1;;
+      4) ui_share_export_menu || continue;;
       5) ui_cert_menu;; 6) ui_tunnel_menu;; 7) ui_update_menu;; 8) show_logs all 100;; 9) ui_doctor_menu;; 10) ui_backup_menu;; 11) ui_settings_menu;;
       12) ui_uninstall_menu; [[ ${SBM_UNINSTALLED:-0} == 1 ]] && return;;
       0) return;; *) log_error '选择无效';;

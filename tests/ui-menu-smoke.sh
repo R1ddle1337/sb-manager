@@ -62,6 +62,11 @@ ui_select_node selected_node >"$ROOT/node-selector.out"
 [[ "$selected_node" == alpha-node ]]
 grep -Eq '^1\. alpha-node[[:space:]]+AnyTLS$' "$ROOT/node-selector.out"
 grep -Eq '^2\. beta-node[[:space:]]+Trojan TLS$' "$ROOT/node-selector.out"
+node_share() { printf 'shared=%s\n' "$1"; }
+node_share_all() { printf 'shared=all\n'; }
+export_all_outbounds() { printf 'exported=all\n'; }
+ui_share_export_menu >"$ROOT/share-selector.out"
+grep -Fq 'shared=alpha-node' "$ROOT/share-selector.out"
 
 # Domain endpoints take precedence; address-only nodes default to the detected public IPv4.
 jq '.settings.public_ipv4="198.51.100.10"' "$SBM_STATE" >"$ROOT/state.new"
