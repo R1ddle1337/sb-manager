@@ -11,21 +11,29 @@ if [[ -f "$SCRIPT_PATH" ]]; then
   fi
 fi
 
-# Remote source bootstrap. Require an immutable tag or commit so a mutable
-# branch cannot silently replace the installer source. Development users can
-# still opt in explicitly with SBM_ALLOW_MUTABLE_REF=1.
+# Remote source bootstrap. The default "latest" mode resolves main to its
+# current immutable commit before downloading; explicit refs may pin a tag or
+# commit. Mutable branch refs require an explicit development opt-in.
 REPOSITORY=${SBM_INSTALL_REPOSITORY:-R1ddle1337/sb-manager}
-DEFAULT_INSTALL_REF=v0.1.0-alpha.7
+DEFAULT_INSTALL_REF=latest
 REF=${SBM_INSTALL_REF:-$DEFAULT_INSTALL_REF}
-if [[ ${SBM_ALLOW_MUTABLE_REF:-0} != 1 && "$REF" =~ ^(main|master|develop|development|trunk)$ ]]; then
-  echo '拒绝使用可变分支；请设置不可变的 SBM_INSTALL_REF（tag 或 commit SHA）。' >&2
+command -v curl >/dev/null 2>&1 || { echo '缺少 curl，无法下载安装包。' >&2; exit 1; }
+command -v tar >/dev/null 2>&1 || { echo '缺少 tar，无法解压安装包。' >&2; exit 1; }
+if [[ "$REF" == latest ]]; then
+  printf '正在解析 GitHub main 的最新 commit…\n' >&2
+  latest_json=$(curl --fail --location --silent --show-error \
+    --connect-timeout 15 --max-time 60 -H 'Accept: application/vnd.github+json' \
+    -H 'User-Agent: sb-manager' "https://api.github.com/repos/${REPOSITORY}/commits/main") \
+    || { echo '无法解析仓库最新 commit。' >&2; exit 1; }
+  REF=$(printf '%s\n' "$latest_json" | sed -n 's/.*"sha"[[:space:]]*:[[:space:]]*"\([0-9a-fA-F]\{40\}\)".*/\1/p' | head -n1)
+  [[ "$REF" =~ ^[0-9a-fA-F]{40}$ ]] || { echo 'GitHub API 未返回有效 commit SHA。' >&2; exit 1; }
+  printf '使用最新不可变 commit：%s\n' "$REF" >&2
+elif [[ ${SBM_ALLOW_MUTABLE_REF:-0} != 1 && "$REF" =~ ^(main|master|develop|development|trunk)$ ]]; then
+  echo '拒绝使用可变分支；请设置不可变的 SBM_INSTALL_REF（tag 或 commit SHA），或省略它以自动解析最新 commit。' >&2
   exit 1
 fi
 ARCHIVE_URL=${SBM_INSTALL_ARCHIVE_URL:-https://github.com/${REPOSITORY}/archive/${REF}.tar.gz}
 ARCHIVE_SHA256=${SBM_INSTALL_SHA256:-}
-
-command -v curl >/dev/null 2>&1 || { echo '缺少 curl，无法下载安装包。' >&2; exit 1; }
-command -v tar >/dev/null 2>&1 || { echo '缺少 tar，无法解压安装包。' >&2; exit 1; }
 
 TMPDIR_INSTALL=$(mktemp -d)
 cleanup() { rm -rf "$TMPDIR_INSTALL"; }

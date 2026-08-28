@@ -60,8 +60,7 @@ Alpine 默认可能没有 Bash 和 curl，先安装最小引导依赖：
 
 ```bash
 apk add --no-cache bash curl ca-certificates
-SBM_INSTALL_REF=v0.1.0-alpha.7 SBM_INSTALL_SHA256=a4159d06f0d88687dd98b45d60e5886a47b8b8cbd4edf0866d8d239837c1bcae \
-bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/v0.1.0-alpha.7/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/main/install.sh)
 ```
 
 安装器会继续补齐 OpenRC、dcron、libcap、gcompat、shadow、jq、openssl、iproute2 等依赖。OpenRC 服务日志位于：
@@ -80,7 +79,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/v0.1.0
 建议先查看安装脚本，再执行：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/v0.1.0-alpha.7/install.sh -o install.sh
+curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/main/install.sh -o install.sh
 less install.sh
 sudo bash install.sh
 ```
@@ -88,12 +87,10 @@ sudo bash install.sh
 直接执行（生产环境必须固定不可变 commit/tag，并提供源码摘要）：
 
 ```bash
-SBM_INSTALL_REF=v0.1.0-alpha.7 \
-SBM_INSTALL_SHA256=a4159d06f0d88687dd98b45d60e5886a47b8b8cbd4edf0866d8d239837c1bcae \
-bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/v0.1.0-alpha.7/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/main/install.sh)
 ```
 
-`install.sh` 拒绝 `main`、`master` 等可变分支；仅在临时开发环境明确设置 `SBM_ALLOW_MUTABLE_REF=1` 才会放行。离线发布包可使用 `build-release.sh` 生成，并核验 `SHA256SUMS`、`PROVENANCE-SHA256SUMS` 及可选的 GPG 签名文件。
+`install.sh` 默认先解析 `main` 的最新 commit SHA，再按该不可变 commit 下载源码；也可设置 `SBM_INSTALL_REF=v0.1.0-alpha.7` 固定版本。显式指定 `main` 等可变分支仍需 `SBM_ALLOW_MUTABLE_REF=1`。离线发布包可使用 `build-release.sh` 生成，并核验 `SHA256SUMS`、`PROVENANCE-SHA256SUMS` 及可选的 GPG 签名文件。
 
 安装完成后：
 
@@ -105,12 +102,10 @@ sb
 
 ```bash
 # 安装后不自动打开菜单
-SBM_INSTALL_REF=v0.1.0-alpha.7 SBM_INSTALL_SHA256=a4159d06f0d88687dd98b45d60e5886a47b8b8cbd4edf0866d8d239837c1bcae \
-bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/v0.1.0-alpha.7/install.sh) --no-menu
+bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/main/install.sh) --no-menu
 
 # 安装指定 sing-box 稳定版本
-SBM_INSTALL_REF=v0.1.0-alpha.7 SBM_INSTALL_SHA256=a4159d06f0d88687dd98b45d60e5886a47b8b8cbd4edf0866d8d239837c1bcae \
-bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/v0.1.0-alpha.7/install.sh) --core-version 1.13.19
+bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/main/install.sh) --core-version 1.13.19
 ```
 
 也可以克隆源码后安装：
@@ -118,7 +113,6 @@ bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/v0.1.0
 ```bash
 git clone https://github.com/R1ddle1337/sb-manager.git
 cd sb-manager
-git checkout v0.1.0-alpha.7  # tag commit is immutable
 sudo ./setup.sh
 ```
 

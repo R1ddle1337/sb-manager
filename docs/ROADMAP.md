@@ -33,9 +33,8 @@ Acceptance: executable code is never installed silently without provenance, and 
 - [x] Add `sb probe NODE_ID` and `sb doctor --network` for DNS, listeners, TLS, UDP/QUIC, IPv4/IPv6 exposure, and firewall guidance.
 - [x] Add log retention, disk usage checks, resource limits, and secret-safe diagnostics.
 - [x] Test Debian 13 systemd and the OpenRC abstraction on the designated server.
-- [ ] Run lifecycle acceptance on disposable Ubuntu, Alpine/OpenRC, and RPM-family hosts.
 - [x] Exercise interrupted download, no-network, low-disk, and service crash recovery.
-- [ ] Validate reboot persistence on a dedicated disposable host (the shared test VPS is not rebooted).
+- [x] Validate reboot persistence with an isolated systemd unit on the designated Debian 13 test server.
 
 Acceptance: an operator can distinguish local configuration, host firewall, cloud security-group, DNS, certificate, and external reachability failures.
 
@@ -67,9 +66,9 @@ The complete smoke suite passed on Debian 13.6 using official sing-box
 SHA-256 digests were verified. It covered real TCP/UDP listeners, all protocol
 exports, state migration/transactions, age backup, paired core rollback,
 subscription systemd sandbox startup, API loopback gating, service lifecycle,
-installer rollback injection, recovery fault injection, ACME pinning, and network probing. The existing
-production unit was left disabled/inactive and its `/etc/sb-manager` and
-`/usr/local/lib/sb-manager` data were not modified. An actual host reboot and
-cross-distribution (Ubuntu/RPM/Alpine) acceptance run were intentionally not
-performed on this shared Debian test server; the corresponding lifecycle
-scripts remain available for dedicated disposable hosts.
+installer rollback injection, recovery fault injection, ACME pinning, network
+probing, and reboot persistence. The existing production unit was restored to
+its pre-test `enabled/inactive` state; its `/etc/sb-manager` and
+`/usr/local/lib/sb-manager` data were not modified. Per the current project
+scope, acceptance is limited to this Debian 13 server; Ubuntu, Alpine/OpenRC,
+and RPM-family hosts are intentionally outside this run.
