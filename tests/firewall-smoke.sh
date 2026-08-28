@@ -10,6 +10,7 @@ export SBM_STATE="$SBM_ETC/state.json" SBM_GENERATED_DIR="$SBM_ETC/generated"
 export SBM_CONFIG="$SBM_GENERATED_DIR/config.json"
 export SBM_SECRETS="$SBM_ETC/secrets" SBM_CERTS="$SBM_ETC/certs" SBM_BACKUPS="$SBM_VAR/backups" SBM_EXPORTS="$SBM_VAR/exports" SBM_CACHE="$SBM_VAR/cache" SBM_CORE_DIR="$ROOT/cores"
 export SBM_LOCK="$SBM_RUN/manager.lock" SBM_SKIP_INIT=1 SBM_SKIP_SYSTEMD=1 SBM_SERVICE_USER=sbmanager NO_COLOR=1
+export SBM_SING_BOX_BIN=/bin/true
 
 mkdir -p "$ROOT/bin"
 cat >"$ROOT/bin/firewall-fake" <<'EOF_FAKE'
