@@ -15,8 +15,8 @@ fi
 # branch cannot silently replace the installer source. Development users can
 # still opt in explicitly with SBM_ALLOW_MUTABLE_REF=1.
 REPOSITORY=${SBM_INSTALL_REPOSITORY:-R1ddle1337/sb-manager}
-REF=${SBM_INSTALL_REF:-}
-[[ -n "$REF" ]] || { echo '请设置 SBM_INSTALL_REF 为不可变 tag 或 commit SHA。' >&2; exit 1; }
+DEFAULT_INSTALL_REF=v0.1.0-alpha.7
+REF=${SBM_INSTALL_REF:-$DEFAULT_INSTALL_REF}
 if [[ ${SBM_ALLOW_MUTABLE_REF:-0} != 1 && "$REF" =~ ^(main|master|develop|development|trunk)$ ]]; then
   echo '拒绝使用可变分支；请设置不可变的 SBM_INSTALL_REF（tag 或 commit SHA）。' >&2
   exit 1

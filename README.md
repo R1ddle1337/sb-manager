@@ -60,8 +60,8 @@ Alpine 默认可能没有 Bash 和 curl，先安装最小引导依赖：
 
 ```bash
 apk add --no-cache bash curl ca-certificates
-SBM_INSTALL_REF=<immutable-commit-or-tag> SBM_INSTALL_SHA256=<sha256> \
-bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/<immutable-commit-or-tag>/install.sh)
+SBM_INSTALL_REF=v0.1.0-alpha.7 SBM_INSTALL_SHA256=<sha256> \
+bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/v0.1.0-alpha.7/install.sh)
 ```
 
 安装器会继续补齐 OpenRC、dcron、libcap、gcompat、shadow、jq、openssl、iproute2 等依赖。OpenRC 服务日志位于：
@@ -80,7 +80,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/<immut
 建议先查看安装脚本，再执行：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/<immutable-commit-or-tag>/install.sh -o install.sh
+curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/v0.1.0-alpha.7/install.sh -o install.sh
 less install.sh
 sudo bash install.sh
 ```
@@ -88,9 +88,9 @@ sudo bash install.sh
 直接执行（生产环境必须固定不可变 commit/tag，并提供源码摘要）：
 
 ```bash
-SBM_INSTALL_REF=<immutable-commit-or-tag> \
+SBM_INSTALL_REF=v0.1.0-alpha.7 \
 SBM_INSTALL_SHA256=<64-hex-source-archive-sha256> \
-bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/<immutable-commit-or-tag>/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/v0.1.0-alpha.7/install.sh)
 ```
 
 `install.sh` 拒绝 `main`、`master` 等可变分支；仅在临时开发环境明确设置 `SBM_ALLOW_MUTABLE_REF=1` 才会放行。离线发布包可使用 `build-release.sh` 生成，并核验 `SHA256SUMS`、`PROVENANCE-SHA256SUMS` 及可选的 GPG 签名文件。
@@ -105,12 +105,12 @@ sb
 
 ```bash
 # 安装后不自动打开菜单
-SBM_INSTALL_REF=<immutable-commit-or-tag> SBM_INSTALL_SHA256=<sha256> \
-bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/<immutable-commit-or-tag>/install.sh) --no-menu
+SBM_INSTALL_REF=v0.1.0-alpha.7 SBM_INSTALL_SHA256=<sha256> \
+bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/v0.1.0-alpha.7/install.sh) --no-menu
 
 # 安装指定 sing-box 稳定版本
-SBM_INSTALL_REF=<immutable-commit-or-tag> SBM_INSTALL_SHA256=<sha256> \
-bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/<immutable-commit-or-tag>/install.sh) --core-version 1.13.19
+SBM_INSTALL_REF=v0.1.0-alpha.7 SBM_INSTALL_SHA256=<sha256> \
+bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/v0.1.0-alpha.7/install.sh) --core-version 1.13.19
 ```
 
 也可以克隆源码后安装：
@@ -118,7 +118,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/<immut
 ```bash
 git clone https://github.com/R1ddle1337/sb-manager.git
 cd sb-manager
-git checkout <immutable-commit-or-tag>
+git checkout v0.1.0-alpha.7
 sudo ./setup.sh
 ```
 
@@ -358,6 +358,14 @@ SBM_TEST_SING_BOX=/path/to/sing-box bash tests/run.sh
 SBM_TEST_SING_BOX=/path/to/sing-box bash tests/install-smoke.sh
 bash tests/systemd-exec-smoke.sh
 bash tests/openrc-lifecycle.sh
+```
+
+在指定 Debian 13 测试机上运行完整验收（官方核心目录放在仓库外）：
+
+```bash
+SBM_TEST_SING_BOX_STABLE=/opt/sing-box-1.13.19/sing-box \
+SBM_TEST_SING_BOX_PREVIEW=/opt/sing-box-1.14.0-rc.1/sing-box \
+bash tests/remote-debian13-suite.sh
 ```
 
 生成离线单文件安装器：

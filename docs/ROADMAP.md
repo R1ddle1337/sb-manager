@@ -33,7 +33,8 @@ Acceptance: executable code is never installed silently without provenance, and 
 - [x] Add `sb probe NODE_ID` and `sb doctor --network` for DNS, listeners, TLS, UDP/QUIC, IPv4/IPv6 exposure, and firewall guidance.
 - [x] Add log retention, disk usage checks, resource limits, and secret-safe diagnostics.
 - [x] Test Debian, Ubuntu, Alpine/OpenRC, and supported RPM-family lifecycle paths.
-- [ ] Exercise reboot, interrupted download, no-network, low-disk, and service crash recovery.
+- [x] Exercise interrupted download, no-network, low-disk, and service crash recovery.
+- [ ] Validate reboot persistence on a dedicated disposable host (the shared test VPS is not rebooted).
 
 Acceptance: an operator can distinguish local configuration, host firewall, cloud security-group, DNS, certificate, and external reachability failures.
 
@@ -65,7 +66,7 @@ The complete smoke suite passed on Debian 13.6 using official sing-box
 SHA-256 digests were verified. It covered real TCP/UDP listeners, all protocol
 exports, state migration/transactions, age backup, paired core rollback,
 subscription systemd sandbox startup, API loopback gating, service lifecycle,
-installer rollback injection, ACME pinning, and network probing. The existing
+installer rollback injection, recovery fault injection, ACME pinning, and network probing. The existing
 production unit was left disabled/inactive and its `/etc/sb-manager` and
 `/usr/local/lib/sb-manager` data were not modified. An actual host reboot and
 cross-distribution (Ubuntu/RPM/Alpine) acceptance run were intentionally not

@@ -257,7 +257,7 @@ _core_set_policy() {
   case "$policy" in manual|notify|patch|stable) ;; *) die "策略必须是 manual、notify、patch 或 stable。";; esac
   candidate=$(state_candidate)
   jq --arg p "$policy" '.settings.core_update_policy=$p' "$SBM_STATE" >"$candidate"
-  apply_candidate_state "$candidate" core-policy
+  if ! apply_candidate_state "$candidate" core-policy; then rm -f "$candidate"; return 1; fi
   rm -f "$candidate"
   log_ok "自动更新策略：$policy"
 }

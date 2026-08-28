@@ -75,4 +75,7 @@ cmp "$ROOT/fetched.json" "$SBM_SUBSCRIPTIONS/$digest.profile.json"
 "$SBM_SING_BOX_BIN" check -c "$ROOT/fetched.json"
 subscription_revoke "$token" >/dev/null
 [[ $(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/sub/$token") == 404 ]]
+subscription_reconcile 1
+! systemctl is-active --quiet "$UNIT"
+[[ ! -e "/run/systemd/system/$UNIT" ]]
 printf 'SUBSCRIPTION SYSTEMD SMOKE PASSED\n'

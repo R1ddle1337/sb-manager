@@ -394,6 +394,9 @@ snapshot_restore() {
   if [[ "$SBM_SKIP_INIT" != "1" ]] && service_exists "$SBM_SERVICE"; then
     singbox_service_reconcile || return 1
   fi
+  if declare -F subscription_reconcile >/dev/null 2>&1; then
+    subscription_reconcile 1 || return 1
+  fi
 }
 
 _state_transaction_run() {

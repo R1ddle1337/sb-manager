@@ -51,7 +51,7 @@ _cert_setup_cloudflare() {
   chmod 0600 "$tmp"; mv "$tmp" "$SBM_CF_DNS_ENV"
   candidate=$(state_candidate)
   jq --arg e "$email" '.settings.acme_email=$e | .settings.acme_dns_provider="dns_cf"' "$SBM_STATE" >"$candidate"
-  apply_candidate_state "$candidate" acme-settings
+  if ! apply_candidate_state "$candidate" acme-settings; then rm -f "$candidate"; return 1; fi
   rm -f "$candidate"
   log_ok "Cloudflare DNS-01 凭据已保存（不会在面板中回显）。"
 }
@@ -95,7 +95,7 @@ _cert_record_state() {
   jq --arg d "$domain" --arg now "$(now_iso)" --arg cert "$SBM_CERTS/$domain/fullchain.pem" --arg key "$SBM_CERTS/$domain/key.pem" '
     .certificates |= (map(select(.domain!=$d)) + [{domain:$d,provider:"acme.sh/dns_cf",key_type:"ec-256",certificate_path:$cert,key_path:$key,updated_at:$now}])
   ' "$SBM_STATE" >"$candidate"
-  apply_candidate_state "$candidate" "cert-$domain"
+  if ! apply_candidate_state "$candidate" "cert-$domain"; then rm -f "$candidate"; return 1; fi
   rm -f "$candidate"
 }
 

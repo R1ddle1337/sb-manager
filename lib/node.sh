@@ -223,7 +223,7 @@ _node_set_enabled() {
   state_node_exists "$id" || die "节点不存在：$id"
   candidate=$(state_candidate)
   jq --arg id "$id" --argjson value "$value" '(.nodes[] | select(.id==$id) | .enabled)=$value' "$SBM_STATE" >"$candidate"
-  apply_candidate_state "$candidate" "${value}-$(printf '%s' "$id")"
+  if ! apply_candidate_state "$candidate" "${value}-$(printf '%s' "$id")"; then rm -f "$candidate"; return 1; fi
   rm -f "$candidate"
 }
 node_enable() { with_state_transaction node-enable _node_set_enabled "$1" true; }
@@ -234,7 +234,7 @@ _node_delete() {
   state_node_exists "$id" || die "节点不存在：$id"
   candidate=$(state_candidate)
   jq --arg id "$id" '.nodes |= map(select(.id!=$id)) | if .tunnel.node_id==$id then .tunnel={mode:"none",node_id:null,domain:null,client_address:null,protocol:"http2"} else . end' "$SBM_STATE" >"$candidate"
-  apply_candidate_state "$candidate" "delete-$id"
+  if ! apply_candidate_state "$candidate" "delete-$id"; then rm -f "$candidate"; return 1; fi
   rm -f "$candidate" "$(state_secret_path "$id")"
   rm -rf -- "$(state_user_secret_dir "$id")"
   log_ok "已删除节点：$id"
@@ -284,7 +284,7 @@ _node_set() {
   done
   protocol=$(jq -r --arg id "$id" '.nodes[]|select(.id==$id)|.protocol' "$candidate")
   [[ "$protocol" == vmess-ws-cf || -n $(jq -r --arg id "$id" '.nodes[]|select(.id==$id)|.server_address // ""' "$candidate") ]] || log_warn "节点尚未设置客户端服务器地址。"
-  apply_candidate_state "$candidate" "edit-$id"
+  if ! apply_candidate_state "$candidate" "edit-$id"; then rm -f "$candidate"; return 1; fi
   rm -f "$candidate"
 }
 node_set() { local id=$1; shift; with_state_transaction node-edit _node_set "$id" "$@"; }
@@ -332,7 +332,7 @@ _node_user_add() {
     mv "$candidate.tmp" "$candidate"
     log_warn "Shadowsocks 节点已切换到 2022 多用户模式；原单用户分享链接需要重新导出。"
   fi
-  apply_candidate_state "$candidate" "user-add-$node_id-$user_id"
+  if ! apply_candidate_state "$candidate" "user-add-$node_id-$user_id"; then rm -f "$candidate"; return 1; fi
   rm -f "$candidate"
   log_ok "已添加用户：$node_id/$user_id"
 }
@@ -345,7 +345,7 @@ _node_user_set_enabled() {
   jq --arg nid "$node_id" --arg uid "$user_id" --argjson value "$value" '
     (.nodes[] | select(.id==$nid) | .users[] | select(.id==$uid) | .enabled)=$value
   ' "$SBM_STATE" >"$candidate"
-  apply_candidate_state "$candidate" "user-$value-$node_id-$user_id"
+  if ! apply_candidate_state "$candidate" "user-$value-$node_id-$user_id"; then rm -f "$candidate"; return 1; fi
   rm -f "$candidate"
 }
 node_user_enable() { with_state_transaction user-enable _node_user_set_enabled "$1" "$2" true; }
@@ -358,7 +358,7 @@ _node_user_delete() {
   jq --arg nid "$node_id" --arg uid "$user_id" '
     (.nodes[] | select(.id==$nid) | .users) |= map(select(.id!=$uid))
   ' "$SBM_STATE" >"$candidate"
-  apply_candidate_state "$candidate" "user-delete-$node_id-$user_id"
+  if ! apply_candidate_state "$candidate" "user-delete-$node_id-$user_id"; then rm -f "$candidate"; return 1; fi
   rm -f "$candidate" "$(state_user_secret_path "$node_id" "$user_id")"
   log_ok "已删除用户：$node_id/$user_id"
 }
@@ -370,7 +370,7 @@ _settings_set_default_address() {
   validate_address "$address" || die "无效地址：$address"
   candidate=$(state_candidate)
   jq --arg a "$address" '.settings.default_server_address=$a | .settings.default_server_address_source="manual"' "$SBM_STATE" >"$candidate"
-  apply_candidate_state "$candidate" settings-address
+  if ! apply_candidate_state "$candidate" settings-address; then rm -f "$candidate"; return 1; fi
   rm -f "$candidate"
 }
 settings_set_default_address() { with_state_transaction settings-address _settings_set_default_address "$@"; }
@@ -380,7 +380,7 @@ _settings_set_log_level() {
   case "$level" in trace|debug|info|warn|error|fatal|panic) ;; *) die "无效日志级别：$level" ;; esac
   candidate=$(state_candidate)
   jq --arg v "$level" '.settings.log_level=$v' "$SBM_STATE" >"$candidate"
-  apply_candidate_state "$candidate" log-level
+  if ! apply_candidate_state "$candidate" log-level; then rm -f "$candidate"; return 1; fi
   rm -f "$candidate"
 }
 settings_set_log_level() { with_state_transaction settings-log-level _settings_set_log_level "$@"; }
@@ -396,7 +396,7 @@ _settings_detect_public_ip() {
     .settings.default_server_address_source="auto" |
     .nodes |= map(if (.server_address_source // "") == "auto" then .server_address=$chosen else . end)
   ' "$SBM_STATE" >"$candidate"
-  apply_candidate_state "$candidate" settings-detect-ip
+  if ! apply_candidate_state "$candidate" settings-detect-ip; then rm -f "$candidate"; return 1; fi
   rm -f "$candidate"
   log_ok "公网入口探测完成：IPv4=${ipv4:--} IPv6=${ipv6:--}"
 }

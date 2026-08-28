@@ -59,8 +59,20 @@ EOF_UNIT
 }
 
 subscription_reconcile() {
-  local start=${1:-1}
-  find "$SBM_SUBSCRIPTIONS" -maxdepth 1 -type f -name '*.meta.json' -print -quit 2>/dev/null | grep -q . || return 0
+  local start=${1:-1} backend
+  if ! find "$SBM_SUBSCRIPTIONS" -maxdepth 1 -type f -name '*.meta.json' -print -quit 2>/dev/null | grep -q .; then
+    if [[ "$SBM_SKIP_INIT" != 1 ]] && service_exists "$SBM_SUBSCRIPTION_SERVICE"; then
+      backend=$(effective_init_system)
+      service_disable "$SBM_SUBSCRIPTION_SERVICE" || true
+      service_stop "$SBM_SUBSCRIPTION_SERVICE" || true
+      case "$backend" in
+        systemd) rm -f "$SBM_SYSTEMD_DIR/$SBM_SUBSCRIPTION_SERVICE" ;;
+        openrc) rm -f "$SBM_OPENRC_DIR/$(service_native_name "$SBM_SUBSCRIPTION_SERVICE")" ;;
+      esac
+      service_reload_manager || true
+    fi
+    return 0
+  fi
   subscription_write_service
   [[ "$SBM_SKIP_INIT" == 1 || "$start" != 1 ]] && return 0
   service_reload_manager

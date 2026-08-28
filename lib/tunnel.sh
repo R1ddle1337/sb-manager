@@ -177,7 +177,7 @@ _tunnel_update_state() {
     (.nodes[]|select(.id==$id)|.domain)=$domain |
     (.nodes[]|select(.id==$id)|.client_address)=(if $address=="" then $domain else $address end)
   ' "$SBM_STATE" >"$candidate"
-  apply_candidate_state "$candidate" "tunnel-$mode"
+  if ! apply_candidate_state "$candidate" "tunnel-$mode"; then rm -f "$candidate"; return 1; fi
   rm -f "$candidate"
 }
 
@@ -298,7 +298,7 @@ _tunnel_stop() {
     else . end |
     .tunnel={mode:"none",node_id:null,domain:null,client_address:null,protocol:"http2"}
   ' "$SBM_STATE" >"$candidate"
-  apply_candidate_state "$candidate" tunnel-stop
+  if ! apply_candidate_state "$candidate" tunnel-stop; then rm -f "$candidate"; return 1; fi
   rm -f "$candidate"
   log_ok 'Cloudflare Tunnel 已停止；节点本身仍保留。'
 }

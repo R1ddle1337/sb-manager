@@ -13,7 +13,7 @@ _api_enable() {
   chmod 0750 "$SBM_VAR/dashboard"
   candidate=$(state_candidate)
   jq --argjson port "$port" --argjson dashboard "$dashboard" '.api={enabled:true,listen:"127.0.0.1",port:$port,dashboard:$dashboard}' "$SBM_STATE" >"$candidate"
-  apply_candidate_state "$candidate" api-enable
+  if ! apply_candidate_state "$candidate" api-enable; then rm -f "$candidate"; return 1; fi
   rm -f "$candidate"
   log_ok "API 已启用，仅监听 127.0.0.1:$port。"
   log_warn '使用 sb api show-token 查看令牌；远程访问请使用 SSH 转发，不要直接暴露公网。'
@@ -24,7 +24,7 @@ _api_disable() {
   local candidate
   candidate=$(state_candidate)
   jq '.api.enabled=false | .api.dashboard=false' "$SBM_STATE" >"$candidate"
-  apply_candidate_state "$candidate" api-disable
+  if ! apply_candidate_state "$candidate" api-disable; then rm -f "$candidate"; return 1; fi
   rm -f "$candidate" "$(state_secret_path api)"
   log_ok 'API/Dashboard 已禁用。'
 }
