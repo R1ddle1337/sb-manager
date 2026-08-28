@@ -56,6 +56,7 @@ node_user_add ss-test alice 'Alice SS'
 node_user_add any-test alice 'Alice AnyTLS'
 
 [[ $(jq '.nodes|length' "$SBM_STATE") == 4 ]]
+[[ $(jq -r '.nodes[]|select(.id=="ss-test")|.method' "$SBM_STATE") == 2022-blake3-aes-256-gcm ]]
 [[ $(jq '.inbounds|length' "$SBM_CONFIG") == 4 ]]
 [[ $(jq '.nodes[]|select(.id=="ss-test")|.users|length' "$SBM_STATE") == 2 ]]
 [[ $(jq -r '.nodes[]|select(.id=="any-test")|.server_address' "$SBM_STATE") == edge.example.com ]]
@@ -87,11 +88,11 @@ kill "$runtime_pid"; wait "$runtime_pid" 2>/dev/null || true
 
 node_share_uri vm-test | grep -q '^vmess://'
 node_share_uri ss-test | grep -q '^ss://'
-node_share_uri any-test | grep -q '^anytls://'
+node_share_uri any-test | grep -q '^anytls://.*fp=chrome'
 node_share_uri hy2-test | grep -q '^hysteria2://'
 node_client_outbound vm-test | jq -e '.type=="vmess"' >/dev/null
 node_client_outbound ss-test | jq -e '.type=="shadowsocks"' >/dev/null
-node_client_outbound any-test | jq -e '.type=="anytls"' >/dev/null
+node_client_outbound any-test | jq -e '.type=="anytls" and .tls.utls.enabled==true and .tls.utls.fingerprint=="chrome"' >/dev/null
 node_client_outbound hy2-test | jq -e '.type=="hysteria2"' >/dev/null
 
 # Validate every generated client outbound with the real core.
@@ -102,7 +103,7 @@ for id in vm-test ss-test any-test hy2-test; do
   "$SBM_SING_BOX_BIN" check -c "$cfg"
 done
 node_client_outbound ss-test alice | jq -e '.type=="shadowsocks" and (.password|contains(":"))' >/dev/null
-node_client_outbound any-test alice | jq -e '.type=="anytls"' >/dev/null
+node_client_outbound any-test alice | jq -e '.type=="anytls" and .tls.utls.enabled==true and .tls.utls.fingerprint=="chrome"' >/dev/null
 
 # Fixed Tunnel token stays in a protected file and never appears in the unit.
 tunnel_setup_fixed vm-test cdn.example.com test-tunnel-token cdn.example.com
@@ -122,7 +123,7 @@ bad=$(state_candidate)
 jq '(.nodes[]|select(.id=="ss-test")|.method)="invalid-method"' "$SBM_STATE" >"$bad"
 if (apply_candidate_state "$bad" invalid-test >/dev/null 2>&1); then echo 'invalid config unexpectedly accepted' >&2; exit 1; fi
 rm -f "$bad"
-[[ $(jq -r '.nodes[]|select(.id=="ss-test")|.method' "$SBM_STATE") == 2022-blake3-aes-128-gcm ]]
+[[ $(jq -r '.nodes[]|select(.id=="ss-test")|.method' "$SBM_STATE") == 2022-blake3-aes-256-gcm ]]
 
 # Backup and restore round-trip.
 backup="$ROOT/test-backup.tar.gz"

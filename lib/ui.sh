@@ -160,7 +160,7 @@ ui_add_node() {
       ;;
     2)
       prompt_value name '节点名称' 'Shadowsocks 2022'; prompt_value address '客户端连接地址（域名或 IP）' "$(ui_client_address_default '')"; ui_prompt_port port tcp 'TCP 端口' 8388 8389 8390 8443
-      printf '1. 2022-blake3-aes-128-gcm（默认）\n2. 2022-blake3-aes-256-gcm\n3. 2022-blake3-chacha20-poly1305\n'; prompt_value method '选择方法' '1'
+      printf '1. 2022-blake3-aes-128-gcm\n2. 2022-blake3-aes-256-gcm（默认）\n3. 2022-blake3-chacha20-poly1305\n'; prompt_value method '选择方法' '2'
       case "$method" in 1) method=2022-blake3-aes-128-gcm;; 2) method=2022-blake3-aes-256-gcm;; 3) method=2022-blake3-chacha20-poly1305;; *) log_error '选择无效'; return;; esac
       node_add ss --name "$name" --address "$address" --port "$port" --method "$method"
       ;;

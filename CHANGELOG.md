@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-alpha.18
+
+- Default AnyTLS client exports and share links to Chrome uTLS fingerprint (`chrome`).
+- Default new Shadowsocks 2022 nodes to `2022-blake3-aes-256-gcm` in both the panel and CLI.
+
 ## 0.1.0-alpha.17
 
 - Fix Naive inbound authentication to use each user's protocol username instead of the display name, matching generated `naive+https://` links and client outbounds.
