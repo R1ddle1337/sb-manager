@@ -5,10 +5,11 @@ Simplified example:
 ```json
 {
   "schema_version": 2,
-  "manager_version": "0.1.0-alpha.11",
+  "manager_version": "0.1.0-alpha.12",
   "settings": {
     "log_level": "info",
     "default_server_address": "edge.example.com",
+    "outbound_ip_strategy": "prefer_ipv4",
     "core_channel": "stable",
     "core_update_policy": "notify"
   },

@@ -17,6 +17,7 @@ state_default_json() {
         public_ipv4: "",
         public_ipv6: "",
         public_ip_detected_at: null,
+        outbound_ip_strategy: "prefer_ipv4",
         core_channel: "stable",
         core_update_policy: "notify",
         cloudflared_update_policy: "notify"
@@ -98,6 +99,7 @@ state_normalize_v2_file() {
     | .settings.public_ipv4 //= ""
     | .settings.public_ipv6 //= ""
     | .settings.public_ip_detected_at //= null
+    | .settings.outbound_ip_strategy //= "prefer_ipv4"
     | .api //= {enabled:false,listen:"127.0.0.1",port:9090,dashboard:false}
     | .nginx_stream //= {enabled:false,listen:"::",port:443,routes:[]}
   ' "$file" >"$tmp"
@@ -141,6 +143,7 @@ state_migrate_v1_to_v2() {
     | .settings.public_ipv4=""
     | .settings.public_ipv6=""
     | .settings.public_ip_detected_at=null
+    | .settings.outbound_ip_strategy="prefer_ipv4"
     | .api={enabled:false,listen:"127.0.0.1",port:9090,dashboard:false}
     | .nginx_stream={enabled:false,listen:"::",port:443,routes:[]}
     | .nodes |= map(
@@ -222,6 +225,7 @@ state_validate() {
       and (.public_ipv4 | string)
       and (.public_ipv6 | string)
       and ((.public_ip_detected_at | type) == "string" or (.public_ip_detected_at | type) == "null")
+      and (.outbound_ip_strategy | IN("prefer_ipv4", "prefer_ipv6", "ipv4_only"))
       and (.core_channel | nonempty)
       and (.core_update_policy | IN("manual", "notify", "patch", "stable"))
       and (.cloudflared_update_policy | nonempty))

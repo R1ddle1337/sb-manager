@@ -2,7 +2,7 @@
 
 `sb-manager` 是一个面向 systemd/OpenRC Linux 的、状态驱动的 sing-box 多协议管理脚本。安装后输入 `sb` 即可打开中文交互面板，也可以使用完整的非交互 CLI。
 
-> 当前版本：`0.1.0-alpha.11`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
+> 当前版本：`0.1.0-alpha.12`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
 
 ## 功能
 
@@ -18,6 +18,7 @@
 - cloudflared 独立更新
 - 节点添加、编辑、启停、删除和凭据轮换
 - 分享 URI 与 sing-box outbound JSON 导出
+- 客户端导出支持 IPv4 优先、IPv6 优先或仅 IPv4 的出站解析策略
 - 原子配置写入、`sing-box check`、快照和失败回滚
 - 备份、恢复、日志、`sb doctor` 诊断与 `sb repair` 自动修复
 - 低权限 systemd/OpenRC 服务；不会关闭或清空系统防火墙
@@ -108,7 +109,7 @@ sudo bash install.sh
 bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/install.sh)
 ```
 
-`install.sh` 默认先解析 `main` 的最新 commit SHA，再按该不可变 commit 下载源码；也可设置 `SBM_INSTALL_REF=v0.1.0-alpha.11` 固定版本。显式指定 `main` 等可变分支仍需 `SBM_ALLOW_MUTABLE_REF=1`。离线发布包可使用 `build-release.sh` 生成，并核验 `SHA256SUMS`、`PROVENANCE-SHA256SUMS` 及可选的 GPG 签名文件。
+`install.sh` 默认先解析 `main` 的最新 commit SHA，再按该不可变 commit 下载源码；也可设置 `SBM_INSTALL_REF=v0.1.0-alpha.12` 固定版本。显式指定 `main` 等可变分支仍需 `SBM_ALLOW_MUTABLE_REF=1`。离线发布包可使用 `build-release.sh` 生成，并核验 `SHA256SUMS`、`PROVENANCE-SHA256SUMS` 及可选的 GPG 签名文件。
 
 安装完成后：
 
@@ -143,6 +144,14 @@ sb status
 sb doctor
 sb doctor --network
 sb probe NODE_ID
+```
+
+出站 IP 策略可在“全局设置 → 出站 IP 优先级”中选择，也可使用 CLI：
+
+```bash
+sb settings outbound-ip prefer_ipv4   # IPv4 优先
+sb settings outbound-ip prefer_ipv6   # IPv6 优先
+sb settings outbound-ip ipv4_only     # 仅 IPv4
 ```
 
 ### 添加 Shadowsocks 2022

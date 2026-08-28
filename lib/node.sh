@@ -24,6 +24,21 @@ node_port_in_state() {
   return 1
 }
 
+node_auto_address() {
+  local domain=${1:-} ipv4
+  if [[ -n "$domain" ]]; then
+    printf '%s\n' "$domain"
+    return 0
+  fi
+  ipv4=$(jq -r '.settings.public_ipv4 // ""' "$SBM_STATE")
+  if [[ -z "$ipv4" ]]; then
+    _settings_detect_public_ip >/dev/null
+    ipv4=$(jq -r '.settings.public_ipv4 // ""' "$SBM_STATE")
+  fi
+  [[ -n "$ipv4" ]] || die '未探测到公网 IPv4；请使用 --address 手动指定客户端连接地址。'
+  printf '%s\n' "$ipv4"
+}
+
 node_choose_port() {
   local kind=$1 i port
   for ((i=0; i<200; i++)); do
@@ -160,8 +175,8 @@ _node_add() {
       ;;
     *) die "不支持的协议：$type";;
   esac
-  if [[ "$protocol" != vmess-ws-cf && "$address_supplied" == 0 ]]; then
-    address=$(settings_default_address)
+  if [[ "$address_supplied" == 0 ]]; then
+    address=$(node_auto_address "$domain")
     address_source=auto
   fi
   if [[ "$protocol" == hysteria2 ]]; then
@@ -398,6 +413,16 @@ _settings_set_log_level() {
 }
 settings_set_log_level() { with_state_transaction settings-log-level _settings_set_log_level "$@"; }
 
+_settings_set_outbound_ip_strategy() {
+  local strategy=$1 candidate
+  case "$strategy" in prefer_ipv4|prefer_ipv6|ipv4_only) ;; *) die '出站 IP 策略必须是 prefer_ipv4、prefer_ipv6 或 ipv4_only。';; esac
+  candidate=$(state_candidate)
+  jq --arg strategy "$strategy" '.settings.outbound_ip_strategy=$strategy' "$SBM_STATE" >"$candidate"
+  if ! apply_candidate_state "$candidate" outbound-ip-strategy; then rm -f "$candidate"; return 1; fi
+  rm -f "$candidate"
+}
+settings_set_outbound_ip_strategy() { with_state_transaction settings-outbound-ip _settings_set_outbound_ip_strategy "$@"; }
+
 _settings_detect_public_ip() {
   local ipv4='' ipv6='' chosen candidate
   ipv4=$(detect_public_ipv4 || true); ipv6=$(detect_public_ipv6 || true); chosen=${ipv4:-$ipv6}
@@ -428,5 +453,5 @@ settings_default_address() {
 }
 
 settings_show_addresses() {
-  jq -r '"默认入口：\(.settings.default_server_address // "-")\n来源：\(.settings.default_server_address_source // "-")\n公网 IPv4：\(.settings.public_ipv4 // "-")\n公网 IPv6：\(.settings.public_ipv6 // "-")\n探测时间：\(.settings.public_ip_detected_at // "-")"' "$SBM_STATE"
+  jq -r '"默认入口：\(.settings.default_server_address // "-")\n来源：\(.settings.default_server_address_source // "-")\n公网 IPv4：\(.settings.public_ipv4 // "-")\n公网 IPv6：\(.settings.public_ipv6 // "-")\n出站 IP 策略：\(.settings.outbound_ip_strategy // "prefer_ipv4")\n探测时间：\(.settings.public_ip_detected_at // "-")"' "$SBM_STATE"
 }

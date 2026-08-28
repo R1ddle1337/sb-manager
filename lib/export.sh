@@ -91,7 +91,7 @@ export_all_outbounds() {
 }
 
 export_client_config() {
-  local output=${1:-$SBM_EXPORTS/client-config.json} mode=${2:-mixed} node user_id ob outbounds='[]' final inbounds route dns
+  local output=${1:-$SBM_EXPORTS/client-config.json} mode=${2:-mixed} node user_id ob outbounds='[]' final inbounds route dns strategy
   [[ "$mode" == mixed || "$mode" == tun ]] || die '客户端模式必须是 mixed 或 tun。'
   mkdir -p "$(dirname "$output")"
   while IFS= read -r node; do
@@ -101,7 +101,8 @@ export_client_config() {
     done < <(jq -r '.users[] | select(.enabled==true) | .id' <<<"$node")
   done < <(jq -c '.nodes[]? | select(.enabled==true)' "$SBM_STATE")
   final=$(jq -r 'first(.[]?.tag) // "direct"' <<<"$outbounds")
-  dns=$(jq -n '{servers:[{type:"local",tag:"dns-local"}],final:"dns-local",strategy:"prefer_ipv4"}')
+  strategy=$(jq -r '.settings.outbound_ip_strategy // "prefer_ipv4"' "$SBM_STATE")
+  dns=$(jq -n --arg strategy "$strategy" '{servers:[{type:"local",tag:"dns-local"}],final:"dns-local",strategy:$strategy}')
   if [[ "$mode" == tun ]]; then
     inbounds=$(jq -n '[{type:"tun",tag:"tun-in",address:["172.19.0.1/30","fdfe:dcba:9876::1/126"],mtu:1500,auto_route:true,strict_route:true,stack:"system"}]')
     route=$(jq -n --arg final "$final" '{auto_detect_interface:true,default_domain_resolver:"dns-local",rules:[{action:"sniff"},{protocol:"dns",action:"hijack-dns"},{ip_is_private:true,action:"route",outbound:"direct"}],final:$final}')

@@ -50,7 +50,7 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 3 -subj '/CN=edge.example.com' \
 
 node_add vmess --id vm-test --name 'VM test' --port 29001 --domain cdn.example.com --address cdn.example.com
 node_add ss --id ss-test --name 'SS test' --port 28388 --address 192.0.2.1
-node_add anytls --id any-test --name 'Any test' --port 24443 --domain edge.example.com --address 192.0.2.1
+node_add anytls --id any-test --name 'Any test' --port 24443 --domain edge.example.com
 node_add hy2 --id hy2-test --name 'HY2 test' --port 24443 --domain edge.example.com --address 192.0.2.1 --obfs salamander --masquerade https://example.com
 node_user_add ss-test alice 'Alice SS'
 node_user_add any-test alice 'Alice AnyTLS'
@@ -58,9 +58,19 @@ node_user_add any-test alice 'Alice AnyTLS'
 [[ $(jq '.nodes|length' "$SBM_STATE") == 4 ]]
 [[ $(jq '.inbounds|length' "$SBM_CONFIG") == 4 ]]
 [[ $(jq '.nodes[]|select(.id=="ss-test")|.users|length' "$SBM_STATE") == 2 ]]
+[[ $(jq -r '.nodes[]|select(.id=="any-test")|.server_address' "$SBM_STATE") == edge.example.com ]]
 jq -e '.inbounds[]|select(.tag=="in-ss-test")|(.users|length)==2' "$SBM_CONFIG" >/dev/null
 jq -e '.inbounds[]|select(.tag=="in-any-test")|(.users|length)==2' "$SBM_CONFIG" >/dev/null
 "$SBM_SING_BOX_BIN" check -c "$SBM_CONFIG"
+
+# Global client DNS/outbound address selection follows the configured strategy.
+settings_set_outbound_ip_strategy prefer_ipv6 >/dev/null
+export_client_config "$ROOT/client-prefer-ipv6.json" mixed >/dev/null
+jq -e '.dns.strategy=="prefer_ipv6"' "$ROOT/client-prefer-ipv6.json" >/dev/null
+settings_set_outbound_ip_strategy ipv4_only >/dev/null
+export_client_config "$ROOT/client-ipv4-only.json" mixed >/dev/null
+jq -e '.dns.strategy=="ipv4_only"' "$ROOT/client-ipv4-only.json" >/dev/null
+settings_set_outbound_ip_strategy prefer_ipv4 >/dev/null
 
 # Start the real core once and verify that all four listeners can coexist.
 "$SBM_SING_BOX_BIN" run -c "$SBM_CONFIG" >"$ROOT/runtime.log" 2>&1 &

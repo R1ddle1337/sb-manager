@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-alpha.12
+
+- Prefer a node's configured domain as the default client address; address-only nodes now default to the detected public IPv4.
+- Replace manual node-ID hunting in the panel with numbered node selection while retaining manual ID entry.
+- Add global client outbound IP strategies: IPv4 preferred, IPv6 preferred, and IPv4 only.
+
 ## 0.1.0-alpha.11
 
 - Show valid issued certificates as numbered choices when adding AnyTLS, Hysteria2, Trojan, TUIC, VLESS TLS, and NaiveProxy nodes.

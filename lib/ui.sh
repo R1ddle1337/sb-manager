@@ -26,11 +26,40 @@ ui_header() {
 }
 
 ui_select_node() {
-  local __var=$1 id
-  node_list
-  prompt_value id '输入节点 ID' ''
+  local __var=$1 id choice node i
+  local -a ids=()
+  while IFS= read -r node; do
+    [[ -n "$node" ]] || continue
+    id=$(jq -r '.id' <<<"$node")
+    ids+=("$id")
+    printf '%d. %-18s %s\n' "${#ids[@]}" "$id" "$(node_protocol_label "$(jq -r '.protocol' <<<"$node")")"
+  done < <(state_list_nodes)
+  ((${#ids[@]} > 0)) || { log_warn '当前没有节点。'; return 1; }
+  printf 'm. 手动输入节点 ID\n0. 返回\n'
+  prompt_value choice '选择节点' '1'
+  case "$choice" in
+    0) return 1;;
+    m|M) prompt_value id '输入节点 ID' '';;
+    * )
+      if [[ "$choice" =~ ^[1-9][0-9]*$ ]] && (( choice <= ${#ids[@]} )); then
+        id=${ids[$((choice - 1))]}
+      else
+        id=$choice
+      fi
+      ;;
+  esac
   state_node_exists "$id" || { log_error "节点不存在：$id"; return 1; }
   printf -v "$__var" '%s' "$id"
+}
+
+ui_client_address_default() {
+  local domain=${1:-} ipv4 fallback
+  [[ -n "$domain" ]] && { printf '%s\n' "$domain"; return 0; }
+  ipv4=$(jq -r '.settings.public_ipv4 // ""' "$SBM_STATE")
+  [[ -n "$ipv4" ]] || ipv4=$(detect_public_ipv4 2>/dev/null || true)
+  [[ -n "$ipv4" ]] && { printf '%s\n' "$ipv4"; return 0; }
+  fallback=$(jq -r '.settings.default_server_address // ""' "$SBM_STATE")
+  printf '%s\n' "$fallback"
 }
 
 ui_require_certificate() {
@@ -103,8 +132,7 @@ ui_prompt_port() {
 
 ui_add_node() {
   local choice domain address port name id obfs method security security_choice
-  local handshake_server handshake_port congestion_control network strict_mode wildcard_sni default_addr
-  default_addr=$(jq -r '.settings.default_server_address // ""' "$SBM_STATE")
+  local handshake_server handshake_port congestion_control network strict_mode wildcard_sni
   printf '%s\n' \
     '1. VMess + WebSocket + Cloudflare Tunnel' \
     '2. Shadowsocks 2022' \
@@ -119,35 +147,35 @@ ui_add_node() {
   prompt_value choice '选择协议' '0'
   case "$choice" in
     1)
-      prompt_value name '节点名称' 'VMess WS Cloudflare'; prompt_value domain '固定 Tunnel 域名（Quick Tunnel 可留空）' ''; prompt_value address '客户端 add 地址（留空则同域名）' "$domain"
+      prompt_value name '节点名称' 'VMess WS Cloudflare'; prompt_value domain '固定 Tunnel 域名（Quick Tunnel 可留空）' ''; prompt_value address '客户端连接地址' "$(ui_client_address_default "$domain")"
       local args=(vmess --name "$name")
       [[ -n "$domain" ]] && args+=(--domain "$domain")
       [[ -n "$address" ]] && args+=(--address "$address")
       node_add "${args[@]}"
       ;;
     2)
-      prompt_value name '节点名称' 'Shadowsocks 2022'; prompt_value address '客户端连接地址（域名或 IP）' "$default_addr"; ui_prompt_port port tcp 'TCP 端口' 8388 8389 8390 8443
+      prompt_value name '节点名称' 'Shadowsocks 2022'; prompt_value address '客户端连接地址（域名或 IP）' "$(ui_client_address_default '')"; ui_prompt_port port tcp 'TCP 端口' 8388 8389 8390 8443
       printf '1. 2022-blake3-aes-128-gcm（默认）\n2. 2022-blake3-aes-256-gcm\n3. 2022-blake3-chacha20-poly1305\n'; prompt_value method '选择方法' '1'
       case "$method" in 1) method=2022-blake3-aes-128-gcm;; 2) method=2022-blake3-aes-256-gcm;; 3) method=2022-blake3-chacha20-poly1305;; *) log_error '选择无效'; return;; esac
       node_add ss --name "$name" --address "$address" --port "$port" --method "$method"
       ;;
     3)
-      prompt_value name '节点名称' 'AnyTLS'; ui_select_certificate_domain domain || return; prompt_value address '客户端连接地址' "${default_addr:-$domain}"; ui_prompt_port port tcp 'TCP 端口' 443 8443 9443 10443
+      prompt_value name '节点名称' 'AnyTLS'; ui_select_certificate_domain domain || return; prompt_value address '客户端连接地址' "$(ui_client_address_default "$domain")"; ui_prompt_port port tcp 'TCP 端口' 443 8443 9443 10443
       node_add anytls --name "$name" --domain "$domain" --address "$address" --port "$port"
       ;;
     4)
-      prompt_value name '节点名称' 'Hysteria2'; ui_select_certificate_domain domain || return; prompt_value address '客户端连接地址' "${default_addr:-$domain}"; ui_prompt_port port udp 'UDP 端口' 443 8443 9443 10443
+      prompt_value name '节点名称' 'Hysteria2'; ui_select_certificate_domain domain || return; prompt_value address '客户端连接地址' "$(ui_client_address_default "$domain")"; ui_prompt_port port udp 'UDP 端口' 443 8443 9443 10443
       prompt_value obfs '启用 salamander 混淆？(y/N)' 'N'
       if [[ "$obfs" =~ ^[Yy]$ ]]; then node_add hy2 --name "$name" --domain "$domain" --address "$address" --port "$port" --obfs salamander; else node_add hy2 --name "$name" --domain "$domain" --address "$address" --port "$port"; fi
       ;;
     5)
       prompt_value name '节点名称' 'Trojan'; ui_select_certificate_domain domain || return
-      prompt_value address '客户端连接地址' "${default_addr:-$domain}"; ui_prompt_port port tcp 'TCP 端口' 443 8443 9443 10443
+      prompt_value address '客户端连接地址' "$(ui_client_address_default "$domain")"; ui_prompt_port port tcp 'TCP 端口' 443 8443 9443 10443
       node_add trojan --name "$name" --domain "$domain" --address "$address" --port "$port"
       ;;
     6)
       prompt_value name '节点名称' 'TUIC'; ui_select_certificate_domain domain || return
-      prompt_value address '客户端连接地址' "${default_addr:-$domain}"; ui_prompt_port port udp 'UDP 端口' 443 8443 9443 10443
+      prompt_value address '客户端连接地址' "$(ui_client_address_default "$domain")"; ui_prompt_port port udp 'UDP 端口' 443 8443 9443 10443
       printf '1. cubic（默认）\n2. new_reno\n3. bbr\n'; prompt_value congestion_control '拥塞控制' '1'
       case "$congestion_control" in 1) congestion_control=cubic;; 2) congestion_control=new_reno;; 3) congestion_control=bbr;; *) log_error '选择无效'; return;; esac
       node_add tuic --name "$name" --domain "$domain" --address "$address" --port "$port" --congestion-control "$congestion_control"
@@ -158,11 +186,11 @@ ui_add_node() {
       case "$security_choice" in
         1)
           security=tls; ui_select_certificate_domain domain || return
-          prompt_value address '客户端连接地址' "${default_addr:-$domain}"; ui_prompt_port port tcp 'TCP 端口' 443 8443 9443 10443
+          prompt_value address '客户端连接地址' "$(ui_client_address_default "$domain")"; ui_prompt_port port tcp 'TCP 端口' 443 8443 9443 10443
           node_add vless --name "$name" --domain "$domain" --address "$address" --port "$port" --security "$security"
           ;;
         2)
-          security=reality; prompt_value domain 'Reality SNI' ''; prompt_value address '客户端连接地址' "${default_addr:-$domain}"; ui_prompt_port port tcp 'TCP 端口' 443 8443 9443 10443
+          security=reality; prompt_value domain 'Reality SNI' ''; prompt_value address '客户端连接地址' "$(ui_client_address_default "$domain")"; ui_prompt_port port tcp 'TCP 端口' 443 8443 9443 10443
           prompt_value handshake_server 'Reality 握手域名' ''; prompt_value handshake_port 'Reality 握手端口' '443'
           node_add vless --name "$name" --domain "$domain" --address "$address" --port "$port" --security "$security" --handshake-server "$handshake_server" --handshake-port "$handshake_port"
           ;;
@@ -171,7 +199,7 @@ ui_add_node() {
       ;;
     8)
       prompt_value name '节点名称' 'NaiveProxy'; ui_select_certificate_domain domain || return
-      prompt_value address '客户端连接地址' "${default_addr:-$domain}"
+      prompt_value address '客户端连接地址' "$(ui_client_address_default "$domain")"
       printf '1. HTTPS/TCP（默认）\n2. QUIC/UDP\n'; prompt_value security_choice '选择传输' '1'
       case "$security_choice" in 1) network=tcp;; 2) network=udp;; *) log_error '选择无效'; return;; esac
       ui_prompt_port port "$network" '端口' 443 8443 9443 10443
@@ -179,7 +207,7 @@ ui_add_node() {
       ;;
     9)
       prompt_value name '节点名称' 'ShadowTLS'; prompt_value handshake_server '握手目标域名' ''; prompt_value handshake_port '握手目标端口' '443'
-      prompt_value address '客户端连接地址' "${default_addr:-$handshake_server}"; ui_prompt_port port tcp 'TCP 端口' 443 8443 9443 10443
+      prompt_value address '客户端连接地址' "$(ui_client_address_default "$handshake_server")"; ui_prompt_port port tcp 'TCP 端口' 443 8443 9443 10443
       prompt_value strict_mode '严格模式（true/false）' 'true'; prompt_value wildcard_sni '通配 SNI（off/authed/all）' 'off'
       node_add shadowtls --name "$name" --address "$address" --port "$port" --handshake-server "$handshake_server" --handshake-port "$handshake_port" --strict-mode "$strict_mode" --wildcard-sni "$wildcard_sni"
       ;;
@@ -307,12 +335,16 @@ ui_nginx_stream_menu() {
 }
 
 ui_settings_menu() {
-  local c v
-  printf '1. 设置默认服务器地址\n2. 修改日志级别\n3. Nginx Stream 443/TCP 多协议复用\n0. 返回\n'; prompt_value c '选择操作' '0'
+  local c v strategy_choice
+  printf '1. 设置默认服务器地址\n2. 修改日志级别\n3. Nginx Stream 443/TCP 多协议复用\n4. 出站 IP 优先级\n0. 返回\n'; prompt_value c '选择操作' '0'
   case "$c" in
     1) prompt_value v '域名或 IP' ''; settings_set_default_address "$v";;
     2) prompt_value v '日志级别 (trace/debug/info/warn/error/fatal/panic)' 'info'; settings_set_log_level "$v";;
     3) ui_nginx_stream_menu;;
+    4)
+      printf '1. IPv4 优先（默认）\n2. IPv6 优先\n3. 仅 IPv4\n'; prompt_value strategy_choice '选择出站 IP 策略' '1'
+      case "$strategy_choice" in 1) settings_set_outbound_ip_strategy prefer_ipv4;; 2) settings_set_outbound_ip_strategy prefer_ipv6;; 3) settings_set_outbound_ip_strategy ipv4_only;; *) log_error '选择无效';; esac
+      ;;
   esac
 }
 
