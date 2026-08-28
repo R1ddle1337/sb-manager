@@ -60,7 +60,7 @@ Alpine 默认可能没有 Bash 和 curl，先安装最小引导依赖：
 
 ```bash
 apk add --no-cache bash curl ca-certificates
-bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/main/install.sh)
+bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/install.sh)
 ```
 
 安装器会继续补齐 OpenRC、dcron、libcap、gcompat、shadow、jq、openssl、iproute2 等依赖。OpenRC 服务日志位于：
@@ -79,7 +79,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/main/i
 建议先查看安装脚本，再执行：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/main/install.sh -o install.sh
+curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/install.sh -o install.sh
 less install.sh
 sudo bash install.sh
 ```
@@ -87,7 +87,7 @@ sudo bash install.sh
 直接执行（生产环境必须固定不可变 commit/tag，并提供源码摘要）：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/main/install.sh)
+bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/install.sh)
 ```
 
 `install.sh` 默认先解析 `main` 的最新 commit SHA，再按该不可变 commit 下载源码；也可设置 `SBM_INSTALL_REF=v0.1.0-alpha.7` 固定版本。显式指定 `main` 等可变分支仍需 `SBM_ALLOW_MUTABLE_REF=1`。离线发布包可使用 `build-release.sh` 生成，并核验 `SHA256SUMS`、`PROVENANCE-SHA256SUMS` 及可选的 GPG 签名文件。
@@ -102,10 +102,10 @@ sb
 
 ```bash
 # 安装后不自动打开菜单
-bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/main/install.sh) --no-menu
+bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/install.sh) --no-menu
 
 # 安装指定 sing-box 稳定版本
-bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/main/install.sh) --core-version 1.13.19
+bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/install.sh) --core-version 1.13.19
 ```
 
 也可以克隆源码后安装：
