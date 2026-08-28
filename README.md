@@ -60,7 +60,7 @@ Alpine 默认可能没有 Bash 和 curl，先安装最小引导依赖：
 
 ```bash
 apk add --no-cache bash curl ca-certificates
-SBM_INSTALL_REF=v0.1.0-alpha.7 SBM_INSTALL_SHA256=<sha256> \
+SBM_INSTALL_REF=v0.1.0-alpha.7 SBM_INSTALL_SHA256=a4159d06f0d88687dd98b45d60e5886a47b8b8cbd4edf0866d8d239837c1bcae \
 bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/v0.1.0-alpha.7/install.sh)
 ```
 
@@ -89,7 +89,7 @@ sudo bash install.sh
 
 ```bash
 SBM_INSTALL_REF=v0.1.0-alpha.7 \
-SBM_INSTALL_SHA256=<64-hex-source-archive-sha256> \
+SBM_INSTALL_SHA256=a4159d06f0d88687dd98b45d60e5886a47b8b8cbd4edf0866d8d239837c1bcae \
 bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/v0.1.0-alpha.7/install.sh)
 ```
 
@@ -105,11 +105,11 @@ sb
 
 ```bash
 # 安装后不自动打开菜单
-SBM_INSTALL_REF=v0.1.0-alpha.7 SBM_INSTALL_SHA256=<sha256> \
+SBM_INSTALL_REF=v0.1.0-alpha.7 SBM_INSTALL_SHA256=a4159d06f0d88687dd98b45d60e5886a47b8b8cbd4edf0866d8d239837c1bcae \
 bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/v0.1.0-alpha.7/install.sh) --no-menu
 
 # 安装指定 sing-box 稳定版本
-SBM_INSTALL_REF=v0.1.0-alpha.7 SBM_INSTALL_SHA256=<sha256> \
+SBM_INSTALL_REF=v0.1.0-alpha.7 SBM_INSTALL_SHA256=a4159d06f0d88687dd98b45d60e5886a47b8b8cbd4edf0866d8d239837c1bcae \
 bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/v0.1.0-alpha.7/install.sh) --core-version 1.13.19
 ```
 
@@ -118,7 +118,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/v0.1.0
 ```bash
 git clone https://github.com/R1ddle1337/sb-manager.git
 cd sb-manager
-git checkout v0.1.0-alpha.7
+git checkout v0.1.0-alpha.7  # tag commit is immutable
 sudo ./setup.sh
 ```
 
