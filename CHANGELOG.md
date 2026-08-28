@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-alpha.21
+
+- Make sing-box 1.14.0-rc.1 the primary tested core and resolve latest core updates from the newest official release, including prereleases.
+- Add explicit firewall/port management commands for protocol port inspection, UFW allow rules, and backed-up INPUT deny cleanup.
+
 ## 0.1.0-alpha.20
 
 - Include the final Snell preview-core fixes and regression coverage in the published release.

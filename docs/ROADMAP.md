@@ -2,7 +2,7 @@
 
 ## Goal and Standards Baseline
 
-The project will evolve from an alpha protocol installer into a dependable, state-driven sing-box server manager. The stable compatibility baseline is sing-box `1.13.19`; `1.14` features remain version-gated until a stable release is available and passes a separate compatibility suite. Configuration fields must follow the official sing-box documentation and JSON Schema, and every rendered configuration must pass the target core's `sing-box check`.
+The project will evolve from an alpha protocol installer into a dependable, state-driven sing-box server manager. The primary tested baseline is sing-box `1.14.0-rc.1`; 1.13-compatible configurations remain supported where the core permits. Configuration fields must follow the official sing-box documentation and JSON Schema, and every rendered configuration must pass the target core's `sing-box check`.
 
 Opaque generated patches are not accepted as source changes. Work must be reviewable as normal commits, preserve least-privilege services, and keep `state.json` plus protected credentials as the source of truth.
 
@@ -71,7 +71,7 @@ Completion requires all checkboxes above, updated architecture/schema/security d
 ## Acceptance record (2026-08-28)
 
 The complete smoke suite passed on Debian 13.6 using official sing-box
-1.13.19 (stable) and 1.14.0-rc.1 (preview) assets whose GitHub Release API
+1.14.0-rc.1 assets whose GitHub Release API
 SHA-256 digests were verified. It covered real TCP/UDP listeners, all protocol
 exports, state migration/transactions, age backup, paired core rollback,
 subscription systemd sandbox startup, API loopback gating, service lifecycle,

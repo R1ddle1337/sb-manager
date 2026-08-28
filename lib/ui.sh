@@ -284,10 +284,10 @@ ui_tunnel_menu() {
 
 ui_update_menu() {
   local c p v
-  printf '1. 检查 sing-box 更新\n2. 更新 sing-box 稳定版\n3. 指定 sing-box 版本\n4. 回滚 sing-box\n5. 设置自动更新策略\n6. 更新 cloudflared\n7. 更新 acme.sh\n0. 返回\n'
+  printf '1. 检查 sing-box 更新\n2. 更新 sing-box 最新版\n3. 指定 sing-box 版本\n4. 回滚 sing-box\n5. 设置自动更新策略\n6. 更新 cloudflared\n7. 更新 acme.sh\n0. 返回\n'
   prompt_value c '选择操作' '0'
   case "$c" in
-    1) core_check_update || true;; 2) core_update latest;; 3) prompt_value v '版本号，如 1.13.19' ''; core_update "$v";; 4) core_rollback;;
+    1) core_check_update || true;; 2) core_update latest;; 3) prompt_value v '版本号，如 1.14.0-rc.1' ''; core_update "$v";; 4) core_rollback;;
     5) printf 'manual / notify / patch / stable\n'; prompt_value p '策略' 'notify'; core_set_policy "$p";; 6) cloudflared_update;; 7) acme_update;;
   esac
 }
@@ -374,18 +374,33 @@ ui_settings_menu() {
   esac
 }
 
+ui_firewall_menu() {
+  local c
+  printf '1. 查看所有协议端口\n2. 备份并清理 iptables 入站全局禁止\n3. 按所有启用协议端口执行 UFW allow\n0. 返回\n'
+  prompt_value c '选择操作' '0'
+  case "$c" in
+    1) firewall_list_protocol_ports ;;
+    2) confirm '将先备份规则，再移除 INPUT 链全局 DROP/REJECT 并调整默认策略，继续？' N && firewall_clear_iptables_input_deny 1 ;;
+    3)
+      firewall_list_protocol_ports
+      command_exists ufw || { log_error '未安装 UFW；请先执行 apt-get install ufw。'; return; }
+      confirm '将为所有启用协议端口执行 UFW allow，继续？' N && firewall_ufw_allow_protocol_ports 1
+      ;;
+  esac
+}
+
 ui_main() {
   [[ -t 0 ]] || { sb_help; return; }
   local choice
   while true; do
     ui_header
-    printf '1. 查看运行状态\n2. 添加协议节点\n3. 管理现有节点\n4. 分享链接与客户端导出\n5. 域名与证书管理\n6. Cloudflare Tunnel 管理\n7. 核心与组件更新\n8. 日志\n9. 诊断与修复\n10. 备份与恢复\n11. 全局设置\n12. 卸载与彻底清理\n0. 退出\n\n'
+    printf '1. 查看运行状态\n2. 添加协议节点\n3. 管理现有节点\n4. 分享链接与客户端导出\n5. 域名与证书管理\n6. Cloudflare Tunnel 管理\n7. 核心与组件更新\n8. 日志\n9. 诊断与修复\n10. 备份与恢复\n11. 全局设置\n12. 防火墙与协议端口\n13. 卸载与彻底清理\n0. 退出\n\n'
     prompt_value choice '请选择' '0'
     case "$choice" in
       1) status_summary; node_list;; 2) ui_add_node;; 3) ui_manage_nodes;;
       4) ui_share_export_menu || continue;;
-      5) ui_cert_menu;; 6) ui_tunnel_menu;; 7) ui_update_menu;; 8) show_logs all 100;; 9) ui_doctor_menu;; 10) ui_backup_menu;; 11) ui_settings_menu;;
-      12) ui_uninstall_menu; [[ ${SBM_UNINSTALLED:-0} == 1 ]] && return;;
+      5) ui_cert_menu;; 6) ui_tunnel_menu;; 7) ui_update_menu;; 8) show_logs all 100;; 9) ui_doctor_menu;; 10) ui_backup_menu;; 11) ui_settings_menu;; 12) ui_firewall_menu;;
+      13) ui_uninstall_menu; [[ ${SBM_UNINSTALLED:-0} == 1 ]] && return;;
       0) return;; *) log_error '选择无效';;
     esac
     ui_pause

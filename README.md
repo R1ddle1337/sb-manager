@@ -2,7 +2,7 @@
 
 `sb-manager` 是一个面向 systemd/OpenRC Linux 的、状态驱动的 sing-box 多协议管理脚本。安装后输入 `sb` 即可打开中文交互面板，也可以使用完整的非交互 CLI。
 
-> 当前版本：`0.1.0-alpha.20`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
+> 当前版本：`0.1.0-alpha.21`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
 
 ## 功能
 
@@ -23,6 +23,7 @@
 - 原子配置写入、`sing-box check`、快照和失败回滚
 - 备份、恢复、日志、`sb doctor` 诊断与 `sb repair` 自动修复
 - 低权限 systemd/OpenRC 服务；不会关闭或清空系统防火墙
+- 防火墙面板可查看启用协议端口、显式执行 UFW allow，并在备份后清理 INPUT 链全局拦截
 
 ## 网络模型
 
@@ -112,7 +113,7 @@ sudo bash install.sh
 bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/install.sh)
 ```
 
-`install.sh` 默认先解析 `main` 的最新 commit SHA，再按该不可变 commit 下载源码；也可设置 `SBM_INSTALL_REF=v0.1.0-alpha.20` 固定版本。显式指定 `main` 等可变分支仍需 `SBM_ALLOW_MUTABLE_REF=1`。离线发布包可使用 `build-release.sh` 生成，并核验 `SHA256SUMS`、`PROVENANCE-SHA256SUMS` 及可选的 GPG 签名文件。
+`install.sh` 默认先解析 `main` 的最新 commit SHA，再按该不可变 commit 下载源码；也可设置 `SBM_INSTALL_REF=v0.1.0-alpha.21` 固定版本。显式指定 `main` 等可变分支仍需 `SBM_ALLOW_MUTABLE_REF=1`。离线发布包可使用 `build-release.sh` 生成，并核验 `SHA256SUMS`、`PROVENANCE-SHA256SUMS` 及可选的 GPG 签名文件。
 
 安装完成后：
 
@@ -127,7 +128,7 @@ sb
 bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/install.sh) --no-menu
 
 # 安装指定 sing-box 稳定版本
-bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/install.sh) --core-version 1.13.19
+bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/install.sh) --core-version 1.14.0-rc.1
 ```
 
 也可以克隆源码后安装：
@@ -279,6 +280,16 @@ sb logs follow
 sb doctor
 ```
 
+防火墙与端口管理（安装时不会自动执行）：
+
+```bash
+sb firewall ports                 # 查看所有节点的 TCP/UDP 端口
+sb firewall ufw-allow --yes       # 为所有启用协议端口执行 ufw allow
+sb firewall clear-iptables --yes  # 先备份，再清理 INPUT 全局 DROP/REJECT
+```
+
+`clear-iptables` 只处理 INPUT 链的全局 DROP/REJECT 和默认 DROP/REJECT 策略，不会清空整套规则；备份保存在 `/var/lib/sb-manager/firewall/`。执行 UFW 放行前请确认 SSH 端口已允许，UFW 未安装时面板只提示安装命令。
+
 完整帮助：
 
 ```bash
@@ -302,7 +313,7 @@ sb --help
 - Tunnel Token 使用受限文件保存，不直接写入 systemd `ExecStart` 或 OpenRC 脚本。
 - sing-box 以独立的 `sbmanager` 低权限用户运行。
 - systemd 通过 unit 的 ambient capability 提供低端口绑定能力；OpenRC 才在核心文件上设置 `cap_net_bind_service`。
-- 脚本不会关闭 UFW/firewalld，也不会清空 iptables/nftables。
+- 脚本安装时不会自动启用或修改 UFW/firewalld；防火墙变更只能通过显式的 `sb firewall` 操作执行。
 - 直连协议的安全组和防火墙端口由管理员明确开放。
 
 ## 卸载

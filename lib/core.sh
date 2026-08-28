@@ -75,8 +75,8 @@ core_release_json() {
 
 core_latest_version() {
   local json tag
-  json=$(core_release_json latest) || return 1
-  tag=$(jq -r '.tag_name // empty' <<<"$json")
+  json=$(github_api 'https://api.github.com/repos/SagerNet/sing-box/releases?per_page=20') || return 1
+  tag=$(jq -r 'map(select(.draft == false)) | first.tag_name // empty' <<<"$json")
   [[ -n "$tag" ]] || return 1
   printf '%s\n' "${tag#v}"
 }
@@ -251,7 +251,7 @@ core_check_update() {
   local current latest
   current=$(core_current_version || true)
   latest=$(core_latest_version) || die "无法查询 sing-box 最新稳定版本。"
-  printf '当前版本：%s\n最新稳定：%s\n' "${current:-未安装}" "$latest"
+  printf '当前版本：%s\n最新官方版本：%s\n' "${current:-未安装}" "$latest"
   [[ "$current" == "$latest" ]] || return 10
 }
 
@@ -276,7 +276,7 @@ core_auto_update() {
   mkdir -p "$SBM_VAR/updates"
   jq -n --arg now "$(now_iso)" --arg current "$current" --arg latest "$latest" --arg policy "$policy" '{checked_at:$now,current:$current,latest:$latest,policy:$policy}' >"$SBM_VAR/updates/sing-box.json"
   case "$policy" in
-    notify) log_warn "发现 sing-box 稳定版更新：$current → $latest。运行 sb core update。" ;;
+    notify) log_warn "发现 sing-box 更新：$current → $latest。运行 sb core update。" ;;
     patch)
       IFS=. read -r cmj cmi _ <<<"$current"; IFS=. read -r lmj lmi _ <<<"$latest"
       if [[ "$cmj.$cmi" == "$lmj.$lmi" ]]; then _core_update "$latest"; else log_warn "发现跨 minor 更新 $latest；patch 策略不自动安装。"; fi
@@ -285,7 +285,7 @@ core_auto_update() {
       if [[ $(core_version_series "$current" 2>/dev/null || true) == "$(core_version_series "$latest" 2>/dev/null || true)" ]]; then
         _core_update "$latest"
       else
-        log_warn "发现跨 minor 稳定版 $latest；为避免配置迁移风险，仅通知并保留当前 $current。请手动运行 sb core update $latest。"
+        log_warn "发现跨 minor 版本 $latest；为避免配置迁移风险，仅通知并保留当前 $current。请手动运行 sb core update $latest。"
       fi
       ;;
   esac
