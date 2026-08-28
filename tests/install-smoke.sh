@@ -37,11 +37,14 @@ bash "$PROJECT/setup.sh" --no-menu --no-start
 [[ -x "$SBM_BIN_DIR/sb" && -x "$SBM_SING_BOX_BIN" && -x "$SBM_CLOUDFLARED_BIN" ]]
 [[ "$(readlink "$SBM_SING_BOX_BIN")" != *$'\n'* ]]
 [[ "$(readlink "$SBM_CLOUDFLARED_BIN")" != *$'\n'* ]]
-env -u SBM_LIB "$SBM_BIN_DIR/sb" version | grep -q "0.1.0-alpha.6"
+env -u SBM_LIB "$SBM_BIN_DIR/sb" version | grep -q "0.1.0-alpha.7"
 [[ -z $(find "$SBM_LIB" -maxdepth 0 ! -perm -0001 -print -quit) ]]
 [[ -z $(find "$SBM_CORE_DIR" -type d ! -perm -0001 -print -quit) ]]
 chmod 0755 "$ROOT" "$ROOT/usr" "$ROOT/usr/local" "$ROOT/etc" "$ROOT/var" "$ROOT/var/lib"
 runuser -u "$SBM_SERVICE_USER" -- "$SBM_SING_BOX_BIN" version >/dev/null
+if [[ -f "$(dirname "$REAL")/libcronet.so" ]]; then
+  [[ -x "$(dirname "$(readlink -f "$SBM_SING_BOX_BIN")")/libcronet.so" ]]
+fi
 runuser -u "$SBM_SERVICE_USER" -- "$SBM_CLOUDFLARED_BIN" version >/dev/null
 runuser -u "$SBM_SERVICE_USER" -- test -r "$SBM_CONFIG"
 runuser -u "$SBM_SERVICE_USER" -- test -x "$SBM_VAR"
@@ -54,6 +57,14 @@ runuser -u "$SBM_SERVICE_USER" -- test -w "$SBM_VAR/cloudflared-home"
 bash "$PROJECT/setup.sh" --no-menu --no-start
 [[ $(jq '.nodes|length' "$SBM_STATE") == 1 ]]
 "$SBM_SING_BOX_BIN" check -c "$SBM_CONFIG"
+
+# A failed program upgrade must restore the previous program and service files.
+printf 'preserve-on-failure\n' >"$SBM_LIB/rollback-marker"
+if SBM_TEST_FAIL_STEP=6 bash "$PROJECT/setup.sh" --no-menu --no-start >/dev/null 2>&1; then
+  echo 'injected setup failure unexpectedly succeeded' >&2; exit 1
+fi
+[[ $(cat "$SBM_LIB/rollback-marker") == preserve-on-failure ]]
+[[ $(jq '.nodes|length' "$SBM_STATE") == 1 ]]
 
 # Exercise core switch and rollback without systemd.
 mkdir -p "$SBM_CORE_DIR/sing-box/9.9.9"

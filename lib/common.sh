@@ -6,7 +6,7 @@ SBM_LIB="${SBM_LIB:-${SBM_PREFIX}/lib/sb-manager}"
 SBM_BIN_DIR="${SBM_BIN_DIR:-${SBM_PREFIX}/bin}"
 if [[ -z ${SBM_VERSION:-} ]]; then
   if [[ -r "$SBM_LIB/VERSION" ]]; then SBM_VERSION=$(tr -d '[:space:]' <"$SBM_LIB/VERSION" 2>/dev/null || true); fi
-  SBM_VERSION=${SBM_VERSION:-0.1.0-alpha.6}
+  SBM_VERSION=${SBM_VERSION:-0.1.0-alpha.7}
 fi
 SBM_ETC="${SBM_ETC:-/etc/sb-manager}"
 SBM_VAR="${SBM_VAR:-/var/lib/sb-manager}"
@@ -38,6 +38,10 @@ SBM_SINGBOX_LOG="${SBM_SINGBOX_LOG:-$SBM_LOG_DIR/sing-box.log}"
 SBM_SINGBOX_ERROR_LOG="${SBM_SINGBOX_ERROR_LOG:-$SBM_LOG_DIR/sing-box.err.log}"
 SBM_TUNNEL_LOG="${SBM_TUNNEL_LOG:-$SBM_LOG_DIR/cloudflared.log}"
 SBM_TUNNEL_ERROR_LOG="${SBM_TUNNEL_ERROR_LOG:-$SBM_LOG_DIR/cloudflared.err.log}"
+SBM_LOGROTATE_FILE="${SBM_LOGROTATE_FILE:-$(dirname "$SBM_ETC")/logrotate.d/sb-manager}"
+SBM_SUBSCRIPTIONS="${SBM_SUBSCRIPTIONS:-$SBM_VAR/subscriptions}"
+SBM_SUBSCRIPTION_SERVICE="${SBM_SUBSCRIPTION_SERVICE:-sb-subscription.service}"
+SBM_SUBSCRIPTION_PORT="${SBM_SUBSCRIPTION_PORT:-9080}"
 
 if [[ -t 1 && "${NO_COLOR:-}" == "" ]]; then
   C_RESET=$'\033[0m'; C_BOLD=$'\033[1m'; C_RED=$'\033[31m'; C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'; C_BLUE=$'\033[34m'; C_CYAN=$'\033[36m'
@@ -124,6 +128,43 @@ validate_address() {
   local a=$1
   [[ -n "$a" && "$a" != *[[:space:]]* ]]
 }
+validate_ipv4() {
+  local ip=$1 a b c d extra octet
+  IFS=. read -r a b c d extra <<<"$ip"
+  [[ -z ${extra:-} && -n ${a:-} && -n ${b:-} && -n ${c:-} && -n ${d:-} ]] || return 1
+  for octet in "$a" "$b" "$c" "$d"; do
+    [[ "$octet" =~ ^[0-9]{1,3}$ ]] && ((10#$octet <= 255)) || return 1
+  done
+}
+validate_ipv6() {
+  local ip=$1
+  [[ "$ip" == *:* && "$ip" =~ ^[0-9A-Fa-f:]+$ ]] || return 1
+  if command_exists python3; then
+    python3 -c 'import ipaddress,sys; ipaddress.IPv6Address(sys.argv[1])' "$ip" >/dev/null 2>&1
+  else
+    [[ "$ip" =~ ^([0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4}$ ]]
+  fi
+}
+
+detect_public_ipv4() {
+  local value=${SBM_PUBLIC_IPV4:-} url
+  validate_ipv4 "$value" && { printf '%s\n' "$value"; return; }
+  for url in https://api.ipify.org https://ipv4.icanhazip.com https://ifconfig.co/ip; do
+    value=$(curl -4 --fail --silent --show-error --location --connect-timeout 3 --max-time 6 "$url" 2>/dev/null | tr -d '\r[:space:]' || true)
+    validate_ipv4 "$value" && { printf '%s\n' "$value"; return; }
+  done
+  return 1
+}
+detect_public_ipv6() {
+  local value=${SBM_PUBLIC_IPV6:-} url
+  [[ ${SBM_DISABLE_IPV6_DETECTION:-0} != 1 ]] || return 1
+  validate_ipv6 "$value" && { printf '%s\n' "$value"; return; }
+  for url in https://api64.ipify.org https://ipv6.icanhazip.com https://ifconfig.co/ip; do
+    value=$(curl -6 --fail --silent --show-error --location --connect-timeout 3 --max-time 6 "$url" 2>/dev/null | tr -d '\r[:space:]' || true)
+    validate_ipv6 "$value" && { printf '%s\n' "$value"; return; }
+  done
+  return 1
+}
 normalize_ws_path() {
   local p=$1
   [[ "$p" == /* ]] || p="/$p"
@@ -146,7 +187,7 @@ ensure_program_permissions() {
   done
   if [[ -d "$SBM_CORE_DIR" ]]; then
     find "$SBM_CORE_DIR" -type d -exec chmod 0755 {} +
-    find "$SBM_CORE_DIR" -type f \( -name sing-box -o -name cloudflared \) -exec chmod 0755 {} +
+    find "$SBM_CORE_DIR" -type f \( -name sing-box -o -name cloudflared -o -name libcronet.so \) -exec chmod 0755 {} +
   fi
 }
 validate_runtime_binary_path() {

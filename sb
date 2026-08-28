@@ -18,12 +18,19 @@ source "$SBM_LIB/protocols/vmess_ws_cf.sh"
 source "$SBM_LIB/protocols/shadowsocks.sh"
 source "$SBM_LIB/protocols/anytls.sh"
 source "$SBM_LIB/protocols/hysteria2.sh"
+source "$SBM_LIB/protocols/trojan.sh"
+source "$SBM_LIB/protocols/tuic.sh"
+source "$SBM_LIB/protocols/vless.sh"
+source "$SBM_LIB/protocols/naive.sh"
+source "$SBM_LIB/protocols/shadowtls.sh"
 source "$SBM_LIB/lib/render.sh"
 source "$SBM_LIB/lib/core.sh"
 source "$SBM_LIB/lib/node.sh"
 source "$SBM_LIB/lib/export.sh"
 source "$SBM_LIB/lib/cert.sh"
 source "$SBM_LIB/lib/tunnel.sh"
+source "$SBM_LIB/lib/subscription.sh"
+source "$SBM_LIB/lib/api.sh"
 source "$SBM_LIB/lib/backup.sh"
 source "$SBM_LIB/lib/doctor.sh"
 source "$SBM_LIB/lib/uninstall.sh"
@@ -37,13 +44,20 @@ sb-manager：状态驱动的 sing-box 多协议管理器
   sb                              打开交互面板
   sb status                       查看状态
   sb node list [--json]           列出节点
-  sb node add <vmess|ss|anytls|hy2> [参数]
+  sb node add <vmess|ss|anytls|hy2|trojan|tuic|vless|naive|shadowtls> [参数]
   sb node show <ID>
   sb node enable|disable|delete|rotate <ID>
   sb node set <ID> --port N|--address HOST|--domain DOMAIN|--name NAME|--path PATH
-  sb share <ID> [--qr]
+  sb user list <NODE_ID>
+  sb user add <NODE_ID> <USER_ID> [NAME]
+  sb user enable|disable|delete|rotate <NODE_ID> <USER_ID>
+  sb share <ID> [--user USER_ID] [--qr]
   sb share all
   sb export outbounds
+  sb export config [文件] [--mode mixed|tun]
+  sb subscription create [7d|24h] [mixed|tun]
+  sb subscription list|status|revoke <TOKEN>
+  sb api enable [PORT] [--dashboard]|disable|status|show-token
 
   sb cert setup-cloudflare [TOKEN] [ZONE_ID] [EMAIL]
   sb cert issue <DOMAIN> [EMAIL]
@@ -53,14 +67,17 @@ sb-manager：状态驱动的 sing-box 多协议管理器
   sb tunnel quick <NODE_ID>
   sb tunnel refresh|set-token|status|stop
 
+  sb settings show|detect-ip|address <auto|HOST>
+  sb probe NODE_ID                探测节点 DNS、监听和 TLS/UDP 可达性
+
   sb core check|update [VERSION]|rollback|policy <manual|notify|patch|stable>|auto
   sb cloudflared update
   sb acme update
-  sb doctor [--repair]
+  sb doctor [--repair|--network]
   sb repair                      修复权限、配置与服务状态
   sb logs [all|singbox|tunnel|follow] [行数]
-  sb backup [文件]
-  sb restore <文件> [--yes]
+  sb backup [文件] [--recipient AGE_RECIPIENT]
+  sb restore <文件> [--identity AGE_PRIVATE_KEY] [--yes]
   sb restart
   sb uninstall [--purge] [--yes]
 
@@ -111,12 +128,39 @@ main() {
         *) die "未知 node 操作：$action" ;;
       esac
       ;;
+    user)
+      local action=${2:-list}; shift 2 || true
+      case "$action" in
+        list) (($# >= 1)) || die '缺少节点 ID'; node_user_list "$1" "$([[ ${2:-} == --json ]] && echo 1 || echo 0)" ;;
+        add) (($# >= 2)) || die '用法：sb user add NODE_ID USER_ID [NAME]'; node_user_add "$1" "$2" "${3:-$2}" ;;
+        enable) (($# == 2)) || die '用法：sb user enable NODE_ID USER_ID'; node_user_enable "$1" "$2" ;;
+        disable) (($# == 2)) || die '用法：sb user disable NODE_ID USER_ID'; node_user_disable "$1" "$2" ;;
+        delete) (($# == 2)) || die '用法：sb user delete NODE_ID USER_ID'; node_user_delete "$1" "$2" ;;
+        rotate) (($# == 2)) || die '用法：sb user rotate NODE_ID USER_ID'; node_rotate "$1" "$2" ;;
+        *) die "未知 user 操作：$action" ;;
+      esac
+      ;;
     share)
-      local id=${2:-all}; local qr=0; [[ ${3:-} == --qr ]] && qr=1
-      [[ "$id" == all ]] && node_share_all || node_share "$id" "$qr"
+      local id=${2:-all} qr=0 user_id='' arg
+      shift 2 || true
+      while (($#)); do
+        case "$1" in --qr) qr=1; shift;; --user) user_id=${2:?缺少用户 ID}; shift 2;; *) die "未知分享参数：$1";; esac
+      done
+      [[ "$id" == all ]] && node_share_all || node_share "$id" "$qr" "$user_id"
       ;;
     export)
-      case ${2:-outbounds} in outbounds) export_all_outbounds;; *) die '当前仅支持：sb export outbounds';; esac
+      case ${2:-outbounds} in
+        outbounds) export_all_outbounds ;;
+        config)
+          local output="$SBM_EXPORTS/client-config.json" mode=mixed
+          shift 2
+          while (($#)); do
+            case "$1" in --mode) mode=${2:?缺少模式}; shift 2;; -*) die "未知导出参数：$1";; *) output=$1; shift;; esac
+          done
+          export_client_config "$output" "$mode"
+          ;;
+        *) die '当前支持：sb export outbounds|config [文件]' ;;
+      esac
       ;;
     cert)
       local action=${2:-list}
@@ -143,6 +187,26 @@ main() {
         *) die "未知 tunnel 操作：$action" ;;
       esac
       ;;
+    subscription)
+      local action=${2:-status}
+      case "$action" in
+        create) subscription_create "${3:-7d}" "${4:-mixed}" ;;
+        list) subscription_list ;;
+        status) subscription_status ;;
+        revoke) subscription_revoke "${3:?缺少完整订阅令牌}" ;;
+        *) die '用法：sb subscription create [7d|24h] [mixed|tun] | list | status | revoke TOKEN' ;;
+      esac
+      ;;
+    api)
+      local action=${2:-status}
+      case "$action" in
+        enable) api_enable "${3:-9090}" "$([[ ${4:-} == --dashboard ]] && echo true || echo false)" ;;
+        disable) api_disable ;;
+        status) api_status ;;
+        show-token) api_show_token ;;
+        *) die '用法：sb api enable [PORT] [--dashboard] | disable | status | show-token' ;;
+      esac
+      ;;
     core)
       local action=${2:-check}
       case "$action" in
@@ -156,14 +220,50 @@ main() {
       ;;
     cloudflared) [[ ${2:-} == update ]] || die '用法：sb cloudflared update'; cloudflared_update ;;
     acme) [[ ${2:-} == update ]] || die '用法：sb acme update'; acme_update ;;
-    doctor) if [[ ${2:-} == --repair ]]; then doctor_run 1; else doctor_run; fi ;;
+    doctor)
+      case ${2:-} in
+        --repair) doctor_run 1 ;;
+        --network) doctor_run 0 1 ;;
+        '') doctor_run ;;
+        *) die '用法：sb doctor [--repair|--network]' ;;
+      esac
+      ;;
+    probe) doctor_probe "${2:?缺少节点 ID}" ;;
     repair) doctor_run 1 ;;
     logs) show_logs "${2:-all}" "${3:-100}" ;;
-    backup) backup_create "${2:-$SBM_BACKUPS/sb-manager-$(now_stamp).tar.gz}" ;;
-    restore) backup_restore "${2:?缺少备份路径}" "$([[ ${3:-} == --yes ]] && echo 1 || echo 0)" ;;
+    backup)
+      local output="$SBM_BACKUPS/sb-manager-$(now_stamp).tar.gz" recipient='' arg
+      shift
+      while (($#)); do
+        case "$1" in
+          --recipient) recipient=${2:?缺少 age recipient}; shift 2 ;;
+          -*) die "未知备份参数：$1" ;;
+          *) output=$1; shift ;;
+        esac
+      done
+      [[ -z "$recipient" || "$output" == *.age ]] || output+='.age'
+      backup_create "$output" "$recipient"
+      ;;
+    restore)
+      local archive=${2:?缺少备份路径} identity='' assume_yes=0
+      shift 2
+      while (($#)); do
+        case "$1" in
+          --identity) identity=${2:?缺少 age 身份文件}; shift 2 ;;
+          --yes|-y) assume_yes=1; shift ;;
+          *) die "未知恢复参数：$1" ;;
+        esac
+      done
+      backup_restore "$archive" "$assume_yes" "$identity"
+      ;;
     restart) singbox_service_reconcile; [[ $(jq -r '.tunnel.mode' "$SBM_STATE") != none ]] && service_try_restart "$SBM_TUNNEL_SERVICE"; status_summary ;;
     settings)
-      case ${2:-} in address) settings_set_default_address "${3:?缺少地址}";; *) die '用法：sb settings address HOST';; esac
+      case ${2:-show} in
+        show) settings_show_addresses ;;
+        detect-ip) settings_detect_public_ip ;;
+        address) settings_set_default_address "${3:?缺少地址}" ;;
+        *) die '用法：sb settings show|detect-ip|address <auto|HOST>' ;;
+      esac
       ;;
     *) die "未知命令：$cmd；运行 sb help 查看帮助。" ;;
   esac

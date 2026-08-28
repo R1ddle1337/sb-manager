@@ -5,8 +5,9 @@ node_transport_kinds() {
   local node=$1 protocol network
   protocol=$(jq -r '.protocol' <<<"$node")
   case "$protocol" in
-    vmess-ws-cf|anytls) printf 'tcp\n' ;;
-    hysteria2) printf 'udp\n' ;;
+    vmess-ws-cf|anytls|trojan|vless|shadowtls) printf 'tcp\n' ;;
+    hysteria2|tuic) printf 'udp\n' ;;
+    naive) jq -r '.network // "tcp"' <<<"$node" ;;
     shadowsocks)
       network=$(jq -r '.network // "tcp"' <<<"$node")
       case "$network" in tcp) printf 'tcp\n';; udp) printf 'udp\n';; *) printf 'tcp\nudp\n';; esac
@@ -16,11 +17,15 @@ node_transport_kinds() {
 }
 
 validate_state_semantics() {
-  local state=$1 ids count node id protocol port domain cert_dir kind key
+  local state=$1 ids count node id protocol port domain cert_dir kind key user_ids user_id enabled_users
   state_validate "$state"
   ids=$(jq -r '.nodes[].id' "$state" | sort)
   count=$(printf '%s\n' "$ids" | sed '/^$/d' | uniq -d | wc -l)
   (( count == 0 )) || die "状态中存在重复节点 ID。"
+  if [[ $(jq -r '.api.enabled // false' "$state") == true ]]; then
+    version_ge "$(core_current_version)" 1.14.0-rc.1 || die 'sing-box API/Dashboard 需要 1.14+ 核心。'
+    [[ -r "$(state_secret_path api)" ]] || die 'API secret 文件缺失。'
+  fi
 
   declare -A occupied=()
   while IFS= read -r node; do
@@ -30,52 +35,96 @@ validate_state_semantics() {
     port=$(jq -r '.port' <<<"$node")
     validate_node_id "$id" || die "节点 ID 不规范：$id"
     validate_port "$port" || die "节点 $id 的端口无效：$port"
-    case "$protocol" in vmess-ws-cf|shadowsocks|anytls|hysteria2) ;; *) die "节点 $id 使用未知协议：$protocol" ;; esac
+    case "$protocol" in vmess-ws-cf|shadowsocks|anytls|hysteria2|trojan|tuic|vless|naive|shadowtls) ;; *) die "节点 $id 使用未知协议：$protocol" ;; esac
+    user_ids=$(jq -r '.users[].id' <<<"$node" | sort)
+    count=$(printf '%s\n' "$user_ids" | sed '/^$/d' | uniq -d | wc -l)
+    (( count == 0 )) || die "节点 $id 存在重复用户 ID。"
     if [[ $(jq -r '.enabled' <<<"$node") == true ]]; then
+      enabled_users=$(jq '[.users[] | select(.enabled==true)] | length' <<<"$node")
+      (( enabled_users > 0 )) || die "启用节点 $id 至少需要一个启用用户。"
       while IFS= read -r kind; do
         key="$kind:$port"
         [[ -z ${occupied[$key]+x} ]] || die "端口冲突：$id 与 ${occupied[$key]} 同时占用 ${port}/${kind^^}。"
         occupied[$key]=$id
       done < <(node_transport_kinds "$node")
-      if [[ "$protocol" == anytls || "$protocol" == hysteria2 ]]; then
+      if [[ "$protocol" == anytls || "$protocol" == hysteria2 || "$protocol" == trojan || "$protocol" == tuic || "$protocol" == naive || ("$protocol" == vless && $(jq -r '.security' <<<"$node") == tls) ]]; then
         domain=$(jq -r '.domain // ""' <<<"$node")
         validate_domain "$domain" || die "节点 $id 的 TLS 域名无效：$domain"
         cert_dir="$SBM_CERTS/$domain"
         [[ -s "$cert_dir/fullchain.pem" && -s "$cert_dir/key.pem" ]] || die "节点 $id 缺少证书：$cert_dir/{fullchain.pem,key.pem}"
       fi
-      [[ -r "$(state_secret_path "$id")" ]] || die "节点 $id 缺少密钥文件。"
+      while IFS= read -r user_id; do
+        [[ -r "$(state_user_secret_path "$id" "$user_id")" ]] || die "节点 $id 的用户 $user_id 缺少密钥文件。"
+      done < <(jq -r '.users[] | select(.enabled==true) | .id' <<<"$node")
+      if [[ "$protocol" == hysteria2 || ("$protocol" == vless && $(jq -r '.security' <<<"$node") == reality) ]]; then
+        [[ -r "$(state_secret_path "$id")" ]] || die "节点 $id 缺少协议级密钥文件。"
+      fi
     fi
   done < <(jq -c '.nodes[]?' "$state")
 }
 
+node_enabled_credentials() {
+  local node=$1 node_id user user_id secret credentials='[]'
+  node_id=$(jq -r '.id' <<<"$node")
+  while IFS= read -r user; do
+    user_id=$(jq -r '.id' <<<"$user")
+    secret=$(state_get_user_secret "$node_id" "$user_id")
+    credentials=$(jq -c --argjson user "$user" --argjson secret "$secret" '. + [$user + $secret]' <<<"$credentials")
+  done < <(jq -c '.users[] | select(.enabled==true)' <<<"$node")
+  printf '%s\n' "$credentials"
+}
+
 render_inbound_for_node() {
-  local node=$1 secret=$2 protocol
+  local node=$1 credentials=$2 node_secret=${3:-'{}'} protocol
   protocol=$(jq -r '.protocol' <<<"$node")
   case "$protocol" in
-    vmess-ws-cf) protocol_vmess_render "$node" "$secret" ;;
-    shadowsocks) protocol_ss_render "$node" "$secret" ;;
-    anytls) protocol_anytls_render "$node" "$secret" ;;
-    hysteria2) protocol_hy2_render "$node" "$secret" ;;
+    vmess-ws-cf) protocol_vmess_render "$node" "$credentials" "$node_secret" ;;
+    shadowsocks) protocol_ss_render "$node" "$credentials" "$node_secret" ;;
+    anytls) protocol_anytls_render "$node" "$credentials" "$node_secret" ;;
+    hysteria2) protocol_hy2_render "$node" "$credentials" "$node_secret" ;;
+    trojan) protocol_trojan_render "$node" "$credentials" ;;
+    tuic) protocol_tuic_render "$node" "$credentials" ;;
+    vless) protocol_vless_render "$node" "$credentials" "$node_secret" ;;
+    naive) protocol_naive_render "$node" "$credentials" ;;
+    shadowtls) protocol_shadowtls_render "$node" "$credentials" ;;
     *) die "未知协议：$protocol" ;;
   esac
 }
 
 render_config_from_state() {
-  local state=$1 output=$2 node secret inbound inbounds='[]' log_level
+  local state=$1 output=$2 node node_id credentials node_secret inbound inbounds='[]' log_level api_enabled api_secret api_port dashboard
   validate_state_semantics "$state"
   while IFS= read -r node; do
     [[ -n "$node" ]] || continue
-    secret=$(state_get_secret "$(jq -r '.id' <<<"$node")")
-    inbound=$(render_inbound_for_node "$node" "$secret")
+    node_id=$(jq -r '.id' <<<"$node")
+    credentials=$(node_enabled_credentials "$node")
+    node_secret='{}'
+    [[ ! -r $(state_secret_path "$node_id") ]] || node_secret=$(state_get_secret "$node_id")
+    inbound=$(render_inbound_for_node "$node" "$credentials" "$node_secret")
     inbounds=$(jq -c --argjson x "$inbound" '. + [$x]' <<<"$inbounds")
   done < <(jq -c '.nodes[]? | select(.enabled==true)' "$state")
   log_level=$(jq -r '.settings.log_level // "info"' "$state")
-  jq -n --arg level "$log_level" --argjson inbounds "$inbounds" '{
+  api_enabled=$(jq -r '.api.enabled // false' "$state")
+  api_secret=''; api_port=$(jq -r '.api.port // 9090' "$state"); dashboard=$(jq -r '.api.dashboard // false' "$state")
+  [[ "$api_enabled" != true ]] || api_secret=$(state_get_secret api | jq -r '.secret')
+  jq -n --arg level "$log_level" --argjson inbounds "$inbounds" --argjson api_enabled "$api_enabled" \
+    --arg secret "$api_secret" --argjson api_port "$api_port" --argjson dashboard "$dashboard" --arg dashboard_path "$SBM_VAR/dashboard" '{
+    "$schema":"https://sing-box.sagernet.org/schema.json",
     log:{level:$level,timestamp:true},
     inbounds:$inbounds,
     outbounds:[{type:"direct",tag:"direct"}],
     route:{final:"direct"}
-  }' >"$output"
+  }
+  | if $api_enabled then
+      .http_clients=[{tag:"http-direct",detour:"direct"}]
+      | .route.default_http_client="http-direct"
+      | .services=[{
+          type:"api",tag:"api-local",listen:"127.0.0.1",listen_port:$api_port,secret:$secret,
+          access_control_allow_origin:[("http://127.0.0.1:" + ($api_port|tostring))],
+          dashboard:(if $dashboard then {enabled:true,path:$dashboard_path,http_client:"http-direct",update_interval:"1d"} else false end)
+        }]
+    else . end
+  ' >"$output"
   jq -e . "$output" >/dev/null
 }
 

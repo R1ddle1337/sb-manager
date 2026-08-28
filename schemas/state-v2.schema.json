@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/R1ddle1337/sb-manager/schemas/state-v2.schema.json",
+  "title": "sb-manager state schema v2",
+  "type": "object",
+  "required": ["schema_version", "manager_version", "created_at", "updated_at", "settings", "tunnel", "api", "certificates", "nodes"],
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {"const": 2},
+    "manager_version": {"type": "string", "minLength": 1},
+    "created_at": {"type": "string", "minLength": 1},
+    "updated_at": {"type": "string", "minLength": 1},
+    "settings": {
+      "type": "object",
+      "required": ["log_level", "default_server_address", "core_channel", "core_update_policy", "cloudflared_update_policy"],
+      "additionalProperties": true,
+      "properties": {
+        "log_level": {"enum": ["trace", "debug", "info", "warn", "error", "fatal", "panic"]},
+        "default_server_address": {"type": "string"},
+        "default_server_address_source": {"enum": ["auto", "manual"]},
+        "public_ipv4": {"type": "string"},
+        "public_ipv6": {"type": "string"},
+        "public_ip_detected_at": {"type": ["string", "null"]},
+        "core_channel": {"type": "string", "minLength": 1},
+        "core_update_policy": {"enum": ["manual", "notify", "patch", "stable"]},
+        "cloudflared_update_policy": {"type": "string", "minLength": 1}
+      }
+    },
+    "tunnel": {
+      "type": "object",
+      "required": ["mode", "node_id", "domain", "client_address", "protocol"],
+      "additionalProperties": true,
+      "properties": {
+        "mode": {"enum": ["none", "fixed", "quick"]},
+        "node_id": {"type": ["string", "null"]},
+        "domain": {"type": ["string", "null"]},
+        "client_address": {"type": ["string", "null"]},
+        "protocol": {"type": "string", "minLength": 1}
+      }
+    },
+    "api": {
+      "type": "object",
+      "required": ["enabled", "listen", "port", "dashboard"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "listen": {"const": "127.0.0.1"},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "dashboard": {"type": "boolean"}
+      }
+    },
+    "certificates": {"type": "array"},
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "protocol", "enabled", "listen", "port", "created_at"],
+        "additionalProperties": true,
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,47}$"},
+          "name": {"type": "string"},
+          "protocol": {"enum": ["vmess-ws-cf", "shadowsocks", "anytls", "hysteria2", "trojan", "tuic", "vless", "naive", "shadowtls"]},
+          "enabled": {"type": "boolean"},
+          "listen": {"type": "string", "minLength": 1},
+          "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+          "created_at": {"type": "string", "minLength": 1},
+          "users": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["id", "name", "enabled", "created_at"],
+              "properties": {
+                "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,47}$"},
+                "name": {"type": "string"},
+                "enabled": {"type": "boolean"},
+                "created_at": {"type": "string", "minLength": 1}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

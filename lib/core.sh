@@ -87,6 +87,24 @@ core_current_version() {
   extract_semver "$output"
 }
 
+core_version_series() {
+  local version=${1#v}
+  [[ "$version" =~ ^([0-9]+)\.([0-9]+)\. ]] || return 1
+  printf '%s.%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+}
+
+core_validate_build_tags() {
+  local binary=$1 state=${2:-$SBM_STATE} output
+  [[ -s "$state" ]] || return 0
+  output=$("$binary" version 2>/dev/null) || return 1
+  if jq -e '.nodes[]? | select(.enabled==true and (.protocol=="hysteria2" or .protocol=="tuic"))' "$state" >/dev/null; then
+    grep -Eq '(^|[,[:space:]])with_quic([,[:space:]]|$)' <<<"$output" || { log_error '当前配置需要 with_quic 构建标签。'; return 1; }
+  fi
+  if jq -e '.nodes[]? | select(.enabled==true and .protocol=="vless" and .security=="reality")' "$state" >/dev/null; then
+    grep -Eq '(^|[,[:space:]])with_utls([,[:space:]]|$)' <<<"$output" || { log_error '当前 Reality 配置需要 with_utls 构建标签。'; return 1; }
+  fi
+}
+
 verify_asset_digest() {
   local file=$1 digest=${2:-}
   [[ -n "$digest" && "$digest" == sha256:* ]] || return 2
@@ -95,8 +113,36 @@ verify_asset_digest() {
   [[ "$actual" == "$expected" ]]
 }
 
+artifact_record() {
+  local name=$1 version=$2 url=$3 digest=$4 binary=${5:-} manifest tmp details='' binary_digest=''
+  manifest="$SBM_VAR/install-manifest.json"
+  mkdir -p "$SBM_VAR"
+  if [[ -n "$binary" && -x "$binary" ]]; then
+    details=$("$binary" version 2>/dev/null | head -n 20 || true)
+    binary_digest="sha256:$(sha256sum "$binary" | awk '{print $1}')"
+  fi
+  tmp=$(mktemp "$SBM_VAR/.install-manifest.XXXXXX")
+  if [[ -s "$manifest" ]] && jq -e 'type=="object" and (.artifacts|type=="array")' "$manifest" >/dev/null 2>&1; then
+    jq --arg name "$name" --arg version "$version" --arg url "$url" --arg digest "$digest" \
+      --arg installed_at "$(now_iso)" --arg details "$details" --arg binary_digest "$binary_digest" '
+        .artifacts |= (map(select(.name != $name)) + [{
+          name:$name, version:$version, source_url:$url, digest:$digest,
+          installed_at:$installed_at, binary_digest:$binary_digest, version_output:$details
+        }])
+      ' "$manifest" >"$tmp"
+  else
+    jq -n --arg name "$name" --arg version "$version" --arg url "$url" --arg digest "$digest" \
+      --arg installed_at "$(now_iso)" --arg details "$details" --arg binary_digest "$binary_digest" '{schema_version:1,artifacts:[{
+        name:$name,version:$version,source_url:$url,digest:$digest,
+        installed_at:$installed_at,binary_digest:$binary_digest,version_output:$details
+      }]}' >"$tmp"
+  fi
+  chmod 0640 "$tmp"
+  mv -f "$tmp" "$manifest"
+}
+
 core_download_version() {
-  local version=$1 arch json asset_name asset_url digest checksum_url tmpdir archive target expected
+  local version=$1 arch json asset_name asset_url digest checksum_url tmpdir archive target expected found found_dir
   arch=$(sb_arch)
   json=$(core_release_json "$version") || die "无法获取 sing-box Release 信息。"
   version=$(jq -r '.tag_name // empty' <<<"$json" | sed 's/^v//')
@@ -107,8 +153,10 @@ core_download_version() {
   [[ -n "$asset_url" ]] || die "官方 Release 中未找到：$asset_name"
   target="$SBM_CORE_DIR/sing-box/$version/sing-box"
   if [[ -x "$target" ]]; then
+    "$target" version 2>/dev/null | grep -Fq "$version" || die "已缓存的 sing-box $version 无法通过版本校验。"
     ensure_program_permissions
     prepare_singbox_binary_for_backend "$target"
+    artifact_record sing-box "$version" "$asset_url" "${digest:-previously-verified}" "$target"
     printf '%s\n' "$target"
     return 0
   fi
@@ -121,6 +169,7 @@ core_download_version() {
     download_file_with_retries "$checksum_url" "$tmpdir/checksums.txt" "sing-box checksum" 5
     expected=$(awk -v n="$asset_name" '$NF==n {print $1; exit}' "$tmpdir/checksums.txt")
     [[ -n "$expected" && "$expected" == "$(sha256sum "$archive" | awk '{print $1}')" ]] || { rm -rf "$tmpdir"; die "sing-box 下载文件校验失败。"; }
+    digest="sha256:$expected"
   fi
   mkdir -p "$SBM_CORE_DIR/sing-box/$version"
   chmod 0755 "$SBM_CORE_DIR" "$SBM_CORE_DIR/sing-box" "$SBM_CORE_DIR/sing-box/$version"
@@ -132,6 +181,10 @@ core_download_version() {
   found=$(find "$tmpdir" -type f -name sing-box -perm -u+x -print -quit)
   [[ -n "$found" ]] || { rm -rf "$tmpdir"; die "压缩包中未找到 sing-box。"; }
   install -m 0755 "$found" "$target"
+  found_dir=$(dirname "$found")
+  if [[ -f "$found_dir/libcronet.so" ]]; then
+    install -m 0755 "$found_dir/libcronet.so" "$(dirname "$target")/libcronet.so"
+  fi
   ensure_program_permissions
   if ! "$target" version >/dev/null 2>&1; then
     rm -rf "$tmpdir"
@@ -141,24 +194,26 @@ core_download_version() {
     die "下载的 sing-box 核心无法执行。"
   fi
   prepare_singbox_binary_for_backend "$target"
+  artifact_record sing-box "$version" "$asset_url" "$digest" "$target"
   rm -rf "$tmpdir"
   printf '%s\n' "$target"
 }
 
 core_switch_to() {
-  local version=$1 binary current_target previous
+  local version=$1 binary current_target previous transition_snapshot
   binary="$SBM_CORE_DIR/sing-box/${version#v}/sing-box"
   [[ -x "$binary" ]] || binary=$(core_download_version "$version")
   validate_runtime_binary_path sing-box "$binary"
   ensure_program_permissions
   prepare_singbox_binary_for_backend "$binary"
   if [[ -s "$SBM_CONFIG" ]]; then core_validate_config_with "$binary" "$SBM_CONFIG" "$SBM_RUN/core-candidate-check.log" || return 1; fi
+  core_validate_build_tags "$binary" "$SBM_STATE" || return 1
   current_target=$(readlink -f "$SBM_SING_BOX_BIN" 2>/dev/null || true)
   previous=${current_target:-none}
+  transition_snapshot=$(snapshot_create "core-before-${version#v}")
   mkdir -p "$SBM_BIN_DIR" "$SBM_VAR/core-history"
   ln -sfn "$binary" "$SBM_SING_BOX_BIN.new"
   mv -Tf "$SBM_SING_BOX_BIN.new" "$SBM_SING_BOX_BIN"
-  printf '%s\t%s\t%s\n' "$(now_iso)" "$previous" "$binary" >>"$SBM_VAR/core-history/sing-box.tsv"
   ensure_program_permissions
   if [[ "$SBM_SKIP_INIT" != "1" ]] && service_exists "$SBM_SERVICE"; then
     if ! singbox_service_reconcile; then
@@ -171,6 +226,7 @@ core_switch_to() {
       return 1
     fi
   fi
+  printf '%s\t%s\t%s\t%s\n' "$(now_iso)" "$previous" "$binary" "$transition_snapshot" >>"$SBM_VAR/core-history/sing-box.tsv"
   log_ok "sing-box 已切换到 $(core_current_version)。"
 }
 
@@ -196,15 +252,16 @@ core_check_update() {
   [[ "$current" == "$latest" ]] || return 10
 }
 
-core_set_policy() {
+_core_set_policy() {
   local policy=$1 candidate
   case "$policy" in manual|notify|patch|stable) ;; *) die "策略必须是 manual、notify、patch 或 stable。";; esac
   candidate=$(state_candidate)
   jq --arg p "$policy" '.settings.core_update_policy=$p' "$SBM_STATE" >"$candidate"
-  with_lock apply_candidate_state "$candidate" core-policy
+  apply_candidate_state "$candidate" core-policy
   rm -f "$candidate"
   log_ok "自动更新策略：$policy"
 }
+core_set_policy() { with_state_transaction core-policy _core_set_policy "$@"; }
 
 core_auto_update() {
   local policy current latest cmj cmi lmj lmi
@@ -221,17 +278,44 @@ core_auto_update() {
       IFS=. read -r cmj cmi _ <<<"$current"; IFS=. read -r lmj lmi _ <<<"$latest"
       if [[ "$cmj.$cmi" == "$lmj.$lmi" ]]; then _core_update "$latest"; else log_warn "发现跨 minor 更新 $latest；patch 策略不自动安装。"; fi
       ;;
-    stable) _core_update "$latest" ;;
+    stable)
+      if [[ $(core_version_series "$current" 2>/dev/null || true) == "$(core_version_series "$latest" 2>/dev/null || true)" ]]; then
+        _core_update "$latest"
+      else
+        log_warn "发现跨 minor 稳定版 $latest；为避免配置迁移风险，仅通知并保留当前 $current。请手动运行 sb core update $latest。"
+      fi
+      ;;
   esac
 }
 
 core_rollback() {
-  local current candidate version
+  local current candidate version history_line previous paired_snapshot safety
   current=$(readlink -f "$SBM_SING_BOX_BIN" 2>/dev/null || true)
-  candidate=$(find "$SBM_CORE_DIR/sing-box" -mindepth 2 -maxdepth 2 -type f -name sing-box -perm -u+x -printf '%T@ %p\n' 2>/dev/null | sort -nr | awk -v cur="$current" '$2!=cur {print $2; exit}')
+  if [[ -s "$SBM_VAR/core-history/sing-box.tsv" ]]; then
+    history_line=$(awk -F '\t' -v cur="$current" '$3==cur && $2!="none" {line=$0} END {print line}' "$SBM_VAR/core-history/sing-box.tsv")
+    if [[ -n "$history_line" ]]; then
+      IFS=$'\t' read -r _ previous _ paired_snapshot <<<"$history_line"
+      [[ -x "$previous" ]] && candidate=$previous
+    fi
+  fi
+  if [[ -z ${candidate:-} ]]; then
+    candidate=$(find "$SBM_CORE_DIR/sing-box" -mindepth 2 -maxdepth 2 -type f -name sing-box -perm -u+x -printf '%T@ %p\n' 2>/dev/null | sort -nr | awk -v cur="$current" '$2!=cur {print $2; exit}')
+  fi
   [[ -n "$candidate" ]] || die "没有可回滚的旧核心。"
+  safety=$(snapshot_create core-rollback-safety)
+  if [[ -s "$SBM_CONFIG" ]] && ! core_validate_config_with "$candidate" "$SBM_CONFIG" "$SBM_RUN/core-rollback-check.log"; then
+    [[ -n ${paired_snapshot:-} && -d "$paired_snapshot" ]] || die "旧核心不兼容当前配置，且没有已知可用的配对快照。"
+    cp -a "$paired_snapshot/state.json" "$SBM_STATE"
+    cp -a "$paired_snapshot/config.json" "$SBM_CONFIG"
+    snapshot_restore_payload "$paired_snapshot"
+    if ! core_validate_config_with "$candidate" "$SBM_CONFIG" "$SBM_RUN/core-rollback-paired-check.log"; then
+      snapshot_restore "$safety" || true
+      die "旧核心与配对快照仍不兼容，已恢复回滚前状态。"
+    fi
+    log_warn "当前配置与旧核心不兼容，已恢复升级前配对快照：$paired_snapshot"
+  fi
   version=$(basename "$(dirname "$candidate")")
-  core_switch_to "$version"
+  core_switch_to "$version" || { snapshot_restore "$safety" || true; return 1; }
 }
 
 cloudflared_release_json() { github_api 'https://api.github.com/repos/cloudflare/cloudflared/releases/latest'; }
@@ -265,7 +349,9 @@ cloudflared_download_latest() {
   [[ -n "$url" ]] || die "未找到 cloudflared 资产：$asset_name"
   target="$SBM_CORE_DIR/cloudflared/$version/cloudflared"
   if [[ -x "$target" ]]; then
+    "$target" version 2>/dev/null | grep -Fq "$version" || die "已缓存的 cloudflared $version 无法通过版本校验。"
     ensure_program_permissions
+    artifact_record cloudflared "$version" "$url" "${digest:-previously-verified}" "$target"
     printf '%s\n' "$target"
     return 0
   fi
@@ -274,10 +360,11 @@ cloudflared_download_latest() {
   tmp=$(mktemp "$SBM_CACHE/cloudflared.XXXXXX")
   log_info "下载 cloudflared $version ($arch)…"
   download_file_with_retries "$url" "$tmp" "cloudflared $version" 5
-  if [[ -n "$digest" && "$digest" == sha256:* ]]; then verify_asset_digest "$tmp" "$digest" || { rm -f "$tmp"; die "cloudflared 校验失败。"; }
-  else log_warn "该 Release API 未返回 cloudflared 摘要；仅完成 TLS 下载校验。"; fi
+  [[ -n "$digest" && "$digest" == sha256:* ]] || { rm -f "$tmp"; die "Release API 未提供 cloudflared SHA-256 摘要，已拒绝安装。"; }
+  verify_asset_digest "$tmp" "$digest" || { rm -f "$tmp"; die "cloudflared 校验失败。"; }
   install -m 0755 "$tmp" "$target"; rm -f "$tmp"; ensure_program_permissions
   "$target" version >/dev/null 2>&1 || die "下载的 cloudflared 核心无法执行。"
+  artifact_record cloudflared "$version" "$url" "$digest" "$target"
   printf '%s\n' "$target"
 }
 

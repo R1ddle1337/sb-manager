@@ -42,6 +42,8 @@ uninstall_manager() {
     service_stop "$SBM_TUNNEL_SERVICE" || true
     service_disable "$SBM_SERVICE" || true
     service_stop "$SBM_SERVICE" || true
+    service_disable "$SBM_SUBSCRIPTION_SERVICE" || true
+    service_stop "$SBM_SUBSCRIPTION_SERVICE" || true
     if [[ "$backend" == systemd ]]; then
       systemctl disable --now sb-core-update.timer sb-acme-renew.timer sb-quick-tunnel-refresh.timer >/dev/null 2>&1 || true
       systemctl reset-failed "$SBM_SERVICE" "$SBM_TUNNEL_SERVICE" >/dev/null 2>&1 || true
@@ -59,11 +61,14 @@ uninstall_manager() {
     "$SBM_SYSTEMD_DIR/sb-acme-renew.timer" \
     "$SBM_SYSTEMD_DIR/sb-quick-tunnel-refresh.service" \
     "$SBM_SYSTEMD_DIR/sb-quick-tunnel-refresh.timer" \
+    "$SBM_SYSTEMD_DIR/$SBM_SUBSCRIPTION_SERVICE" \
     "$SBM_OPENRC_DIR/sb-sing-box" \
     "$SBM_OPENRC_DIR/sb-cloudflared" \
+    "$SBM_OPENRC_DIR/$(service_native_name "$SBM_SUBSCRIPTION_SERVICE")" \
     "$SBM_PERIODIC_DIR/daily/sb-core-update" \
     "$SBM_PERIODIC_DIR/daily/sb-acme-renew" \
-    "$SBM_PERIODIC_DIR/15min/sb-quick-tunnel-refresh"
+    "$SBM_PERIODIC_DIR/15min/sb-quick-tunnel-refresh" \
+    "$SBM_LOGROTATE_FILE"
   service_reload_manager || true
 
   remove_manager_owned_link "$SBM_SING_BOX_BIN"

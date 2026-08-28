@@ -58,3 +58,26 @@ VMess-WS-CF never listens on a public interface. AnyTLS and Hysteria2 can share 
 ## Update model
 
 Each sing-box version is kept under `cores/sing-box/<version>/`. `/usr/local/bin/sing-box` is an atomic symlink. A candidate binary must validate the current configuration before the symlink is switched. Service failure restores the previous target. On OpenRC, the capability required for low ports is applied to every candidate before activation.
+
+Every switch records a known-good core/config/secret/certificate snapshot in
+`/var/lib/sb-manager/backups/snapshots/` and appends a paired entry to
+`core-history/sing-box.tsv`. If an older core rejects the current configuration,
+rollback restores that paired snapshot before switching, so the binary and
+configuration remain compatible.
+
+## Protected control plane
+
+Subscription profiles are materialized under `/var/lib/sb-manager/subscriptions`
+with SHA-256 token filenames. The Python service runs as `sbmanager`, binds only
+to loopback, refuses expired/revoked tokens, and never logs bearer paths. The
+optional sing-box 1.14 API/Dashboard is version-gated, loopback-only, and uses a
+separate secret file; stable 1.13 configurations never contain its `services`
+or `http_clients` fields.
+
+## Release provenance
+
+`build-release.sh` emits the offline installer, `SHA256SUMS`,
+`RELEASE-MANIFEST.json`, and `PROVENANCE-SHA256SUMS`. Set
+`SBM_RELEASE_SIGNING_KEY` with a local GPG key to emit detached signatures for
+the manifest and checksums. Remote bootstrap installs require an immutable
+`SBM_INSTALL_REF` (tag or commit) and can enforce a source archive SHA-256.

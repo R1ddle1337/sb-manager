@@ -32,6 +32,9 @@ source "$PROJECT/protocols/vmess_ws_cf.sh"
 source "$PROJECT/protocols/shadowsocks.sh"
 source "$PROJECT/protocols/anytls.sh"
 source "$PROJECT/protocols/hysteria2.sh"
+source "$PROJECT/protocols/trojan.sh"
+source "$PROJECT/protocols/tuic.sh"
+source "$PROJECT/protocols/vless.sh"
 source "$PROJECT/lib/render.sh"
 source "$PROJECT/lib/core.sh"
 source "$PROJECT/lib/node.sh"
@@ -49,9 +52,14 @@ node_add vmess --id vm-test --name 'VM test' --port 29001 --domain cdn.example.c
 node_add ss --id ss-test --name 'SS test' --port 28388 --address 192.0.2.1
 node_add anytls --id any-test --name 'Any test' --port 24443 --domain edge.example.com --address 192.0.2.1
 node_add hy2 --id hy2-test --name 'HY2 test' --port 24443 --domain edge.example.com --address 192.0.2.1 --obfs salamander --masquerade https://example.com
+node_user_add ss-test alice 'Alice SS'
+node_user_add any-test alice 'Alice AnyTLS'
 
 [[ $(jq '.nodes|length' "$SBM_STATE") == 4 ]]
 [[ $(jq '.inbounds|length' "$SBM_CONFIG") == 4 ]]
+[[ $(jq '.nodes[]|select(.id=="ss-test")|.users|length' "$SBM_STATE") == 2 ]]
+jq -e '.inbounds[]|select(.tag=="in-ss-test")|(.users|length)==2' "$SBM_CONFIG" >/dev/null
+jq -e '.inbounds[]|select(.tag=="in-any-test")|(.users|length)==2' "$SBM_CONFIG" >/dev/null
 "$SBM_SING_BOX_BIN" check -c "$SBM_CONFIG"
 
 # Start the real core once and verify that all four listeners can coexist.
@@ -80,6 +88,8 @@ for id in vm-test ss-test any-test hy2-test; do
   jq -n --argjson ob "$ob" '{log:{level:"error"},inbounds:[{type:"mixed",tag:"mixed-in",listen:"127.0.0.1",listen_port:20800}],outbounds:[$ob],route:{final:$ob.tag}}' >"$cfg"
   "$SBM_SING_BOX_BIN" check -c "$cfg"
 done
+node_client_outbound ss-test alice | jq -e '.type=="shadowsocks" and (.password|contains(":"))' >/dev/null
+node_client_outbound any-test alice | jq -e '.type=="anytls"' >/dev/null
 
 # Fixed Tunnel token stays in a protected file and never appears in the unit.
 tunnel_setup_fixed vm-test cdn.example.com test-tunnel-token cdn.example.com
@@ -107,9 +117,9 @@ backup_create "$backup" >/dev/null
 node_set ss-test --name 'Temporary name'
 backup_restore "$backup" 1 >/dev/null
 [[ $(jq -r '.nodes[]|select(.id=="ss-test")|.name' "$SBM_STATE") == 'SS edited' ]]
-old=$(jq -r '.password' "$(state_secret_path ss-test)")
+old=$(jq -r '.password' "$(state_user_secret_path ss-test default)")
 node_rotate ss-test
-new=$(jq -r '.password' "$(state_secret_path ss-test)")
+new=$(jq -r '.password' "$(state_user_secret_path ss-test default)")
 [[ "$old" != "$new" ]]
 node_delete ss-test
 ! state_node_exists ss-test
@@ -124,5 +134,5 @@ node_delete sschacha-test
 node_add ss --id conflict-test --port 24443 --address 192.0.2.1 --disabled
 if (node_enable conflict-test >/dev/null 2>&1); then echo 'expected TCP conflict rejection' >&2; exit 1; fi
 
-jq -e '.schema_version==1' "$SBM_STATE" >/dev/null
+jq -e '.schema_version==2' "$SBM_STATE" >/dev/null
 printf 'ALL TESTS PASSED\n'

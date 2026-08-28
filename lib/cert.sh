@@ -6,33 +6,43 @@ SBM_ACME_CONFIG="${SBM_ACME_CONFIG:-$SBM_VAR/acme/config}"
 SBM_ACME_CERT_HOME="${SBM_ACME_CERT_HOME:-$SBM_VAR/acme/internal-certs}"
 SBM_ACME_BIN="${SBM_ACME_BIN:-$SBM_ACME_HOME/acme.sh}"
 SBM_CF_DNS_ENV="${SBM_CF_DNS_ENV:-$SBM_SECRETS/dns-cloudflare.env}"
+SBM_ACME_VERSION="${SBM_ACME_VERSION:-3.1.4}"
+SBM_ACME_COMMIT="${SBM_ACME_COMMIT:-3661fd86b6304115e42f43910e6dd452ab9866d6}"
+SBM_ACME_SHA256="${SBM_ACME_SHA256:-9af3ad3d775a5782246df4cdd4b4e7b9b3179deb63c509b10e3ba0433093a884}"
 
 acme_install() {
-  [[ -x "$SBM_ACME_BIN" ]] && return 0
-  local json url tmpdir source email=${1:-}
+  local email=${1:-} force=${2:-0} url tmpdir source actual
+  if [[ -x "$SBM_ACME_BIN" && "$force" != 1 ]]; then return 0; fi
   [[ -n "$email" ]] || email=$(jq -r '.settings.acme_email // ""' "$SBM_STATE")
   [[ -n "$email" ]] || die "首次安装 acme.sh 需要邮箱地址。"
-  json=$(github_api 'https://api.github.com/repos/acmesh-official/acme.sh/releases/latest')
-  url=$(jq -r '.tarball_url' <<<"$json")
-  [[ -n "$url" && "$url" != null ]] || die "无法获取 acme.sh 官方 Release。"
+  url="https://github.com/acmesh-official/acme.sh/archive/${SBM_ACME_COMMIT}.tar.gz"
   tmpdir=$(mktemp -d "$SBM_CACHE/acme.XXXXXX")
-  curl -fL --retry 3 "$url" -o "$tmpdir/acme.tar.gz"
+  download_file_with_retries "$url" "$tmpdir/acme.tar.gz" "acme.sh $SBM_ACME_VERSION" 5
+  actual=$(sha256sum "$tmpdir/acme.tar.gz" | awk '{print $1}')
+  [[ "$actual" == "$SBM_ACME_SHA256" ]] || { rm -rf "$tmpdir"; die "acme.sh 下载摘要不匹配，已拒绝执行。"; }
   mkdir -p "$tmpdir/src"; tar -xzf "$tmpdir/acme.tar.gz" -C "$tmpdir/src" --strip-components=1
   source="$tmpdir/src/acme.sh"; [[ -x "$source" ]] || chmod +x "$source"
   mkdir -p "$SBM_ACME_HOME" "$SBM_ACME_CONFIG" "$SBM_ACME_CERT_HOME"
-  "$source" --install --home "$SBM_ACME_HOME" --config-home "$SBM_ACME_CONFIG" --cert-home "$SBM_ACME_CERT_HOME" --accountemail "$email" --nocron --noprofile
+  (
+    cd "$tmpdir/src"
+    ./acme.sh --install --home "$SBM_ACME_HOME" --config-home "$SBM_ACME_CONFIG" \
+      --cert-home "$SBM_ACME_CERT_HOME" --accountemail "$email" --nocron --noprofile
+  )
   rm -rf "$tmpdir"
   [[ -x "$SBM_ACME_BIN" ]] || die "acme.sh 安装失败。"
-  log_ok "acme.sh 已安装。"
+  "$SBM_ACME_BIN" --version 2>&1 | grep -Fq "$SBM_ACME_VERSION" || die "acme.sh 安装版本与固定版本 $SBM_ACME_VERSION 不一致。"
+  artifact_record acme.sh "$SBM_ACME_VERSION" "$url" "sha256:$SBM_ACME_SHA256" "$SBM_ACME_BIN"
+  log_ok "acme.sh $SBM_ACME_VERSION 已通过固定摘要安装。"
 }
 
-cert_setup_cloudflare() {
+_cert_setup_cloudflare() {
   local token=${1:-} zone_id=${2:-} email=${3:-} candidate tmp
   [[ -n "$token" ]] || prompt_secret token 'Cloudflare API Token'
   [[ -n "$zone_id" ]] || { [[ -t 0 ]] && prompt_value zone_id 'Cloudflare Zone ID（可留空，由 acme.sh 自动查询）' ''; }
   [[ -n "$email" ]] || { [[ -t 0 ]] && prompt_value email 'ACME 账户邮箱' "$(jq -r '.settings.acme_email // ""' "$SBM_STATE")"; }
   [[ -n "$token" ]] || die "API Token 不能为空。"
   [[ -n "$email" ]] || die "邮箱不能为空。"
+  acme_install "$email"
   tmp=$(mktemp "$SBM_SECRETS/.dns-cloudflare.XXXXXX")
   {
     printf 'CF_Token=%q\n' "$token"
@@ -41,11 +51,11 @@ cert_setup_cloudflare() {
   chmod 0600 "$tmp"; mv "$tmp" "$SBM_CF_DNS_ENV"
   candidate=$(state_candidate)
   jq --arg e "$email" '.settings.acme_email=$e | .settings.acme_dns_provider="dns_cf"' "$SBM_STATE" >"$candidate"
-  with_lock apply_candidate_state "$candidate" acme-settings
+  apply_candidate_state "$candidate" acme-settings
   rm -f "$candidate"
-  acme_install "$email"
   log_ok "Cloudflare DNS-01 凭据已保存（不会在面板中回显）。"
 }
+cert_setup_cloudflare() { with_state_transaction cert-provider _cert_setup_cloudflare "$@"; }
 
 cert_load_cloudflare_env() {
   [[ -s "$SBM_CF_DNS_ENV" ]] || die "尚未配置 Cloudflare DNS API Token。运行：sb cert setup-cloudflare"
@@ -56,13 +66,27 @@ cert_load_cloudflare_env() {
 }
 
 cert_hook() {
-  local domain=$1 dir="$SBM_CERTS/$domain"
+  local domain=$1 dir="$SBM_CERTS/$domain" cert_pub key_pub
   [[ -s "$dir/fullchain.pem" && -s "$dir/key.pem" ]] || return 1
+  openssl x509 -in "$dir/fullchain.pem" -noout -checkend 0 >/dev/null 2>&1 || { log_error "$domain 证书无效或已经过期。"; return 1; }
+  openssl verify -purpose sslserver -CAfile "$dir/fullchain.pem" "$dir/fullchain.pem" >/dev/null 2>&1 || {
+    log_error "$domain 证书链校验失败。"
+    return 1
+  }
+  if openssl x509 -help 2>&1 | grep -q -- '-checkhost'; then
+    openssl x509 -in "$dir/fullchain.pem" -noout -checkhost "$domain" >/dev/null 2>&1 || { log_error "$domain 不在证书 SAN/CN 中。"; return 1; }
+  fi
+  cert_pub=$(openssl x509 -in "$dir/fullchain.pem" -pubkey -noout 2>/dev/null | openssl pkey -pubin -outform DER 2>/dev/null | sha256sum | awk '{print $1}')
+  key_pub=$(openssl pkey -in "$dir/key.pem" -pubout -outform DER 2>/dev/null | sha256sum | awk '{print $1}')
+  [[ -n "$cert_pub" && "$cert_pub" == "$key_pub" ]] || { log_error "$domain 证书与私钥不匹配。"; return 1; }
   chmod 0644 "$dir/fullchain.pem"
   chmod 0640 "$dir/key.pem"
   set_group_if_exists "$SBM_SERVICE_USER" "$dir"; set_group_if_exists "$SBM_SERVICE_USER" "$dir/key.pem"
   chmod 0750 "$dir"
-  if [[ "$SBM_SKIP_INIT" != "1" ]] && service_active "$SBM_SERVICE"; then service_restart "$SBM_SERVICE" >/dev/null 2>&1 || true; fi
+  if [[ "$SBM_SKIP_INIT" != "1" ]] && service_active "$SBM_SERVICE"; then
+    service_restart "$SBM_SERVICE" >/dev/null 2>&1 || return 1
+    service_wait_active "$SBM_SERVICE" 20 || return 1
+  fi
 }
 
 _cert_record_state() {
@@ -91,7 +115,7 @@ _cert_issue() {
   _cert_record_state "$domain"
   log_ok "证书已部署：$dir"
 }
-cert_issue() { with_lock _cert_issue "$@"; }
+cert_issue() { with_state_transaction cert-issue _cert_issue "$@"; }
 
 _cert_renew() {
   local quiet=${1:-0}
@@ -99,14 +123,16 @@ _cert_renew() {
   cert_load_cloudflare_env
   if [[ "$quiet" == 1 ]]; then "$SBM_ACME_BIN" --cron --home "$SBM_ACME_HOME" >/dev/null; else "$SBM_ACME_BIN" --cron --home "$SBM_ACME_HOME"; fi
   local d
-  while IFS= read -r d; do cert_hook "$d" || true; done < <(jq -r '.certificates[].domain' "$SBM_STATE")
+  while IFS= read -r d; do cert_hook "$d" || return 1; done < <(jq -r '.certificates[].domain' "$SBM_STATE")
 }
-cert_renew() { with_lock _cert_renew "$@"; }
+cert_renew() { with_state_transaction cert-renew _cert_renew "$@"; }
 
 acme_update() {
   [[ -x "$SBM_ACME_BIN" ]] || die "acme.sh 尚未安装。"
-  with_lock "$SBM_ACME_BIN" --upgrade --auto-upgrade 0
-  log_ok "acme.sh 更新检查完成。"
+  local email
+  email=$(jq -r '.settings.acme_email // ""' "$SBM_STATE")
+  with_lock acme_install "$email" 1
+  log_ok "acme.sh 已更新到项目审核版本 $SBM_ACME_VERSION。"
 }
 
 cert_list() {

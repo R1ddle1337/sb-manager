@@ -160,7 +160,7 @@ ui_settings_menu() {
   printf '1. 设置默认服务器地址\n2. 修改日志级别\n0. 返回\n'; prompt_value c '选择操作' '0'
   case "$c" in
     1) prompt_value v '域名或 IP' ''; settings_set_default_address "$v";;
-    2) prompt_value v '日志级别 (trace/debug/info/warn/error/fatal/panic)' 'info'; local candidate; candidate=$(state_candidate); jq --arg v "$v" '.settings.log_level=$v' "$SBM_STATE" >"$candidate"; with_lock apply_candidate_state "$candidate" log-level; rm -f "$candidate";;
+    2) prompt_value v '日志级别 (trace/debug/info/warn/error/fatal/panic)' 'info'; settings_set_log_level "$v";;
   esac
 }
 

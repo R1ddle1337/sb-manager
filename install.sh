@@ -11,11 +11,18 @@ if [[ -f "$SCRIPT_PATH" ]]; then
   fi
 fi
 
-# Remote bootstrap for:
-#   bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/main/install.sh)
+# Remote source bootstrap. Require an immutable tag or commit so a mutable
+# branch cannot silently replace the installer source. Development users can
+# still opt in explicitly with SBM_ALLOW_MUTABLE_REF=1.
 REPOSITORY=${SBM_INSTALL_REPOSITORY:-R1ddle1337/sb-manager}
-REF=${SBM_INSTALL_REF:-main}
-ARCHIVE_URL=${SBM_INSTALL_ARCHIVE_URL:-https://github.com/${REPOSITORY}/archive/refs/heads/${REF}.tar.gz}
+REF=${SBM_INSTALL_REF:-}
+[[ -n "$REF" ]] || { echo '请设置 SBM_INSTALL_REF 为不可变 tag 或 commit SHA。' >&2; exit 1; }
+if [[ ${SBM_ALLOW_MUTABLE_REF:-0} != 1 && "$REF" =~ ^(main|master|develop|development|trunk)$ ]]; then
+  echo '拒绝使用可变分支；请设置不可变的 SBM_INSTALL_REF（tag 或 commit SHA）。' >&2
+  exit 1
+fi
+ARCHIVE_URL=${SBM_INSTALL_ARCHIVE_URL:-https://github.com/${REPOSITORY}/archive/${REF}.tar.gz}
+ARCHIVE_SHA256=${SBM_INSTALL_SHA256:-}
 
 command -v curl >/dev/null 2>&1 || { echo '缺少 curl，无法下载安装包。' >&2; exit 1; }
 command -v tar >/dev/null 2>&1 || { echo '缺少 tar，无法解压安装包。' >&2; exit 1; }
@@ -31,8 +38,17 @@ curl --fail --location --silent --show-error \
   --proto '=https' --tlsv1.2 \
   "$ARCHIVE_URL" -o "$ARCHIVE"
 
+if [[ -n "$ARCHIVE_SHA256" ]]; then
+  command -v sha256sum >/dev/null 2>&1 || { echo '缺少 sha256sum，无法校验安装包。' >&2; exit 1; }
+  [[ "$ARCHIVE_SHA256" =~ ^[0-9a-fA-F]{64}$ ]] || { echo 'SBM_INSTALL_SHA256 不是有效的 SHA-256。' >&2; exit 1; }
+  ACTUAL=$(sha256sum "$ARCHIVE" | awk '{print $1}')
+  [[ "$ACTUAL" == "$ARCHIVE_SHA256" ]] || { echo '源码归档 SHA-256 校验失败，已拒绝执行。' >&2; exit 1; }
+  printf '源码归档 SHA-256 校验通过：%s\n' "$ACTUAL"
+else
+  printf '%s\n' '警告：未设置 SBM_INSTALL_SHA256；生产环境请固定 commit/ref 并提供摘要。' >&2
+fi
+
 tar -xzf "$ARCHIVE" -C "$TMPDIR_INSTALL"
 SETUP=$(find "$TMPDIR_INSTALL" -mindepth 2 -maxdepth 2 -type f -name setup.sh -print -quit)
 [[ -n "$SETUP" ]] || { echo '下载的源码包中没有找到 setup.sh。' >&2; exit 1; }
-
 bash "$SETUP" "$@"

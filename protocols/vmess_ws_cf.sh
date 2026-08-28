@@ -2,20 +2,19 @@
 # shellcheck shell=bash
 
 protocol_vmess_render() {
-  local node=$1 secret=$2
+  local node=$1 credentials=$2
   jq -n \
     --arg tag "in-$(jq -r '.id' <<<"$node")" \
     --arg listen "$(jq -r '.listen // "127.0.0.1"' <<<"$node")" \
     --argjson port "$(jq -r '.port' <<<"$node")" \
-    --arg name "$(jq -r '.name' <<<"$node")" \
-    --arg uuid "$(jq -r '.uuid' <<<"$secret")" \
+    --argjson users "$(jq '[.[] | {name,uuid}]' <<<"$credentials")" \
     --arg path "$(jq -r '.ws_path' <<<"$node")" \
     '{
       type: "vmess",
       tag: $tag,
       listen: $listen,
       listen_port: $port,
-      users: [{name: $name, uuid: $uuid}],
+      users: $users,
       transport: {type: "ws", path: $path}
     }'
 }

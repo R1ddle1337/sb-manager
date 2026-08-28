@@ -2,7 +2,7 @@
 
 `sb-manager` 是一个面向 systemd/OpenRC Linux 的、状态驱动的 sing-box 多协议管理脚本。安装后输入 `sb` 即可打开中文交互面板，也可以使用完整的非交互 CLI。
 
-> 当前版本：`0.1.0-alpha.6`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
+> 当前版本：`0.1.0-alpha.7`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
 
 ## 功能
 
@@ -10,6 +10,8 @@
 - Shadowsocks 2022（默认 TCP + multiplex）
 - AnyTLS（TCP/TLS）
 - Hysteria2（UDP/QUIC，可选 salamander）
+- Trojan（TLS）、TUIC（QUIC）、VLESS（TLS/Reality）
+- NaiveProxy（HTTPS/QUIC）与 ShadowTLS v3
 - acme.sh + Cloudflare DNS-01 证书申请、部署与续期
 - sing-box 核心检查、自动更新策略、版本切换与回滚
 - cloudflared 独立更新
@@ -58,7 +60,8 @@ Alpine 默认可能没有 Bash 和 curl，先安装最小引导依赖：
 
 ```bash
 apk add --no-cache bash curl ca-certificates
-bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/main/install.sh)
+SBM_INSTALL_REF=<immutable-commit-or-tag> SBM_INSTALL_SHA256=<sha256> \
+bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/<immutable-commit-or-tag>/install.sh)
 ```
 
 安装器会继续补齐 OpenRC、dcron、libcap、gcompat、shadow、jq、openssl、iproute2 等依赖。OpenRC 服务日志位于：
@@ -77,16 +80,20 @@ bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/main/i
 建议先查看安装脚本，再执行：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/main/install.sh -o install.sh
+curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/<immutable-commit-or-tag>/install.sh -o install.sh
 less install.sh
 sudo bash install.sh
 ```
 
-直接执行：
+直接执行（生产环境必须固定不可变 commit/tag，并提供源码摘要）：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/main/install.sh)
+SBM_INSTALL_REF=<immutable-commit-or-tag> \
+SBM_INSTALL_SHA256=<64-hex-source-archive-sha256> \
+bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/<immutable-commit-or-tag>/install.sh)
 ```
+
+`install.sh` 拒绝 `main`、`master` 等可变分支；仅在临时开发环境明确设置 `SBM_ALLOW_MUTABLE_REF=1` 才会放行。离线发布包可使用 `build-release.sh` 生成，并核验 `SHA256SUMS`、`PROVENANCE-SHA256SUMS` 及可选的 GPG 签名文件。
 
 安装完成后：
 
@@ -98,10 +105,12 @@ sb
 
 ```bash
 # 安装后不自动打开菜单
-bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/main/install.sh) --no-menu
+SBM_INSTALL_REF=<immutable-commit-or-tag> SBM_INSTALL_SHA256=<sha256> \
+bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/<immutable-commit-or-tag>/install.sh) --no-menu
 
 # 安装指定 sing-box 稳定版本
-bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/main/install.sh) --core-version 1.13.19
+SBM_INSTALL_REF=<immutable-commit-or-tag> SBM_INSTALL_SHA256=<sha256> \
+bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/<immutable-commit-or-tag>/install.sh) --core-version 1.13.19
 ```
 
 也可以克隆源码后安装：
@@ -109,6 +118,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/R1ddle1337/sb-manager/main/i
 ```bash
 git clone https://github.com/R1ddle1337/sb-manager.git
 cd sb-manager
+git checkout <immutable-commit-or-tag>
 sudo ./setup.sh
 ```
 
@@ -119,6 +129,8 @@ sudo ./setup.sh
 ```bash
 sb status
 sb doctor
+sb doctor --network
+sb probe NODE_ID
 ```
 
 ### 添加 Shadowsocks 2022
@@ -224,6 +236,9 @@ sb cloudflared update
 sb acme update
 sb backup
 sb restore /path/to/backup.tar.gz
+# 加密备份（age recipient）；恢复时使用 --identity 私钥文件
+sb backup /var/lib/sb-manager/backups/nodes.age --recipient age1...
+sb restore /var/lib/sb-manager/backups/nodes.age --identity /root/age-identity.txt --yes
 sb logs follow
 sb doctor
 ```

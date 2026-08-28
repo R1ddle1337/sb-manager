@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-alpha.7
+
+- Add Trojan TLS, TUIC, VLESS TLS/Reality, NaiveProxy, and ShadowTLS v3 protocol modules with per-user credentials and validated client exports.
+- Add schema-v2 state migration, transactional rollback across state/config/secrets/certificates/subscriptions, hardened restore checks, and optional age-encrypted backups.
+- Add loopback-only expiring subscriptions, gated sing-box 1.14 API/Dashboard support, complete mixed/TUN exports, public-address source tracking, and `sb probe` network diagnostics.
+- Pin remote bootstrap installs to an explicit immutable ref and add release provenance, checksum, and optional GPG signature artifacts.
+- Validate all changes on the designated Debian 13 test server against official sing-box 1.13.19 and 1.14.0-rc.1 binaries.
+
 ## 0.1.0-alpha.6
 
 - Retry all core download failures with bounded backoff instead of relying on curl's limited default retry classes.

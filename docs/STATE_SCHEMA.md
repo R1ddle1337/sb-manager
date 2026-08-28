@@ -1,10 +1,10 @@
-# State schema v1
+# State schema v2
 
 Simplified example:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "manager_version": "0.1.0-alpha.1",
   "settings": {
     "log_level": "info",
@@ -28,10 +28,24 @@ Simplified example:
       "key_path": "/etc/sb-manager/certs/edge.example.com/key.pem"
     }
   ],
-  "nodes": []
+  "nodes": [
+    {
+      "id": "any-main",
+      "protocol": "anytls",
+      "users": [
+        {"id": "default", "name": "AnyTLS", "enabled": true}
+      ]
+    }
+  ]
 }
 ```
 
-Protocol credentials are intentionally excluded from the state file and kept as one file per node under `secrets/nodes/<id>.json`.
+Protocol credentials are excluded from the state file. User credentials live under `secrets/users/<node-id>/<user-id>.json`; protocol-level credentials live under `secrets/nodes/<node-id>.json`.
 
-Future schema changes must be implemented as explicit, one-way migration steps before rendering. Generated config files must never be parsed back into state.
+Existing v1 installations migrate once, before rendering, with a pre-migration snapshot. Future changes must use explicit, one-way migration steps. Generated config files must never be parsed back into state.
+
+Mutations hold the manager lock through candidate validation, rendering,
+installation, and service reconciliation. A failed operation restores the
+state/config pair plus secrets, certificates, subscriptions, and service
+definitions from the operation snapshot. Core upgrades additionally retain a
+known-good binary/config pair for compatibility-aware rollback.

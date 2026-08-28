@@ -9,6 +9,7 @@ ROOT="sb-manager-$VERSION"
 mkdir -p "$TMP/$ROOT"
 cp -a "$SOURCE_DIR"/. "$TMP/$ROOT"/
 rm -rf "$TMP/$ROOT/.git" "$TMP/$ROOT/.github" "$TMP/$ROOT/dist"
+rm -rf "$TMP/$ROOT/sing-box-official-docs-cn" "$TMP/$ROOT/sing-box-official-docs-cn-"*.zip
 tar -C "$TMP" -czf "$TMP/payload.tar.gz" "$ROOT"
 cat >"$OUTPUT" <<EOF_HEADER
 #!/usr/bin/env bash

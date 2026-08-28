@@ -22,7 +22,7 @@ status_summary() {
   backend=$(init_system_label)
   if [[ "$SBM_SKIP_INIT" == 1 ]]; then
     service_state='测试模式'
-  elif (( enabled == 0 )); then
+  elif (( enabled == 0 )) && [[ $(jq -r '.api.enabled // false' "$SBM_STATE") != true ]]; then
     service_state='待机（无启用节点）'
   elif service_active "$SBM_SERVICE"; then
     service_state='运行中'
@@ -120,8 +120,86 @@ doctor_service_failure_detail() {
   fi
 }
 
+doctor_network_probe() {
+  local node=$1 id protocol address port domain kind
+  id=$(jq -r '.id' <<<"$node")
+  protocol=$(jq -r '.protocol' <<<"$node")
+  port=$(jq -r '.port' <<<"$node")
+  if [[ "$protocol" == vmess-ws-cf ]]; then
+    address=$(jq -r '.domain // ""' <<<"$node")
+    check_line WARN "$id 使用 Cloudflare Tunnel；公网探测应从 Tunnel 外部客户端执行"
+    warnings=$((warnings + 1))
+    return 0
+  fi
+  address=$(jq -r '.server_address // ""' <<<"$node")
+  [[ -n "$address" ]] || { check_line WARN "$id 未设置可探测的客户端地址"; warnings=$((warnings + 1)); return 0; }
+  if [[ "$address" =~ ^[0-9A-Fa-f:.]+$ ]]; then
+    check_line WARN "$id 地址为 IP；仅执行本机服务/防火墙检查"
+    warnings=$((warnings + 1))
+  elif host_resolves "$address"; then
+    check_line PASS "$id 地址可解析：$address"
+  else
+    check_line WARN "$id 地址无法解析：$address"
+    warnings=$((warnings + 1))
+  fi
+  while IFS= read -r kind; do
+    if host_port_in_use "$kind" "$port"; then
+      check_line PASS "$id 本机监听 ${port}/${kind^^}"
+    else
+      check_line FAIL "$id 本机未监听 ${port}/${kind^^}"
+      failures=$((failures + 1))
+    fi
+  done < <(node_transport_kinds "$node")
+  if [[ "$protocol" == anytls ]]; then
+    domain=$(jq -r '.domain // ""' <<<"$node")
+    if command_exists openssl && [[ -n "$domain" && "$kind" != udp ]]; then
+      if timeout 8 openssl s_client -connect "$(format_hostport "$address" "$port")" -servername "$domain" -brief </dev/null >/dev/null 2>&1; then
+        check_line PASS "$id TLS 握手成功（本机出口视角）"
+      else
+        check_line WARN "$id TLS 握手未完成；可能是本机回环、云安全组或服务端策略限制"
+        warnings=$((warnings + 1))
+      fi
+    fi
+  fi
+}
+
+doctor_probe() {
+  local id=${1:-} node failures=0 warnings=0
+  [[ -n "$id" ]] || die '用法：sb probe NODE_ID'
+  node=$(state_get_node "$id")
+  [[ -n "$node" ]] || die "节点不存在：$id"
+  printf '%s\n' "---- 节点探测：$id ----"
+  doctor_network_probe "$node"
+  printf '结果：%s 个失败，%s 个警告。\n' "$failures" "$warnings"
+  (( failures == 0 ))
+}
+
+doctor_network_summary() {
+  local backend=${1:-} active_firewalls=0 name
+  for name in nftables ufw firewalld; do
+    if command_exists systemctl && systemctl is-active --quiet "$name" 2>/dev/null; then
+      check_line PASS "检测到运行中的防火墙服务：$name"
+      active_firewalls=1
+    fi
+  done
+  if (( active_firewalls == 0 )); then
+    check_line WARN '未检测到 nftables、ufw 或 firewalld 运行；请确认云安全组和主机策略已限制开放端口'
+    warnings=$((warnings + 1))
+  fi
+  if [[ "$backend" == systemd ]] && command_exists ss; then
+    if ss -H -lnt 2>/dev/null | awk '{print $4}' | grep -Eq '^\[::\]:'; then
+      check_line WARN '存在 IPv6 wildcard TCP 监听；请确认 IPv6 安全组和 DNS 暴露符合预期'
+      warnings=$((warnings + 1))
+    fi
+    if ss -H -lun 2>/dev/null | awk '{print $5}' | grep -Eq '^\[::\]:'; then
+      check_line WARN '存在 IPv6 wildcard UDP 监听；请确认 IPv6 安全组和 DNS 暴露符合预期'
+      warnings=$((warnings + 1))
+    fi
+  fi
+}
+
 doctor_run() {
-  local repair=${1:-0} failures=0 warnings=0 tmp node id protocol port kind domain path days
+  local repair=${1:-0} network=${2:-0} failures=0 warnings=0 tmp node id protocol port kind domain path days
   local enabled endpoint core_target backend low_port_required=0 caps preflight_rc
 
   if [[ "$repair" == 1 ]]; then
@@ -229,7 +307,7 @@ doctor_run() {
     if ! service_exists "$SBM_SERVICE"; then
       check_line FAIL "服务定义缺失：$(service_file_path "$SBM_SERVICE")"
       failures=$((failures + 1))
-    elif (( enabled == 0 )); then
+    elif (( enabled == 0 )) && [[ $(jq -r '.api.enabled // false' "$SBM_STATE") != true ]]; then
       if service_active "$SBM_SERVICE"; then
         check_line WARN "$(service_native_name "$SBM_SERVICE") 在无启用节点时仍运行；执行 sb repair 可切换到待机"
         warnings=$((warnings + 1))
@@ -262,7 +340,8 @@ doctor_run() {
     fi
     (( port < 1024 )) && low_port_required=1
     while IFS= read -r kind; do
-      if host_port_in_use "$kind" "$port"; then check_line PASS "$id 监听 ${port}/${kind^^}"
+      if singbox_port_in_use "$kind" "$port"; then check_line PASS "$id 由 sing-box 监听 ${port}/${kind^^}"
+      elif host_port_in_use "$kind" "$port"; then check_line FAIL "$id 的 ${port}/${kind^^} 被其他进程占用"; failures=$((failures + 1))
       else check_line FAIL "$id 未监听 ${port}/${kind^^}"; failures=$((failures + 1)); fi
     done < <(node_transport_kinds "$node")
 
@@ -293,6 +372,14 @@ doctor_run() {
     fi
   done < <(jq -c '.nodes[]?' "$SBM_STATE")
 
+  if [[ "$network" == 1 ]]; then
+    printf '%s\n' '---- 网络探测（本机出口视角）----'
+    doctor_network_summary "$backend"
+    while IFS= read -r node; do
+      [[ -n "$node" ]] && doctor_network_probe "$node"
+    done < <(jq -c '.nodes[]? | select(.enabled==true)' "$SBM_STATE")
+  fi
+
   if [[ "$backend" == openrc && "$low_port_required" == 1 ]]; then
     if singbox_has_bind_capability "${core_target:-$SBM_SING_BOX_BIN}"; then check_line PASS 'OpenRC sing-box 核心具备低端口绑定能力'
     else check_line FAIL 'OpenRC sing-box 核心缺少 cap_net_bind_service；运行 sb repair'; failures=$((failures + 1)); fi
@@ -306,11 +393,49 @@ doctor_run() {
     else check_line WARN '未检测到运行中的 chronyd/ntpd；请确认系统时间准确'; warnings=$((warnings + 1)); fi
   fi
 
+  local available_kib inode_use manifest
+  available_kib=$(df -Pk "$SBM_VAR" 2>/dev/null | awk 'NR==2 {print $4}')
+  if [[ "$available_kib" =~ ^[0-9]+$ ]] && (( available_kib < 102400 )); then
+    check_line WARN "$SBM_VAR 可用空间不足 100 MiB"; warnings=$((warnings + 1))
+  else
+    check_line PASS "数据目录磁盘空间充足（${available_kib:-未知} KiB 可用）"
+  fi
+  inode_use=$(df -Pi "$SBM_VAR" 2>/dev/null | awk 'NR==2 {gsub(/%/,"",$5); print $5}')
+  if [[ "$inode_use" =~ ^[0-9]+$ ]] && (( inode_use >= 90 )); then
+    check_line WARN "数据目录 inode 使用率 ${inode_use}%"; warnings=$((warnings + 1))
+  fi
+  manifest="$SBM_VAR/install-manifest.json"
+  if [[ -s "$manifest" ]] && jq -e '.schema_version==1 and (.artifacts|type=="array")' "$manifest" >/dev/null 2>&1; then
+    check_line PASS '安装资产来源清单有效'
+  else
+    check_line WARN '尚无完整安装资产来源清单；下次经新版安装器更新后生成'; warnings=$((warnings + 1))
+  fi
+
   if [[ $(jq -r '.tunnel.mode' "$SBM_STATE") != none && "$SBM_SKIP_INIT" != 1 ]]; then
     if service_active "$SBM_TUNNEL_SERVICE"; then check_line PASS 'Cloudflare Tunnel 服务运行中'
     else check_line FAIL 'Cloudflare Tunnel 已配置但服务未运行'; failures=$((failures + 1)); fi
   fi
 
+  if [[ "$SBM_SKIP_INIT" != 1 && -d "$SBM_SUBSCRIPTIONS" ]] && find "$SBM_SUBSCRIPTIONS" -maxdepth 1 -name '*.meta.json' -type f -print -quit | grep -q .; then
+    if service_active "$SBM_SUBSCRIPTION_SERVICE"; then
+      if ss -H -ltn 2>/dev/null | awk '{print $4}' | grep -Eq "^127\\.0\\.0\\.1:${SBM_SUBSCRIPTION_PORT}$|^\\[::1\\]:${SBM_SUBSCRIPTION_PORT}$"; then
+        check_line PASS '订阅服务仅监听 loopback'
+      else
+        check_line FAIL '订阅服务未按预期监听 loopback'; failures=$((failures + 1))
+      fi
+    else
+      check_line FAIL '存在订阅但订阅服务未运行'; failures=$((failures + 1))
+    fi
+  fi
+  if [[ $(jq -r '.api.enabled // false' "$SBM_STATE") == true ]]; then
+    local api_port
+    api_port=$(jq -r '.api.port' "$SBM_STATE")
+    if ss -H -ltn 2>/dev/null | awk '{print $4}' | grep -Fxq "127.0.0.1:$api_port"; then
+      check_line PASS 'sing-box API 仅监听 loopback'
+    else
+      check_line FAIL 'sing-box API 未按预期监听 loopback'; failures=$((failures + 1))
+    fi
+  fi
   printf '\n结果：%s 个失败，%s 个警告。\n' "$failures" "$warnings"
   (( failures == 0 ))
 }

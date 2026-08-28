@@ -2,20 +2,19 @@
 # shellcheck shell=bash
 
 protocol_anytls_render() {
-  local node=$1 secret=$2 domain cert_dir
+  local node=$1 credentials=$2 domain cert_dir
   domain=$(jq -r '.domain' <<<"$node")
   cert_dir="$SBM_CERTS/$domain"
   jq -n \
     --arg tag "in-$(jq -r '.id' <<<"$node")" \
     --arg listen "$(jq -r '.listen // "::"' <<<"$node")" \
     --argjson port "$(jq -r '.port' <<<"$node")" \
-    --arg name "$(jq -r '.name' <<<"$node")" \
-    --arg password "$(jq -r '.password' <<<"$secret")" \
+    --argjson users "$(jq '[.[] | {name,password}]' <<<"$credentials")" \
     --arg domain "$domain" \
     --arg cert "$cert_dir/fullchain.pem" --arg key "$cert_dir/key.pem" \
     '{
       type:"anytls", tag:$tag, listen:$listen, listen_port:$port,
-      users:[{name:$name,password:$password}],
+      users:$users,
       tls:{enabled:true,server_name:$domain,certificate_path:$cert,key_path:$key}
     }'
 }

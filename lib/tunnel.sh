@@ -88,6 +88,10 @@ Environment=HOME=$SBM_VAR/cloudflared-home
 ExecStart=$SBM_CLOUDFLARED_BIN tunnel --no-autoupdate --edge-ip-version auto --protocol http2 run --token-file $token_path
 Restart=on-failure
 RestartSec=5s
+TasksMax=512
+MemoryAccounting=true
+TasksAccounting=true
+UMask=0027
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
@@ -114,6 +118,10 @@ Environment=HOME=$SBM_VAR/cloudflared-home
 ExecStart=$SBM_CLOUDFLARED_BIN tunnel --no-autoupdate --edge-ip-version auto --protocol http2 --url http://127.0.0.1:$port
 Restart=on-failure
 RestartSec=5s
+TasksMax=512
+MemoryAccounting=true
+TasksAccounting=true
+UMask=0027
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
@@ -215,7 +223,7 @@ _tunnel_setup_fixed() {
   printf '  Hostname    : %s\n' "$domain"
   printf '  Service URL : http://127.0.0.1:%s\n' "$port"
 }
-tunnel_setup_fixed() { with_lock _tunnel_setup_fixed "$@"; }
+tunnel_setup_fixed() { with_state_transaction tunnel-fixed _tunnel_setup_fixed "$@"; }
 
 _tunnel_setup_quick() {
   local id=$1 domain='' i
@@ -242,7 +250,7 @@ _tunnel_setup_quick() {
     fi
   fi
 }
-tunnel_setup_quick() { with_lock _tunnel_setup_quick "$@"; }
+tunnel_setup_quick() { with_state_transaction tunnel-quick _tunnel_setup_quick "$@"; }
 
 _tunnel_refresh_quick() {
   local mode id domain
@@ -253,7 +261,7 @@ _tunnel_refresh_quick() {
   _tunnel_update_state quick "$id" "$domain" "$domain"
   log_ok "已刷新 Quick Tunnel 域名：$domain"
 }
-tunnel_refresh_quick() { with_lock _tunnel_refresh_quick; }
+tunnel_refresh_quick() { with_state_transaction tunnel-refresh _tunnel_refresh_quick; }
 
 _tunnel_refresh_auto() {
   [[ $(jq -r '.tunnel.mode' "$SBM_STATE") == quick ]] || return 0
@@ -294,7 +302,7 @@ _tunnel_stop() {
   rm -f "$candidate"
   log_ok 'Cloudflare Tunnel 已停止；节点本身仍保留。'
 }
-tunnel_stop() { with_lock _tunnel_stop; }
+tunnel_stop() { with_state_transaction tunnel-stop _tunnel_stop; }
 
 _tunnel_set_token() {
   local token=${1:-} tmp
@@ -309,7 +317,24 @@ _tunnel_set_token() {
   service_try_restart "$SBM_TUNNEL_SERVICE"
   log_ok 'Tunnel Token 已更换。'
 }
-tunnel_set_token() { with_lock _tunnel_set_token "$@"; }
+tunnel_set_token() { with_state_transaction tunnel-token _tunnel_set_token "$@"; }
+
+tunnel_reconcile_after_rollback() {
+  local mode
+  [[ "$SBM_SKIP_INIT" == 1 ]] && return 0
+  mode=$(jq -r '.tunnel.mode // "none"' "$SBM_STATE")
+  if [[ "$mode" == none ]]; then
+    if [[ "$SBM_SKIP_INIT" != 1 ]]; then
+      service_disable "$SBM_TUNNEL_SERVICE"
+      service_stop "$SBM_TUNNEL_SERVICE"
+    fi
+    quick_refresh_disable
+    rm -f "$SBM_SYSTEMD_DIR/$SBM_TUNNEL_SERVICE" "$SBM_OPENRC_DIR/$(service_native_name "$SBM_TUNNEL_SERVICE")"
+    service_reload_manager || true
+  else
+    tunnel_reconcile 1
+  fi
+}
 
 tunnel_reconcile() {
   local start=${1:-1} mode id

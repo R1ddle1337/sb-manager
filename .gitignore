@@ -4,12 +4,17 @@ dist/
 *.zip
 SHA256SUMS
 
+# Local reference material supplied for development
+sing-box-official-docs-cn/
+
 # Local/editor files
 .DS_Store
 .idea/
 .vscode/
 *.swp
 *.tmp
+__pycache__/
+*.pyc
 
 # Test and runtime leftovers
 coverage/
