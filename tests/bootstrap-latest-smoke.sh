@@ -41,5 +41,5 @@ export SBM_SYSTEMD_DIR="$ROOT/etc/systemd/system" SBM_OPENRC_DIR="$ROOT/etc/init
 export SBM_SKIP_INIT=1 SBM_SKIP_SYSTEMD=1 SBM_SERVICE_USER=daemon NO_COLOR=1
 bash "$PROJECT/install.sh" --no-menu --no-start >/dev/null
 [[ -x "$prefix/bin/sb" ]]
-[[ $(find "$prefix/lib/sb-manager/protocols" -maxdepth 1 -type f -name '*.sh' | wc -l) == 9 ]]
+[[ $(find "$prefix/lib/sb-manager/protocols" -maxdepth 1 -type f -name '*.sh' | wc -l) == 10 ]]
 printf 'BOOTSTRAP LATEST SMOKE PASSED\n'

@@ -236,7 +236,7 @@ core_switch_to() {
 _core_update() {
   local version=${1:-latest} latest current
   if [[ "$version" == latest ]]; then
-    latest=$(core_latest_version) || die "无法查询 sing-box 最新稳定版本。"
+    latest=$(core_latest_version) || die "无法查询 sing-box 最新官方版本。"
   else
     latest=${version#v}
   fi
@@ -250,7 +250,7 @@ core_update() { with_lock _core_update "${1:-latest}"; }
 core_check_update() {
   local current latest
   current=$(core_current_version || true)
-  latest=$(core_latest_version) || die "无法查询 sing-box 最新稳定版本。"
+  latest=$(core_latest_version) || die "无法查询 sing-box 最新官方版本。"
   printf '当前版本：%s\n最新官方版本：%s\n' "${current:-未安装}" "$latest"
   [[ "$current" == "$latest" ]] || return 10
 }
@@ -271,7 +271,7 @@ core_auto_update() {
   policy=$(jq -r '.settings.core_update_policy // "notify"' "$SBM_STATE")
   [[ "$policy" != manual ]] || return 0
   current=$(core_current_version || true)
-  latest=$(core_latest_version) || { log_warn "无法查询 sing-box 最新稳定版本。"; return 1; }
+  latest=$(core_latest_version) || { log_warn "无法查询 sing-box 最新官方版本。"; return 1; }
   [[ "$current" != "$latest" ]] || return 0
   mkdir -p "$SBM_VAR/updates"
   jq -n --arg now "$(now_iso)" --arg current "$current" --arg latest "$latest" --arg policy "$policy" '{checked_at:$now,current:$current,latest:$latest,policy:$policy}' >"$SBM_VAR/updates/sing-box.json"
