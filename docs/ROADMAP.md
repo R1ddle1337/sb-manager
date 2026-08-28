@@ -32,7 +32,8 @@ Acceptance: executable code is never installed silently without provenance, and 
 
 - [x] Add `sb probe NODE_ID` and `sb doctor --network` for DNS, listeners, TLS, UDP/QUIC, IPv4/IPv6 exposure, and firewall guidance.
 - [x] Add log retention, disk usage checks, resource limits, and secret-safe diagnostics.
-- [x] Test Debian, Ubuntu, Alpine/OpenRC, and supported RPM-family lifecycle paths.
+- [x] Test Debian 13 systemd and the OpenRC abstraction on the designated server.
+- [ ] Run lifecycle acceptance on disposable Ubuntu, Alpine/OpenRC, and RPM-family hosts.
 - [x] Exercise interrupted download, no-network, low-disk, and service crash recovery.
 - [ ] Validate reboot persistence on a dedicated disposable host (the shared test VPS is not rebooted).
 
