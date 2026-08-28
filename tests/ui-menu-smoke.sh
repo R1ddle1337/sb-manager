@@ -11,6 +11,7 @@ source "$PROJECT/lib/common.sh"
 source "$PROJECT/lib/node.sh"
 source "$PROJECT/lib/ui.sh"
 source "$PROJECT/protocols/snell.sh"
+source "$PROJECT/lib/firewall.sh"
 state_list_nodes() { jq -c '.nodes[]?' "$SBM_STATE"; }
 state_node_exists() { jq -e --arg id "$1" '.nodes[]? | select(.id==$id)' "$SBM_STATE" >/dev/null; }
 
@@ -34,6 +35,9 @@ done
 settings_menu=$(ui_settings_menu)
 grep -Fq 'Nginx Stream 443/TCP 多协议复用' <<<"$settings_menu"
 grep -Fq '出站 IP 优先级' <<<"$settings_menu"
+firewall_menu=$(ui_firewall_menu)
+grep -Fq '查看所有协议端口' <<<"$firewall_menu"
+grep -Fq 'UFW allow' <<<"$firewall_menu"
 
 # A busy preferred port must fall back to the next documented alternate.
 node_port_in_state() { [[ "$2" == 443 ]]; }

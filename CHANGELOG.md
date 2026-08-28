@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-alpha.22
+
+- Include the setup-time Snell renderer load fix and final Debian firewall regression coverage.
+
 ## 0.1.0-alpha.21
 
 - Make sing-box 1.14.0-rc.1 the primary tested core and resolve latest core updates from the newest official release, including prereleases.

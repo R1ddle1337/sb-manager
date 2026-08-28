@@ -36,3 +36,17 @@ the official `libcronet.so` companion required by Naive client outbounds.
 Cross-distribution acceptance is intentionally outside the current Debian-only
 scope; the implementation retains separate OpenRC/Alpine tests for a future
 dedicated host.
+
+## Follow-up 2026-08-28 (13.215.157.232)
+
+The current Debian 13 test server was updated to sb-manager `0.1.0-alpha.22`
+and sing-box `1.14.0-rc.1`. The official 1.14 archive digest was verified as
+`342f6e3b4ab79abe470d1516b35dced9bc8dfe62dc43a459a53d97960108afeb`.
+
+The 1.14 protocol suite passed for VMess, Shadowsocks 2022, AnyTLS, Hysteria2,
+Trojan, TUIC, VLESS, Naive, ShadowTLS, and Snell v5 (including HTTP obfs).
+The firewall smoke test verified protocol-port listing, UFW allow invocation,
+iptables/ip6tables INPUT deny cleanup, and rule snapshots using isolated fake
+firewall commands; no production firewall rule was changed. The installed
+production service remained active with the existing Naive and ShadowTLS
+nodes.

@@ -11,6 +11,8 @@ The source of truth is `/etc/sb-manager/state.json` plus protected secret and ce
 - `find . -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n` — check Bash syntax.
 - `shellcheck -x --severity=error sb setup.sh install.sh build-standalone.sh lib/*.sh protocols/*.sh tests/*.sh` — run the shell lint rules when ShellCheck is installed.
 - `SBM_TEST_SING_BOX=/path/to/sing-box bash tests/run.sh` — run protocol, rendering, and transaction tests against a real core.
+- `SBM_TEST_SING_BOX=/path/to/sing-box bash tests/snell-preview-smoke.sh` — validate Snell v5 with the 1.14+ core.
+- `bash tests/firewall-smoke.sh` — exercise isolated protocol-port listing, UFW allow calls, and iptables deny cleanup.
 - `bash tests/service-lifecycle.sh`, `bash tests/systemd-exec-smoke.sh`, and `bash tests/subscription-systemd-smoke.sh` — exercise service behavior without changing the host installation.
 - `SBM_TEST_SING_BOX_STABLE=/opt/sing-box-1.13.19/sing-box SBM_TEST_SING_BOX_PREVIEW=/opt/sing-box-1.14.0-rc.1/sing-box bash tests/remote-debian13-suite.sh` — run the complete remote acceptance suite.
 - `./build-standalone.sh /tmp/sb-manager-install.sh` — build an offline installer; validate it with `bash -n`.
