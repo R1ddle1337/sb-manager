@@ -14,6 +14,7 @@ run_stable() {
 }
 
 for test in \
+  tests/ui-menu-smoke.sh \
   tests/run.sh \
   tests/state-safety-smoke.sh \
   tests/state-migration-smoke.sh \
