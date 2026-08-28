@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-alpha.11
+
+- Show valid issued certificates as numbered choices when adding AnyTLS, Hysteria2, Trojan, TUIC, VLESS TLS, and NaiveProxy nodes.
+- Default to the first available certificate while retaining manual domain entry and a cancel option.
+- Ask for the VLESS security mode before requesting a TLS certificate or Reality SNI.
+
 ## 0.1.0-alpha.10
 
 - Use the managed ACME home/config/certificate directories for issue, install, and renewal operations instead of silently falling back to `/root/.acme.sh`.

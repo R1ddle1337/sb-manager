@@ -41,6 +41,47 @@ ui_require_certificate() {
   fi
 }
 
+ui_select_certificate_domain() {
+  local __var=$1 choice domain days i
+  local -a domains=()
+  while IFS= read -r domain; do
+    [[ -n "$domain" ]] || continue
+    [[ -s "$SBM_CERTS/$domain/fullchain.pem" && -s "$SBM_CERTS/$domain/key.pem" ]] || continue
+    openssl x509 -in "$SBM_CERTS/$domain/fullchain.pem" -noout -checkend 0 >/dev/null 2>&1 || continue
+    domains+=("$domain")
+  done < <(jq -r '[.certificates[]?.domain] | unique[]' "$SBM_STATE")
+
+  if ((${#domains[@]} == 0)); then
+    log_warn '没有发现可用的已签发证书，请先在“域名与证书”中签发。'
+    prompt_value domain '手动输入 TLS 域名' ''
+    ui_require_certificate "$domain" || return 1
+    printf -v "$__var" '%s' "$domain"
+    return 0
+  fi
+
+  printf '可用的 TLS 证书：\n'
+  for ((i=0; i<${#domains[@]}; i++)); do
+    domain=${domains[$i]}
+    days=$(x509_days_remaining "$SBM_CERTS/$domain/fullchain.pem" 2>/dev/null || printf '?')
+    printf '%d. %s（剩余 %s 天）\n' "$((i + 1))" "$domain" "$days"
+  done
+  printf 'm. 手动输入域名\n0. 返回\n'
+  prompt_value choice '选择 TLS 证书域名' '1'
+  case "$choice" in
+    m|M)
+      prompt_value domain 'TLS 域名（必须已有证书）' ''
+      ;;
+    0) return 1;;
+    * )
+      [[ "$choice" =~ ^[1-9][0-9]*$ ]] || { log_error '选择无效'; return 1; }
+      (( choice <= ${#domains[@]} )) || { log_error '选择无效'; return 1; }
+      domain=${domains[$((choice - 1))]}
+      ;;
+  esac
+  ui_require_certificate "$domain" || return 1
+  printf -v "$__var" '%s' "$domain"
+}
+
 ui_port_default() {
   local kind=$1; shift
   local port
@@ -91,53 +132,49 @@ ui_add_node() {
       node_add ss --name "$name" --address "$address" --port "$port" --method "$method"
       ;;
     3)
-      prompt_value name '节点名称' 'AnyTLS'; prompt_value domain 'TLS 域名（必须已签发证书）' ''; prompt_value address '客户端连接地址' "${default_addr:-$domain}"; ui_prompt_port port tcp 'TCP 端口' 443 8443 9443 10443
-      ui_require_certificate "$domain" || return
+      prompt_value name '节点名称' 'AnyTLS'; ui_select_certificate_domain domain || return; prompt_value address '客户端连接地址' "${default_addr:-$domain}"; ui_prompt_port port tcp 'TCP 端口' 443 8443 9443 10443
       node_add anytls --name "$name" --domain "$domain" --address "$address" --port "$port"
       ;;
     4)
-      prompt_value name '节点名称' 'Hysteria2'; prompt_value domain 'TLS 域名（必须已签发证书）' ''; prompt_value address '客户端连接地址' "${default_addr:-$domain}"; ui_prompt_port port udp 'UDP 端口' 443 8443 9443 10443
-      ui_require_certificate "$domain" || return
+      prompt_value name '节点名称' 'Hysteria2'; ui_select_certificate_domain domain || return; prompt_value address '客户端连接地址' "${default_addr:-$domain}"; ui_prompt_port port udp 'UDP 端口' 443 8443 9443 10443
       prompt_value obfs '启用 salamander 混淆？(y/N)' 'N'
       if [[ "$obfs" =~ ^[Yy]$ ]]; then node_add hy2 --name "$name" --domain "$domain" --address "$address" --port "$port" --obfs salamander; else node_add hy2 --name "$name" --domain "$domain" --address "$address" --port "$port"; fi
       ;;
     5)
-      prompt_value name '节点名称' 'Trojan'; prompt_value domain 'TLS 域名（必须已签发证书）' ''
+      prompt_value name '节点名称' 'Trojan'; ui_select_certificate_domain domain || return
       prompt_value address '客户端连接地址' "${default_addr:-$domain}"; ui_prompt_port port tcp 'TCP 端口' 443 8443 9443 10443
-      ui_require_certificate "$domain" || return
       node_add trojan --name "$name" --domain "$domain" --address "$address" --port "$port"
       ;;
     6)
-      prompt_value name '节点名称' 'TUIC'; prompt_value domain 'TLS 域名（必须已签发证书）' ''
+      prompt_value name '节点名称' 'TUIC'; ui_select_certificate_domain domain || return
       prompt_value address '客户端连接地址' "${default_addr:-$domain}"; ui_prompt_port port udp 'UDP 端口' 443 8443 9443 10443
       printf '1. cubic（默认）\n2. new_reno\n3. bbr\n'; prompt_value congestion_control '拥塞控制' '1'
       case "$congestion_control" in 1) congestion_control=cubic;; 2) congestion_control=new_reno;; 3) congestion_control=bbr;; *) log_error '选择无效'; return;; esac
-      ui_require_certificate "$domain" || return
       node_add tuic --name "$name" --domain "$domain" --address "$address" --port "$port" --congestion-control "$congestion_control"
       ;;
     7)
-      prompt_value name '节点名称' 'VLESS'; prompt_value domain 'TLS 域名或 Reality SNI' ''
-      prompt_value address '客户端连接地址' "${default_addr:-$domain}"; ui_prompt_port port tcp 'TCP 端口' 443 8443 9443 10443
+      prompt_value name '节点名称' 'VLESS'
       printf '1. TLS（需要本地证书）\n2. Reality（使用 Reality 密钥对）\n'; prompt_value security_choice '选择安全层' '1'
       case "$security_choice" in
         1)
-          security=tls; ui_require_certificate "$domain" || return
+          security=tls; ui_select_certificate_domain domain || return
+          prompt_value address '客户端连接地址' "${default_addr:-$domain}"; ui_prompt_port port tcp 'TCP 端口' 443 8443 9443 10443
           node_add vless --name "$name" --domain "$domain" --address "$address" --port "$port" --security "$security"
           ;;
         2)
-          security=reality; prompt_value handshake_server 'Reality 握手域名' ''; prompt_value handshake_port 'Reality 握手端口' '443'
+          security=reality; prompt_value domain 'Reality SNI' ''; prompt_value address '客户端连接地址' "${default_addr:-$domain}"; ui_prompt_port port tcp 'TCP 端口' 443 8443 9443 10443
+          prompt_value handshake_server 'Reality 握手域名' ''; prompt_value handshake_port 'Reality 握手端口' '443'
           node_add vless --name "$name" --domain "$domain" --address "$address" --port "$port" --security "$security" --handshake-server "$handshake_server" --handshake-port "$handshake_port"
           ;;
         *) log_error '选择无效';;
       esac
       ;;
     8)
-      prompt_value name '节点名称' 'NaiveProxy'; prompt_value domain 'TLS 域名（必须已签发证书）' ''
+      prompt_value name '节点名称' 'NaiveProxy'; ui_select_certificate_domain domain || return
       prompt_value address '客户端连接地址' "${default_addr:-$domain}"
       printf '1. HTTPS/TCP（默认）\n2. QUIC/UDP\n'; prompt_value security_choice '选择传输' '1'
       case "$security_choice" in 1) network=tcp;; 2) network=udp;; *) log_error '选择无效'; return;; esac
       ui_prompt_port port "$network" '端口' 443 8443 9443 10443
-      ui_require_certificate "$domain" || return
       node_add naive --name "$name" --domain "$domain" --address "$address" --port "$port" --network "$network"
       ;;
     9)

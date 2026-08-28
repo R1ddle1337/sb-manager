@@ -34,4 +34,19 @@ node_port_in_state() { [[ "$2" == 443 ]]; }
 host_port_in_use() { return 1; }
 node_choose_port() { printf '20000\n'; }
 [[ $(ui_port_default tcp 443 8443 9443) == 8443 ]]
+
+# Valid certificates are presented as numbered choices and Enter selects the first one.
+mkdir -p "$SBM_CERTS/alpha.example.com" "$SBM_CERTS/beta.example.com"
+for domain in alpha.example.com beta.example.com; do
+  openssl req -x509 -newkey rsa:2048 -nodes -days 3 -subj "/CN=$domain" \
+    -addext "subjectAltName=DNS:$domain" \
+    -keyout "$SBM_CERTS/$domain/key.pem" -out "$SBM_CERTS/$domain/fullchain.pem" >/dev/null 2>&1
+done
+jq '.certificates=[{domain:"beta.example.com"},{domain:"alpha.example.com"}]' "$SBM_STATE" >"$ROOT/state.new"
+mv "$ROOT/state.new" "$SBM_STATE"
+selected=''
+ui_select_certificate_domain selected >"$ROOT/cert-selector.out"
+[[ "$selected" == alpha.example.com ]]
+grep -Fq '1. alpha.example.com' "$ROOT/cert-selector.out"
+grep -Fq '2. beta.example.com' "$ROOT/cert-selector.out"
 printf 'UI MENU SMOKE PASSED\n'
