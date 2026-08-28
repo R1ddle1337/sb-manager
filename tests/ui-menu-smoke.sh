@@ -30,7 +30,7 @@ for label in \
   'Snell v5（需要 sing-box 1.14+）'; do
   grep -Fq "$label" <<<"$menu"
 done
-[[ $(grep -Ec '^[1-9]\. ' <<<"$menu") == 10 ]]
+[[ $(grep -Ec '^[1-9][0-9]*\. ' <<<"$menu") == 10 ]]
 settings_menu=$(ui_settings_menu)
 grep -Fq 'Nginx Stream 443/TCP 多协议复用' <<<"$settings_menu"
 grep -Fq '出站 IP 优先级' <<<"$settings_menu"
