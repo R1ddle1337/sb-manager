@@ -14,6 +14,7 @@ SBM_LIB="${SBM_LIB:-$SELF_DIR}"
 source "$SBM_LIB/lib/common.sh"
 source "$SBM_LIB/lib/service.sh"
 source "$SBM_LIB/lib/state.sh"
+source "$SBM_LIB/lib/nginx_stream.sh"
 source "$SBM_LIB/protocols/vmess_ws_cf.sh"
 source "$SBM_LIB/protocols/shadowsocks.sh"
 source "$SBM_LIB/protocols/anytls.sh"
@@ -58,6 +59,7 @@ sb-manager：状态驱动的 sing-box 多协议管理器
   sb subscription create [7d|24h] [mixed|tun]
   sb subscription list|status|revoke <TOKEN>
   sb api enable [PORT] [--dashboard]|disable|status|show-token
+  sb mux status|enable [PORT]|disable|route list|route add NODE_ID SNI [BACKEND_PORT]|route remove NODE_ID
 
   sb cert setup-cloudflare [TOKEN] [ZONE_ID] [EMAIL]
   sb cert issue <DOMAIN> [EMAIL]
@@ -207,6 +209,24 @@ main() {
         *) die '用法：sb api enable [PORT] [--dashboard] | disable | status | show-token' ;;
       esac
       ;;
+    mux|nginx-stream)
+      local action=${2:-status}
+      case "$action" in
+        status) nginx_stream_status ;;
+        enable) nginx_stream_enable "${3:-}" ;;
+        disable) nginx_stream_disable ;;
+        route)
+          local route_action=${3:-list}
+          case "$route_action" in
+            list) nginx_stream_route_list ;;
+            add) nginx_stream_route_add "${4:?缺少节点 ID}" "${5:?缺少 SNI}" "${6:-}" ;;
+            remove|del) nginx_stream_route_remove "${4:?缺少节点 ID}" ;;
+            *) die '用法：sb mux route list|add NODE_ID SNI [BACKEND_PORT]|remove NODE_ID' ;;
+          esac
+          ;;
+        *) die '用法：sb mux status|enable [PORT]|disable|route list|route add NODE_ID SNI [BACKEND_PORT]|route remove NODE_ID' ;;
+      esac
+      ;;
     core)
       local action=${2:-check}
       case "$action" in
@@ -256,7 +276,7 @@ main() {
       done
       backup_restore "$archive" "$assume_yes" "$identity"
       ;;
-    restart) singbox_service_reconcile; [[ $(jq -r '.tunnel.mode' "$SBM_STATE") != none ]] && service_try_restart "$SBM_TUNNEL_SERVICE"; status_summary ;;
+    restart) singbox_service_reconcile; nginx_stream_reconcile; [[ $(jq -r '.tunnel.mode' "$SBM_STATE") != none ]] && service_try_restart "$SBM_TUNNEL_SERVICE"; status_summary ;;
     settings)
       case ${2:-show} in
         show) settings_show_addresses ;;

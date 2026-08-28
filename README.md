@@ -2,7 +2,7 @@
 
 `sb-manager` 是一个面向 systemd/OpenRC Linux 的、状态驱动的 sing-box 多协议管理脚本。安装后输入 `sb` 即可打开中文交互面板，也可以使用完整的非交互 CLI。
 
-> 当前版本：`0.1.0-alpha.7`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
+> 当前版本：`0.1.0-alpha.8`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
 
 ## 功能
 
@@ -12,6 +12,7 @@
 - Hysteria2（UDP/QUIC，可选 salamander）
 - Trojan（TLS）、TUIC（QUIC）、VLESS（TLS/Reality）
 - NaiveProxy（HTTPS/QUIC）与 ShadowTLS v3
+- 可选 Nginx Stream SNI 透传，让多个 TLS/TCP 协议共享一个公网端口
 - acme.sh + Cloudflare DNS-01 证书申请、部署与续期
 - sing-box 核心检查、自动更新策略、版本切换与回滚
 - cloudflared 独立更新
@@ -34,7 +35,20 @@ AnyTLS 的 `443/TCP` 与 Hysteria2 的 `443/UDP` 可以同时使用。VMess-WS �
 
 ### 端口规划
 
-sing-box 官方不会为这些协议强制规定唯一端口，文档示例常用 `443`（TLS/QUIC）、`8388`（Shadowsocks）和 `8443`（TLS/QUIC 备用）。同一 IP 上的多个 TCP/TLS 入站不能同时绑定 `443/TCP`；要统一走 443，需要额外的 SNI/ALPN TCP 透传前置代理（本项目不会自动配置该代理）。面板会按传输类型检查端口冲突：TCP 与 UDP 可以使用同一个数字端口，但两个 TCP 入站不能重复占用；推荐端口被占用时会依次建议 `8443`、`9443`、`10443`，也可以手工输入其他端口。API `9090`、订阅服务 `9080` 和 mixed 客户端 `2080` 默认只监听 loopback。
+sing-box 官方不会为这些协议强制规定唯一端口，文档示例常用 `443`（TLS/QUIC）、`8388`（Shadowsocks）和 `8443`（TLS/QUIC 备用）。同一 IP 上的多个 TCP/TLS 入站不能同时绑定 `443/TCP`；要统一走 443，需要显式启用下面的 Nginx Stream SNI 透传功能。面板会按传输类型检查端口冲突：TCP 与 UDP 可以使用同一个数字端口，但两个 TCP 入站不能重复占用；推荐端口被占用时会依次建议 `8443`、`9443`、`10443`，也可以手工输入其他端口。API `9090`、订阅服务 `9080` 和 mixed 客户端 `2080` 默认只监听 loopback。
+
+### 可选 Nginx Stream 端口复用
+
+Debian/systemd 可选择启用独立的 Nginx Stream SNI 透传服务。它不终止 TLS，只读取 ClientHello 的 SNI，把公网 `443/TCP` 转发到 sing-box 的不同 loopback 后端。支持 AnyTLS、Trojan、VLESS TLS/Reality、Naive TCP 和 ShadowTLS v3；每个路由必须使用唯一且与协议 `server_name` 一致的域名。Shadowsocks、VMess Tunnel、Hysteria2、TUIC 和 Naive QUIC 不属于该 TCP/SNI 复用范围。
+
+```bash
+sb mux route add trojan-main trojan.example.com
+sb mux route add vless-main vless.example.com
+sb mux enable 443
+sb mux status
+```
+
+启用时按需安装 Debian 的 `nginx-core` 与 `libnginx-mod-stream`，将已登记节点改为 `127.0.0.1:<自动后端端口>`，分享链接和客户端导出使用公网复用端口。未知 SNI 会被拒绝。执行 `sb mux disable` 后恢复节点原来的独立监听端口；路由定义保留，便于再次启用。系统已有 Nginx 配置不会被改写，目标端口冲突会触发事务回滚。
 
 ## 支持环境
 
@@ -94,7 +108,7 @@ sudo bash install.sh
 bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/install.sh)
 ```
 
-`install.sh` 默认先解析 `main` 的最新 commit SHA，再按该不可变 commit 下载源码；也可设置 `SBM_INSTALL_REF=v0.1.0-alpha.7` 固定版本。显式指定 `main` 等可变分支仍需 `SBM_ALLOW_MUTABLE_REF=1`。离线发布包可使用 `build-release.sh` 生成，并核验 `SHA256SUMS`、`PROVENANCE-SHA256SUMS` 及可选的 GPG 签名文件。
+`install.sh` 默认先解析 `main` 的最新 commit SHA，再按该不可变 commit 下载源码；也可设置 `SBM_INSTALL_REF=v0.1.0-alpha.8` 固定版本。显式指定 `main` 等可变分支仍需 `SBM_ALLOW_MUTABLE_REF=1`。离线发布包可使用 `build-release.sh` 生成，并核验 `SHA256SUMS`、`PROVENANCE-SHA256SUMS` 及可选的 GPG 签名文件。
 
 安装完成后：
 

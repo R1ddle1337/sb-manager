@@ -36,4 +36,11 @@ jq -e '.schema_version==2 and (.nodes[0].users[0].id=="default")' "$SBM_STATE" >
 render_current_config
 "$SBM_SING_BOX_BIN" check -c "$SBM_CONFIG"
 find "$SBM_BACKUPS/snapshots" -maxdepth 1 -type d -name '*schema-v1*' | grep -q .
+
+# Older schema-v2 state files are normalized in place when new optional
+# manager-owned sections are introduced.
+jq 'del(.nginx_stream)' "$SBM_STATE" >"$SBM_STATE.old-v2"
+mv "$SBM_STATE.old-v2" "$SBM_STATE"
+state_init
+jq -e '.nginx_stream=={enabled:false,listen:"::",port:443,routes:[]}' "$SBM_STATE" >/dev/null
 printf 'STATE MIGRATION SMOKE PASSED\n'

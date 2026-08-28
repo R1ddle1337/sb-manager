@@ -61,10 +61,15 @@ node_list() {
   if [[ "$json" == "1" ]]; then jq '.nodes' "$SBM_STATE"; return; fi
   printf '%-18s %-18s %-8s %-10s %-24s %s\n' 'ID' '协议' '状态' '端口' '域名/地址' '名称'
   printf '%-18s %-18s %-8s %-10s %-24s %s\n' '------------------' '------------------' '--------' '----------' '------------------------' '----'
-  local node id p enabled port endpoint name
+  local node id p enabled port endpoint name route public_port
+  public_port=$(jq -r '.nginx_stream.port // 443' "$SBM_STATE")
   while IFS= read -r node; do
     id=$(jq -r '.id' <<<"$node"); p=$(jq -r '.protocol' <<<"$node"); enabled=$(jq -r 'if .enabled then "启用" else "停用" end' <<<"$node")
     port=$(jq -r '.port' <<<"$node"); endpoint=$(jq -r '(.domain // .server_address // "-")' <<<"$node"); name=$(jq -r '.name' <<<"$node")
+    if declare -F nginx_stream_route_for_node >/dev/null 2>&1 && nginx_stream_state_enabled "$SBM_STATE"; then
+      route=$(nginx_stream_route_for_node "$SBM_STATE" "$id")
+      [[ -z "$route" ]] || port="${public_port}→$(jq -r '.backend_port' <<<"$route")"
+    fi
     printf '%-18s %-18s %-8s %-10s %-24s %s\n' "$id" "$(node_protocol_label "$p")" "$enabled" "$port" "$endpoint" "$name"
   done < <(state_list_nodes)
 }
@@ -74,6 +79,11 @@ node_show() {
   node=$(state_get_node "$id")
   [[ -n "$node" ]] || die "节点不存在：$id"
   printf '%s\n' "$node" | jq .
+  if declare -F nginx_stream_route_for_node >/dev/null 2>&1; then
+    local route
+    route=$(nginx_stream_route_for_node "$SBM_STATE" "$id")
+    [[ -z "$route" ]] || printf 'Nginx Stream：%s\n' "$(jq -c . <<<"$route")"
+  fi
   printf '用户：%s 个，启用 %s 个\n' "$(jq '.users|length' <<<"$node")" "$(jq '[.users[]|select(.enabled)]|length' <<<"$node")"
 }
 
@@ -233,7 +243,10 @@ _node_delete() {
   local id=$1 candidate
   state_node_exists "$id" || die "节点不存在：$id"
   candidate=$(state_candidate)
-  jq --arg id "$id" '.nodes |= map(select(.id!=$id)) | if .tunnel.node_id==$id then .tunnel={mode:"none",node_id:null,domain:null,client_address:null,protocol:"http2"} else . end' "$SBM_STATE" >"$candidate"
+  jq --arg id "$id" '.nodes |= map(select(.id!=$id))
+    | .nginx_stream.routes |= map(select(.node_id!=$id))
+    | if .nginx_stream.enabled == true and (.nginx_stream.routes|length)==0 then .nginx_stream.enabled=false else . end
+    | if .tunnel.node_id==$id then .tunnel={mode:"none",node_id:null,domain:null,client_address:null,protocol:"http2"} else . end' "$SBM_STATE" >"$candidate"
   if ! apply_candidate_state "$candidate" "delete-$id"; then rm -f "$candidate"; return 1; fi
   rm -f "$candidate" "$(state_secret_path "$id")"
   rm -rf -- "$(state_user_secret_dir "$id")"

@@ -12,13 +12,15 @@ check_line() {
 }
 
 status_summary() {
-  local sb_ver cf_ver nodes enabled certs mode service_state backend
+  local sb_ver cf_ver nodes enabled certs mode service_state backend mux_state mux_port
   sb_ver=$(core_current_version || true)
   cf_ver=$(cloudflared_current_version || true)
   nodes=$(jq '.nodes|length' "$SBM_STATE")
   enabled=$(state_enabled_count)
   certs=$(jq '.certificates|length' "$SBM_STATE")
   mode=$(jq -r '.tunnel.mode' "$SBM_STATE")
+  mux_state=$(jq -r '.nginx_stream.enabled // false' "$SBM_STATE")
+  mux_port=$(jq -r '.nginx_stream.port // 443' "$SBM_STATE")
   backend=$(init_system_label)
   if [[ "$SBM_SKIP_INIT" == 1 ]]; then
     service_state='测试模式'
@@ -35,6 +37,7 @@ status_summary() {
   printf 'cloudflared  : %s (Tunnel: %s)\n' "${cf_ver:-未安装}" "$mode"
   printf '节点          : %s 个，启用 %s 个\n' "$nodes" "$enabled"
   printf '证书          : %s 个\n' "$certs"
+  printf 'Nginx复用     : %s (%s/TCP)\n' "$([[ "$mux_state" == true ]] && echo '启用' || echo '停用')" "$mux_port"
   if [[ -s "$SBM_VAR/updates/sing-box.json" ]]; then
     local pending
     pending=$(jq -r '.latest // ""' "$SBM_VAR/updates/sing-box.json" 2>/dev/null || true)
@@ -98,6 +101,7 @@ doctor_repair_runtime() {
       esac
     fi
     singbox_service_reconcile
+    if declare -F nginx_stream_reconcile >/dev/null 2>&1; then nginx_stream_reconcile; fi
     if [[ $(jq -r '.tunnel.mode' "$SBM_STATE") != none ]]; then tunnel_reconcile 1; fi
   fi
   log_ok '自动修复流程完成。'
@@ -121,9 +125,16 @@ doctor_service_failure_detail() {
 }
 
 doctor_network_probe() {
-  local node=$1 id protocol address port domain kind
+  local node=$1 id protocol address port domain kind mux_route
   id=$(jq -r '.id' <<<"$node")
   protocol=$(jq -r '.protocol' <<<"$node")
+  mux_route=''
+  if declare -F nginx_stream_route_for_node >/dev/null 2>&1 && nginx_stream_state_enabled "$SBM_STATE"; then
+    mux_route=$(nginx_stream_route_for_node "$SBM_STATE" "$id")
+  fi
+  if [[ -n "$mux_route" ]] && declare -F nginx_stream_public_node >/dev/null 2>&1; then
+    node=$(nginx_stream_public_node "$node")
+  fi
   port=$(jq -r '.port' <<<"$node")
   if [[ "$protocol" == vmess-ws-cf ]]; then
     address=$(jq -r '.domain // ""' <<<"$node")
@@ -143,6 +154,15 @@ doctor_network_probe() {
     warnings=$((warnings + 1))
   fi
   while IFS= read -r kind; do
+    if [[ -n "$mux_route" ]]; then
+      if service_active "$SBM_NGINX_STREAM_SERVICE" && host_port_in_use tcp "$port"; then
+        check_line PASS "$id 通过 Nginx Stream 监听 ${port}/TCP"
+      else
+        check_line FAIL "$id 的 Nginx Stream 未监听 ${port}/TCP"
+        failures=$((failures + 1))
+      fi
+      continue
+    fi
     if host_port_in_use "$kind" "$port"; then
       check_line PASS "$id 本机监听 ${port}/${kind^^}"
     else
@@ -199,7 +219,7 @@ doctor_network_summary() {
 }
 
 doctor_run() {
-  local repair=${1:-0} network=${2:-0} failures=0 warnings=0 tmp node id protocol port kind domain path days
+  local repair=${1:-0} network=${2:-0} failures=0 warnings=0 tmp node runtime_node id protocol port kind domain path days
   local enabled endpoint core_target backend low_port_required=0 caps preflight_rc
 
   if [[ "$repair" == 1 ]]; then
@@ -258,6 +278,10 @@ doctor_run() {
       check_line WARN '重新运行最新版安装器，或执行临时修复命令更新 RestrictAddressFamilies'
       warnings=$((warnings + 1))
     fi
+  fi
+
+  if declare -F nginx_stream_doctor_check >/dev/null 2>&1; then
+    nginx_stream_doctor_check
   fi
 
   if id "$SBM_SERVICE_USER" >/dev/null 2>&1; then
@@ -332,7 +356,9 @@ doctor_run() {
   while IFS= read -r node; do
     id=$(jq -r '.id' <<<"$node")
     protocol=$(jq -r '.protocol' <<<"$node")
-    port=$(jq -r '.port' <<<"$node")
+    runtime_node=$node
+    if declare -F nginx_stream_effective_node >/dev/null 2>&1; then runtime_node=$(nginx_stream_effective_node "$SBM_STATE" "$node"); fi
+    port=$(jq -r '.port' <<<"$runtime_node")
     if [[ $(jq -r '.enabled' <<<"$node") != true ]]; then
       check_line WARN "$id 已停用"
       warnings=$((warnings + 1))
@@ -343,7 +369,7 @@ doctor_run() {
       if singbox_port_in_use "$kind" "$port"; then check_line PASS "$id 由 sing-box 监听 ${port}/${kind^^}"
       elif host_port_in_use "$kind" "$port"; then check_line FAIL "$id 的 ${port}/${kind^^} 被其他进程占用"; failures=$((failures + 1))
       else check_line FAIL "$id 未监听 ${port}/${kind^^}"; failures=$((failures + 1)); fi
-    done < <(node_transport_kinds "$node")
+    done < <(node_transport_kinds "$runtime_node")
 
     if [[ "$protocol" == anytls || "$protocol" == hysteria2 ]]; then
       domain=$(jq -r '.domain' <<<"$node")
@@ -448,16 +474,21 @@ show_logs() {
   case "$target" in
     singbox|core) service_logs "$SBM_SERVICE" "$lines" 0 ;;
     tunnel|cloudflared) service_logs "$SBM_TUNNEL_SERVICE" "$lines" 0 ;;
+    nginx|mux|nginx-stream) service_logs "$SBM_NGINX_STREAM_SERVICE" "$lines" 0 ;;
     all)
       printf '%s\n' '---- sing-box ----'
       service_logs "$SBM_SERVICE" "$lines" 0 || true
       printf '%s\n' '---- cloudflared ----'
       service_logs "$SBM_TUNNEL_SERVICE" "$lines" 0 || true
+      if nginx_stream_state_enabled "$SBM_STATE"; then
+        printf '%s\n' '---- nginx stream ----'
+        service_logs "$SBM_NGINX_STREAM_SERVICE" "$lines" 0 || true
+      fi
       ;;
     follow)
-      if [[ $(init_system) == systemd ]]; then journalctl -u "$SBM_SERVICE" -u "$SBM_TUNNEL_SERVICE" -f
+      if [[ $(init_system) == systemd ]]; then journalctl -u "$SBM_SERVICE" -u "$SBM_TUNNEL_SERVICE" -u "$SBM_NGINX_STREAM_SERVICE" -f
       else service_logs "$SBM_SERVICE" "$lines" 1; fi
       ;;
-    *) die '日志目标应为 all、singbox、tunnel 或 follow。' ;;
+    *) die '日志目标应为 all、singbox、tunnel、nginx 或 follow。' ;;
   esac
 }

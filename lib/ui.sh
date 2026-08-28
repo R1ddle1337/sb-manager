@@ -4,7 +4,7 @@
 ui_pause() { [[ -t 0 ]] && { printf '\n按 Enter 返回…'; read -r _; }; }
 ui_clear() { [[ -t 1 ]] && clear || true; }
 ui_header() {
-  local service_state enabled
+  local service_state enabled mux_state
   ui_clear
   enabled=$(state_enabled_count)
   if [[ "$SBM_SKIP_INIT" == 1 ]]; then
@@ -20,6 +20,8 @@ ui_header() {
   printf '  版本 %-18s sing-box %-16s\n' "$SBM_VERSION" "$(core_current_version || echo '-')"
   printf '  服务管理 %-16s\n' "$(init_system_label)"
   printf '  服务 %-18s Tunnel %-18s\n' "$service_state" "$(jq -r '.tunnel.mode' "$SBM_STATE")"
+  mux_state=$(jq -r 'if .nginx_stream.enabled then ((.nginx_stream.port|tostring) + "/TCP") else "off" end' "$SBM_STATE")
+  printf '  Nginx Stream %-36s\n' "$mux_state"
   printf '%s╰─────────────────────────────────────────────────────╯%s\n\n' "$C_CYAN" "$C_RESET"
 }
 
@@ -239,12 +241,41 @@ ui_backup_menu() {
   case "$c" in 1) backup_create;; 2) prompt_value path '备份文件路径' ''; confirm '恢复会覆盖当前配置，继续？' N && backup_restore "$path" 1;; esac
 }
 
+ui_nginx_stream_menu() {
+  local c id sni backend port node
+  nginx_stream_status
+  printf '\n1. 添加 SNI 路由\n2. 删除 SNI 路由\n3. 启用 443/TCP 复用\n4. 停用 443/TCP 复用\n5. 查看路由\n0. 返回\n'
+  prompt_value c '选择操作' '0'
+  case "$c" in
+    1)
+      ui_select_node id || return
+      node=$(state_get_node "$id")
+      sni=$(nginx_stream_node_sni "$node" 2>/dev/null || true)
+      prompt_value sni 'SNI 域名（必须与客户端 server_name 一致）' "$sni"
+      prompt_value backend '后端端口（留空自动分配）' ''
+      nginx_stream_route_add "$id" "$sni" "$backend"
+      ;;
+    2)
+      prompt_value id '节点 ID' ''
+      nginx_stream_route_remove "$id"
+      ;;
+    3)
+      port=$(jq -r '.nginx_stream.port // 443' "$SBM_STATE")
+      prompt_value port '公网 TCP 端口' "$port"
+      nginx_stream_enable "$port"
+      ;;
+    4) nginx_stream_disable;;
+    5) nginx_stream_route_list;;
+  esac
+}
+
 ui_settings_menu() {
   local c v
-  printf '1. 设置默认服务器地址\n2. 修改日志级别\n0. 返回\n'; prompt_value c '选择操作' '0'
+  printf '1. 设置默认服务器地址\n2. 修改日志级别\n3. Nginx Stream 443/TCP 多协议复用\n0. 返回\n'; prompt_value c '选择操作' '0'
   case "$c" in
     1) prompt_value v '域名或 IP' ''; settings_set_default_address "$v";;
     2) prompt_value v '日志级别 (trace/debug/info/warn/error/fatal/panic)' 'info'; settings_set_log_level "$v";;
+    3) ui_nginx_stream_menu;;
   esac
 }
 

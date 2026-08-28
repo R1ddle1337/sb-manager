@@ -46,6 +46,20 @@ Internet → TCP <Shadowsocks 2022 port>
 
 VMess-WS-CF never listens on a public interface. AnyTLS and Hysteria2 can share the same numeric port because one is TCP and the other UDP.
 
+### Optional Nginx Stream SNI passthrough
+
+```text
+Internet :443/TCP
+        │
+        ▼
+sb-nginx-stream (ssl_preread; no TLS termination)
+        ├─ SNI trojan.example.com → 127.0.0.1:20000 → Trojan
+        ├─ SNI vless.example.com  → 127.0.0.1:20001 → VLESS
+        └─ unknown/missing SNI     → reject backend
+```
+
+The feature is off by default and currently limited to Debian/systemd. State retains each node's direct listen port and stores separate route backend ports. Rendering substitutes loopback backends only while the mux is enabled; exports substitute the public mux port. Transition order is stop mux → validate/install candidate → restart sing-box → validate/start mux. Any failure restores the previous state, sing-box configuration, and service topology.
+
 ## Trust boundaries
 
 - `state.json`: topology and non-secret settings, mode `0600`.

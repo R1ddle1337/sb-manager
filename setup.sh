@@ -24,7 +24,7 @@ setup_rollback_on_error() {
     printf '[ROLLBACK] 安装失败，正在恢复上一版程序和服务定义…\n' >&2
     find "$TARGET_LIB" -mindepth 1 -maxdepth 1 ! -name cores -exec rm -rf {} +
     cp -a "$SETUP_ROLLBACK_DIR/program"/. "$TARGET_LIB"/
-    rm -f "$SETUP_SYSTEMD_DIR/sb-sing-box.service" "$SETUP_SYSTEMD_DIR/sb-cloudflared.service" \
+    rm -f "$SETUP_SYSTEMD_DIR/sb-sing-box.service" "$SETUP_SYSTEMD_DIR/sb-cloudflared.service" "$SETUP_SYSTEMD_DIR/sb-nginx-stream.service" \
       "$SETUP_SYSTEMD_DIR/sb-core-update.service" "$SETUP_SYSTEMD_DIR/sb-core-update.timer" \
       "$SETUP_SYSTEMD_DIR/sb-acme-renew.service" "$SETUP_SYSTEMD_DIR/sb-acme-renew.timer" \
       "$SETUP_SYSTEMD_DIR/sb-quick-tunnel-refresh.service" "$SETUP_SYSTEMD_DIR/sb-quick-tunnel-refresh.timer" \
@@ -295,6 +295,7 @@ ln -sfn "$TARGET_LIB/sb" "$TARGET_BIN/sb"
 source "$TARGET_LIB/lib/common.sh"
 source "$TARGET_LIB/lib/service.sh"
 source "$TARGET_LIB/lib/state.sh"
+source "$TARGET_LIB/lib/nginx_stream.sh"
 source "$TARGET_LIB/protocols/vmess_ws_cf.sh"
 source "$TARGET_LIB/protocols/shadowsocks.sh"
 source "$TARGET_LIB/protocols/anytls.sh"
@@ -368,6 +369,7 @@ render_current_config
 if [[ "$TEST_MODE" != 1 ]] && service_exists "$SBM_SERVICE"; then
   # Stop a stale restart loop before replacing the service definition. The
   # final reconcile below restores the correct state based on enabled nodes.
+  if service_exists "$SBM_NGINX_STREAM_SERVICE"; then service_stop "$SBM_NGINX_STREAM_SERVICE"; fi
   service_stop "$SBM_SERVICE"
   service_reset_failed "$SBM_SERVICE"
 fi
@@ -413,6 +415,10 @@ printf '[7/7] 启动服务…\n'
 if [[ "$NO_START" == 0 && "$TEST_MODE" != 1 ]]; then
   scheduler_reconcile
   if ! singbox_service_reconcile; then
+    runtime_exec_diagnostics "$SBM_SING_BOX_BIN"
+    exit 1
+  fi
+  if ! nginx_stream_reconcile; then
     runtime_exec_diagnostics "$SBM_SING_BOX_BIN"
     exit 1
   fi

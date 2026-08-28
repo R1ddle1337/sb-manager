@@ -42,11 +42,13 @@ uninstall_manager() {
     service_stop "$SBM_TUNNEL_SERVICE" || true
     service_disable "$SBM_SERVICE" || true
     service_stop "$SBM_SERVICE" || true
+    service_disable "$SBM_NGINX_STREAM_SERVICE" || true
+    service_stop "$SBM_NGINX_STREAM_SERVICE" || true
     service_disable "$SBM_SUBSCRIPTION_SERVICE" || true
     service_stop "$SBM_SUBSCRIPTION_SERVICE" || true
     if [[ "$backend" == systemd ]]; then
       systemctl disable --now sb-core-update.timer sb-acme-renew.timer sb-quick-tunnel-refresh.timer >/dev/null 2>&1 || true
-      systemctl reset-failed "$SBM_SERVICE" "$SBM_TUNNEL_SERVICE" >/dev/null 2>&1 || true
+      systemctl reset-failed "$SBM_SERVICE" "$SBM_TUNNEL_SERVICE" "$SBM_NGINX_STREAM_SERVICE" >/dev/null 2>&1 || true
     fi
   fi
 
@@ -55,6 +57,7 @@ uninstall_manager() {
   rm -f \
     "$SBM_SYSTEMD_DIR/$SBM_SERVICE" \
     "$SBM_SYSTEMD_DIR/$SBM_TUNNEL_SERVICE" \
+    "$SBM_SYSTEMD_DIR/$SBM_NGINX_STREAM_SERVICE" \
     "$SBM_SYSTEMD_DIR/sb-core-update.service" \
     "$SBM_SYSTEMD_DIR/sb-core-update.timer" \
     "$SBM_SYSTEMD_DIR/sb-acme-renew.service" \

@@ -34,6 +34,12 @@ state_default_json() {
         port: 9090,
         dashboard: false
       },
+      nginx_stream: {
+        enabled: false,
+        listen: "::",
+        port: 443,
+        routes: []
+      },
       certificates: [],
       nodes: []
     }'
@@ -84,19 +90,22 @@ state_migrate() {
   esac
 }
 
-state_normalize_v2() {
-  local tmp
-  tmp=$(mktemp "$SBM_ETC/.state-normalize.XXXXXX")
+state_normalize_v2_file() {
+  local file=$1 tmp
+  tmp=$(mktemp "$(dirname "$file")/.state-normalize.XXXXXX")
   jq '
     .settings.default_server_address_source //= (if .settings.default_server_address=="" then "auto" else "manual" end)
     | .settings.public_ipv4 //= ""
     | .settings.public_ipv6 //= ""
     | .settings.public_ip_detected_at //= null
     | .api //= {enabled:false,listen:"127.0.0.1",port:9090,dashboard:false}
-  ' "$SBM_STATE" >"$tmp"
+    | .nginx_stream //= {enabled:false,listen:"::",port:443,routes:[]}
+  ' "$file" >"$tmp"
   chmod 0600 "$tmp"
-  if cmp -s "$tmp" "$SBM_STATE"; then rm -f "$tmp"; else mv -f "$tmp" "$SBM_STATE"; fi
+  if cmp -s "$tmp" "$file"; then rm -f "$tmp"; else mv -f "$tmp" "$file"; fi
 }
+
+state_normalize_v2() { state_normalize_v2_file "$SBM_STATE"; }
 
 state_migrate_v1_to_v2() {
   local staged candidate node id protocol old_secret user_dir user_secret node_secret
@@ -133,6 +142,7 @@ state_migrate_v1_to_v2() {
     | .settings.public_ipv6=""
     | .settings.public_ip_detected_at=null
     | .api={enabled:false,listen:"127.0.0.1",port:9090,dashboard:false}
+    | .nginx_stream={enabled:false,listen:"::",port:443,routes:[]}
     | .nodes |= map(
         . as $node
         | .users=[{id:"default",name:$node.name,enabled:true,created_at:$node.created_at}]
@@ -226,6 +236,16 @@ state_validate() {
       and .listen == "127.0.0.1"
       and (.port | port)
       and (.dashboard | type == "boolean"))
+    and (.nginx_stream | type == "object"
+      and (.enabled | type == "boolean")
+      and (.listen | nonempty)
+      and (.port | port)
+      and (.routes | type == "array")
+      and all(.routes[];
+        type == "object"
+        and (.node_id | string and test("^[a-z0-9][a-z0-9._-]{0,47}$"))
+        and (.sni | nonempty)
+        and (.backend_port | port)))
     and (.certificates | type == "array")
     and all(.certificates[];
       type == "object"
@@ -388,11 +408,21 @@ snapshot_restore_payload() {
 snapshot_restore() {
   local snapshot=$1
   [[ -d "$snapshot" ]] || return 1
+  if [[ "$SBM_SKIP_INIT" != "1" ]] && declare -F nginx_stream_reconcile >/dev/null 2>&1 && service_exists "$SBM_NGINX_STREAM_SERVICE"; then
+    service_stop "$SBM_NGINX_STREAM_SERVICE"
+  fi
   [[ -f "$snapshot/state.json" ]] && cp -a "$snapshot/state.json" "$SBM_STATE"
   [[ -f "$snapshot/config.json" ]] && cp -a "$snapshot/config.json" "$SBM_CONFIG"
   snapshot_restore_payload "$snapshot" || return 1
+  if [[ -f "$SBM_STATE" ]]; then
+    state_migrate || return 1
+    state_validate "$SBM_STATE"
+  fi
   if [[ "$SBM_SKIP_INIT" != "1" ]] && service_exists "$SBM_SERVICE"; then
     singbox_service_reconcile || return 1
+  fi
+  if declare -F nginx_stream_reconcile >/dev/null 2>&1; then
+    nginx_stream_reconcile || return 1
   fi
   if declare -F subscription_reconcile >/dev/null 2>&1; then
     subscription_reconcile 1 || return 1
@@ -443,6 +473,9 @@ state_install_candidate() {
 
   local state_tmp config_tmp
   state_tmp="${SBM_STATE}.new.$$"; config_tmp="${SBM_CONFIG}.new.$$"
+  if declare -F nginx_stream_prepare_transition >/dev/null 2>&1; then
+    nginx_stream_prepare_transition "$candidate" || return 1
+  fi
   install -m 0600 "$candidate" "$state_tmp"
   install -m 0640 "$config" "$config_tmp"
   set_group_if_exists "$SBM_SERVICE_USER" "$config_tmp"
@@ -453,6 +486,13 @@ state_install_candidate() {
     if ! singbox_service_reconcile; then
       log_error "新配置启动失败，正在回滚。"
       snapshot_restore "$backup" || log_error "自动回滚失败，请立即检查快照：$backup"
+      return 1
+    fi
+  fi
+  if declare -F nginx_stream_reconcile >/dev/null 2>&1; then
+    if ! nginx_stream_reconcile; then
+      log_error 'Nginx Stream 服务启动失败，正在回滚。'
+      snapshot_restore "$backup" || log_error '自动回滚失败，请立即检查快照。'
       return 1
     fi
   fi

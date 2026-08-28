@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-alpha.8
+
+- Add optional Debian/systemd Nginx Stream SNI passthrough for sharing one public TCP port across AnyTLS, Trojan, VLESS TLS/Reality, Naive TCP, and ShadowTLS v3.
+- Move routed sing-box listeners to unique loopback backends while preserving their direct ports for lossless disable/rollback and publishing the mux port in links and client exports.
+- Add CLI/panel management, strict SNI/route validation, unknown-SNI rejection, systemd sandboxing, diagnostics, backup compatibility, and transactional activation rollback.
+- Validate real SNI routing, TLS passthrough, service restart, failure rollback, and disable restoration on the designated Debian 13 server.
+
 ## 0.1.0-alpha.7
 
 - Add Trojan TLS, TUIC, VLESS TLS/Reality, NaiveProxy, and ShadowTLS v3 protocol modules with per-user credentials and validated client exports.

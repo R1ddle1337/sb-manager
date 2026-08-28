@@ -15,6 +15,8 @@ run_stable() {
 
 for test in \
   tests/ui-menu-smoke.sh \
+  tests/nginx-stream-smoke.sh \
+  tests/nginx-stream-systemd-smoke.sh \
   tests/run.sh \
   tests/state-safety-smoke.sh \
   tests/state-migration-smoke.sh \

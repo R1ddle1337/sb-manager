@@ -3,7 +3,7 @@
   "$id": "https://github.com/R1ddle1337/sb-manager/schemas/state-v2.schema.json",
   "title": "sb-manager state schema v2",
   "type": "object",
-  "required": ["schema_version", "manager_version", "created_at", "updated_at", "settings", "tunnel", "api", "certificates", "nodes"],
+  "required": ["schema_version", "manager_version", "created_at", "updated_at", "settings", "tunnel", "api", "nginx_stream", "certificates", "nodes"],
   "additionalProperties": true,
   "properties": {
     "schema_version": {"const": 2},
@@ -46,6 +46,29 @@
         "listen": {"const": "127.0.0.1"},
         "port": {"type": "integer", "minimum": 1, "maximum": 65535},
         "dashboard": {"type": "boolean"}
+      }
+    },
+    "nginx_stream": {
+      "type": "object",
+      "required": ["enabled", "listen", "port", "routes"],
+      "additionalProperties": true,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "listen": {"type": "string", "minLength": 1},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "routes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["node_id", "sni", "backend_port"],
+            "additionalProperties": true,
+            "properties": {
+              "node_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,47}$"},
+              "sni": {"type": "string", "minLength": 1},
+              "backend_port": {"type": "integer", "minimum": 1, "maximum": 65535}
+            }
+          }
+        }
       }
     },
     "certificates": {"type": "array"},

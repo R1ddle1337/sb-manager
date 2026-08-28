@@ -26,6 +26,8 @@ for label in \
   grep -Fq "$label" <<<"$menu"
 done
 [[ $(grep -Ec '^[1-9]\. ' <<<"$menu") == 9 ]]
+settings_menu=$(ui_settings_menu)
+grep -Fq 'Nginx Stream 443/TCP 多协议复用' <<<"$settings_menu"
 
 # A busy preferred port must fall back to the next documented alternate.
 node_port_in_state() { [[ "$2" == 443 ]]; }

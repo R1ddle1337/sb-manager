@@ -59,6 +59,15 @@ Acceptance: exported profiles validate and connect; control endpoints are never 
 
 Completion requires all checkboxes above, updated architecture/schema/security documentation, clean static checks, and successful real-core integration, backup/upgrade fault injection, systemd lifecycle, and end-to-end validation on the designated remote Debian 13 test server. Local execution is not acceptance evidence. Production data and firewall rules must not be changed implicitly.
 
+## Optional Nginx Stream Port Multiplexing
+
+- [x] Add exact-SNI TCP passthrough without TLS termination.
+- [x] Keep routed sing-box backends on unique loopback ports.
+- [x] Preserve direct ports and restore them when multiplexing is disabled.
+- [x] Integrate CLI, panel, systemd sandbox, diagnostics, exports, backup normalization, uninstall, and transaction rollback.
+- [x] Reject unsupported protocols, duplicate/mismatched SNI, duplicate backends, unknown SNI, and occupied frontend ports.
+- [x] Validate real TLS/Reality/ShadowTLS paths and service lifecycle on Debian 13.
+
 ## Acceptance record (2026-08-28)
 
 The complete smoke suite passed on Debian 13.6 using official sing-box

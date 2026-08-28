@@ -19,6 +19,7 @@ Every generated server configuration includes the official `$schema` URL and mus
 | VLESS TLS/Reality | VLESS chapters and `02-配置基础/TLS-ECH-Reality-uTLS.md` | UUID, Vision flow, Reality keypair/Short ID, `with_utls` |
 | Naive | Naive chapters and build-tag matrix | TLS/QUIC mode; client requires `with_naive_outbound` and `libcronet.so` |
 | ShadowTLS v3 | ShadowTLS chapters | v3 users, handshake target, strict/wildcard SNI values |
+| Nginx Stream passthrough | Official rule that duplicate listeners require an explicit reuse layer; Nginx `ssl_preread` semantics | unique exact SNI, loopback backends, no TLS termination, unknown-SNI rejection, transactional rollback |
 
 ## Configuration and Security Rules
 
@@ -29,6 +30,7 @@ Every generated server configuration includes the official `$schema` URL and mus
 - Secrets, exports, and backups remain outside generated topology state.
 - Updates preserve a known-good core/config pair and do not automatically cross a minor version.
 - Host firewall and cloud security-group changes remain explicit operator actions.
+- Optional Nginx Stream multiplexing never makes sing-box inbounds share a socket directly; only the Nginx frontend owns the public TCP port.
 
 ## Version Gates
 

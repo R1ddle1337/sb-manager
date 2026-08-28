@@ -67,6 +67,9 @@ _restore_backup() {
   (( extracted_kib <= 524288 )) || { rm -rf "$stage"; die "备份解压后超过 512 MiB 限制。"; }
   chown -R root:root "$stage" 2>/dev/null || true
   [[ -s "$stage/etc/state.json" ]] || { rm -rf "$stage"; die "备份中缺少 state.json。"; }
+  if [[ $(jq -r '.schema_version // empty' "$stage/etc/state.json" 2>/dev/null || true) == 2 ]]; then
+    state_normalize_v2_file "$stage/etc/state.json"
+  fi
   state_validate "$stage/etc/state.json"
   safety="$SBM_BACKUPS/pre-restore-$(now_stamp).tar.gz"; _backup_create "$safety" >/dev/null
 

@@ -19,6 +19,9 @@ node_transport_kinds() {
 validate_state_semantics() {
   local state=$1 ids count node id protocol port domain cert_dir kind key user_ids user_id enabled_users
   state_validate "$state"
+  if declare -F nginx_stream_validate_state >/dev/null 2>&1; then
+    nginx_stream_validate_state "$state" || die 'Nginx Stream 状态无效。'
+  fi
   ids=$(jq -r '.nodes[].id' "$state" | sort)
   count=$(printf '%s\n' "$ids" | sed '/^$/d' | uniq -d | wc -l)
   (( count == 0 )) || die "状态中存在重复节点 ID。"
@@ -31,6 +34,9 @@ validate_state_semantics() {
   while IFS= read -r node; do
     [[ -n "$node" ]] || continue
     id=$(jq -r '.id' <<<"$node")
+    if declare -F nginx_stream_effective_node >/dev/null 2>&1; then
+      node=$(nginx_stream_effective_node "$state" "$node")
+    fi
     protocol=$(jq -r '.protocol' <<<"$node")
     port=$(jq -r '.port' <<<"$node")
     validate_node_id "$id" || die "节点 ID 不规范：$id"
@@ -97,6 +103,9 @@ render_config_from_state() {
   while IFS= read -r node; do
     [[ -n "$node" ]] || continue
     node_id=$(jq -r '.id' <<<"$node")
+    if declare -F nginx_stream_effective_node >/dev/null 2>&1; then
+      node=$(nginx_stream_effective_node "$state" "$node")
+    fi
     credentials=$(node_enabled_credentials "$node")
     node_secret='{}'
     [[ ! -r $(state_secret_path "$node_id") ]] || node_secret=$(state_get_secret "$node_id")

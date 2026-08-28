@@ -4,6 +4,7 @@
 node_share_uri() {
   local id=$1 user_id=${2:-} node user secret node_secret='{}' protocol
   node=$(state_get_node "$id"); [[ -n "$node" ]] || die "节点不存在：$id"
+  if declare -F nginx_stream_public_node >/dev/null 2>&1; then node=$(nginx_stream_public_node "$node"); fi
   [[ -n "$user_id" ]] || user_id=$(jq -r 'first(.users[] | select(.enabled==true) | .id) // empty' <<<"$node")
   [[ -n "$user_id" ]] || die "节点没有启用用户：$id"
   user=$(state_get_user "$id" "$user_id"); secret=$(jq -s '.[0]+.[1]' <(printf '%s\n' "$user") <(state_get_user_secret "$id" "$user_id"))
@@ -25,6 +26,7 @@ node_share_uri() {
 node_client_outbound() {
   local id=$1 user_id=${2:-} node user secret node_secret='{}' protocol outbound tag
   node=$(state_get_node "$id"); [[ -n "$node" ]] || die "节点不存在：$id"
+  if declare -F nginx_stream_public_node >/dev/null 2>&1; then node=$(nginx_stream_public_node "$node"); fi
   [[ -n "$user_id" ]] || user_id=$(jq -r 'first(.users[] | select(.enabled==true) | .id) // empty' <<<"$node")
   [[ -n "$user_id" ]] || die "节点没有启用用户：$id"
   user=$(state_get_user "$id" "$user_id"); secret=$(jq -s '.[0]+.[1]' <(printf '%s\n' "$user") <(state_get_user_secret "$id" "$user_id"))

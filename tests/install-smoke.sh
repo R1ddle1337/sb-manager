@@ -37,7 +37,7 @@ bash "$PROJECT/setup.sh" --no-menu --no-start
 [[ -x "$SBM_BIN_DIR/sb" && -x "$SBM_SING_BOX_BIN" && -x "$SBM_CLOUDFLARED_BIN" ]]
 [[ "$(readlink "$SBM_SING_BOX_BIN")" != *$'\n'* ]]
 [[ "$(readlink "$SBM_CLOUDFLARED_BIN")" != *$'\n'* ]]
-env -u SBM_LIB "$SBM_BIN_DIR/sb" version | grep -q "0.1.0-alpha.7"
+env -u SBM_LIB "$SBM_BIN_DIR/sb" version | grep -q "$(tr -d '[:space:]' <"$PROJECT/VERSION")"
 [[ -z $(find "$SBM_LIB" -maxdepth 0 ! -perm -0001 -print -quit) ]]
 [[ -z $(find "$SBM_CORE_DIR" -type d ! -perm -0001 -print -quit) ]]
 chmod 0755 "$ROOT" "$ROOT/usr" "$ROOT/usr/local" "$ROOT/etc" "$ROOT/var" "$ROOT/var/lib"
@@ -78,6 +78,7 @@ chmod +x "$SBM_CORE_DIR/sing-box/9.9.9/sing-box"
 source "$SBM_LIB/lib/common.sh"
 source "$SBM_LIB/lib/service.sh"
 source "$SBM_LIB/lib/state.sh"
+source "$SBM_LIB/lib/nginx_stream.sh"
 source "$SBM_LIB/protocols/vmess_ws_cf.sh"
 source "$SBM_LIB/protocols/shadowsocks.sh"
 source "$SBM_LIB/protocols/anytls.sh"
