@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-alpha.20
+
+- Include the final Snell preview-core fixes and regression coverage in the published release.
+
 ## 0.1.0-alpha.19
 
 - Generate random persistent Naive usernames for new users and credential rotations while preserving existing usernames until rotation.
