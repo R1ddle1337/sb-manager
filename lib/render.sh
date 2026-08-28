@@ -98,7 +98,7 @@ render_inbound_for_node() {
 }
 
 render_config_from_state() {
-  local state=$1 output=$2 node node_id credentials node_secret inbound inbounds='[]' log_level api_enabled api_secret api_port dashboard
+  local state=$1 output=$2 node node_id credentials node_secret inbound inbounds='[]' log_level api_enabled api_secret api_port dashboard strategy
   validate_state_semantics "$state"
   while IFS= read -r node; do
     [[ -n "$node" ]] || continue
@@ -115,14 +115,16 @@ render_config_from_state() {
   log_level=$(jq -r '.settings.log_level // "info"' "$state")
   api_enabled=$(jq -r '.api.enabled // false' "$state")
   api_secret=''; api_port=$(jq -r '.api.port // 9090' "$state"); dashboard=$(jq -r '.api.dashboard // false' "$state")
+  strategy=$(jq -r '.settings.outbound_ip_strategy // "prefer_ipv4"' "$state")
   [[ "$api_enabled" != true ]] || api_secret=$(state_get_secret api | jq -r '.secret')
-  jq -n --arg level "$log_level" --argjson inbounds "$inbounds" --argjson api_enabled "$api_enabled" \
+  jq -n --arg level "$log_level" --arg strategy "$strategy" --argjson inbounds "$inbounds" --argjson api_enabled "$api_enabled" \
     --arg secret "$api_secret" --argjson api_port "$api_port" --argjson dashboard "$dashboard" --arg dashboard_path "$SBM_VAR/dashboard" '{
     "$schema":"https://sing-box.sagernet.org/schema.json",
     log:{level:$level,timestamp:true},
     inbounds:$inbounds,
+    dns:{servers:[{type:"local",tag:"dns-local"}],final:"dns-local",strategy:$strategy},
     outbounds:[{type:"direct",tag:"direct"}],
-    route:{final:"direct"}
+    route:{default_domain_resolver:"dns-local",final:"direct"}
   }
   | if $api_enabled then
       .http_clients=[{tag:"http-direct",detour:"direct"}]

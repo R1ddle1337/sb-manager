@@ -62,12 +62,15 @@ node_user_add any-test alice 'Alice AnyTLS'
 jq -e '.inbounds[]|select(.tag=="in-ss-test")|(.users|length)==2' "$SBM_CONFIG" >/dev/null
 jq -e '.inbounds[]|select(.tag=="in-any-test")|(.users|length)==2' "$SBM_CONFIG" >/dev/null
 "$SBM_SING_BOX_BIN" check -c "$SBM_CONFIG"
+jq -e '.dns.strategy=="prefer_ipv4" and .route.default_domain_resolver=="dns-local"' "$SBM_CONFIG" >/dev/null
 
 # Global client DNS/outbound address selection follows the configured strategy.
 settings_set_outbound_ip_strategy prefer_ipv6 >/dev/null
+jq -e '.dns.strategy=="prefer_ipv6"' "$SBM_CONFIG" >/dev/null
 export_client_config "$ROOT/client-prefer-ipv6.json" mixed >/dev/null
 jq -e '.dns.strategy=="prefer_ipv6"' "$ROOT/client-prefer-ipv6.json" >/dev/null
 settings_set_outbound_ip_strategy ipv4_only >/dev/null
+jq -e '.dns.strategy=="ipv4_only"' "$SBM_CONFIG" >/dev/null
 export_client_config "$ROOT/client-ipv4-only.json" mixed >/dev/null
 jq -e '.dns.strategy=="ipv4_only"' "$ROOT/client-ipv4-only.json" >/dev/null
 settings_set_outbound_ip_strategy prefer_ipv4 >/dev/null

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-alpha.13
+
+- Apply the selected outbound IP strategy to both server direct outbounds and exported client configurations.
+
 ## 0.1.0-alpha.12
 
 - Prefer a node's configured domain as the default client address; address-only nodes now default to the detected public IPv4.
