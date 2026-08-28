@@ -378,16 +378,19 @@ ui_settings_menu() {
 
 ui_firewall_menu() {
   local c
-  printf '1. 查看所有协议端口\n2. 备份并清理 iptables 入站全局禁止\n3. 按所有启用协议端口执行 UFW allow\n0. 返回\n'
+  printf '1. 查看防火墙组件状态\n2. 查看所有协议端口\n3. 备份并清理 iptables 入站全局禁止\n4. 按所有启用协议端口执行 UFW allow\n5. 安装并启用 Fail2ban（SSH 3分钟/5次/永久封禁）\n6. 安装并启用 UFW（放行 22/80/443 及协议端口）\n0. 返回\n'
   prompt_value c '选择操作' '0'
   case "$c" in
-    1) firewall_list_protocol_ports ;;
-    2) confirm '将先备份规则，再移除 INPUT 链全局 DROP/REJECT 并调整默认策略，继续？' N && firewall_clear_iptables_input_deny 1 ;;
-    3)
+    1) firewall_status ;;
+    2) firewall_list_protocol_ports ;;
+    3) confirm '将备份并移除 INPUT 链全局 DROP/REJECT，必要时调整默认策略，继续？' N && firewall_clear_iptables_input_deny 1 ;;
+    4)
       firewall_list_protocol_ports
       command_exists ufw || { log_error '未安装 UFW；请使用发行版包管理器安装（Alpine：apk add ufw）。'; return; }
       confirm '将为所有启用协议端口执行 UFW allow，继续？' N && firewall_ufw_allow_protocol_ports 1
       ;;
+    5) firewall_setup_fail2ban ;;
+    6) firewall_setup_ufw ;;
   esac
 }
 

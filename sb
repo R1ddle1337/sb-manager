@@ -80,7 +80,8 @@ sb-manager：状态驱动的 sing-box 多协议管理器
 
   sb settings show|detect-ip|address <auto|HOST>
   sb settings outbound-ip <prefer_ipv4|prefer_ipv6|ipv4_only>
-  sb firewall ports|clear-iptables|ufw-allow [--yes]
+  sb firewall status|ports|clear-iptables|ufw-allow [--yes]
+  sb firewall fail2ban|ufw [--yes]
   sb probe NODE_ID                探测节点 DNS、监听和 TLS/UDP 可达性
 
   sb core check|update [VERSION]|rollback|policy <manual|notify|patch|stable>|auto
@@ -148,13 +149,16 @@ main() {
       local action=${2:-ports} assume_yes=0 arg
       shift 2 || true
       while (($#)); do
-        case "$1" in --yes|-y) assume_yes=1; shift;; *) die '用法：sb firewall ports|clear-iptables|ufw-allow [--yes]';; esac
+        case "$1" in --yes|-y) assume_yes=1; shift;; *) die '用法：sb firewall status|ports|clear-iptables|ufw-allow|fail2ban|ufw [--yes]';; esac
       done
       case "$action" in
+        status) firewall_status ;;
         ports|list) firewall_list_protocol_ports ;;
         clear-iptables) firewall_clear_iptables_input_deny "$assume_yes" ;;
         ufw-allow) firewall_ufw_allow_protocol_ports "$assume_yes" ;;
-        *) die '用法：sb firewall ports|clear-iptables|ufw-allow [--yes]' ;;
+        fail2ban|setup-fail2ban) firewall_setup_fail2ban "$assume_yes" ;;
+        ufw|setup-ufw) firewall_setup_ufw "$assume_yes" ;;
+        *) die '用法：sb firewall status|ports|clear-iptables|ufw-allow|fail2ban|ufw [--yes]' ;;
       esac
       ;;
     user)

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-alpha.25
+
+- Add explicit firewall-panel and CLI setup for Fail2ban SSH protection (180-second window, five failures, permanent bans) and UFW installation/enablement with TCP 22, 80, 443, and active protocol ports allowed.
+- Snapshot existing iptables/UFW status and Fail2ban configuration before setup, with idempotent component status reporting and Debian/RPM/Alpine/OpenRC package-manager coverage.
+
 ## 0.1.0-alpha.24
 
 - Add node-level upload/download accounting, UTC monthly total/download quotas, and directional nftables rate ceilings without taking over the host's `tc` qdisc.

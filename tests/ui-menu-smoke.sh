@@ -38,6 +38,8 @@ grep -Fq '出站 IP 优先级' <<<"$settings_menu"
 firewall_menu=$(ui_firewall_menu)
 grep -Fq '查看所有协议端口' <<<"$firewall_menu"
 grep -Fq 'UFW allow' <<<"$firewall_menu"
+grep -Fq '安装并启用 Fail2ban' <<<"$firewall_menu"
+grep -Fq '安装并启用 UFW' <<<"$firewall_menu"
 traffic_status() { printf 'traffic-status\n'; }
 traffic_menu=$(ui_traffic_menu)
 grep -Fq '配置/启用节点流量控制' <<<"$traffic_menu"

@@ -43,6 +43,10 @@ Rules match the effective listener returned by the Nginx Stream topology layer. 
 
 The implementation deliberately does not install `tc` qdiscs. Rate enforcement uses nftables named byte-rate limits as a policer, which avoids replacing an operator's root qdisc and works uniformly for IPv4, IPv6, TCP, UDP, and loopback traffic. The owned table is not persisted in the host firewall configuration and never adds allow rules; boot reconciliation rebuilds it from manager state.
 
+## Explicit host-firewall setup
+
+The firewall panel keeps host-security changes separate from proxy state. `sb firewall fail2ban` installs (when needed) and writes the manager-owned SSH jail at `SBM_FAIL2BAN_CONFIG`, with `findtime=180`, `maxretry=5`, and `bantime=-1`; it then validates and enables/restarts the native Fail2ban service. The action snapshots current iptables and the prior jail before replacement. `sb firewall ufw` similarly snapshots current iptables and UFW status, idempotently allows TCP `22`, `80`, `443`, and every enabled protocol listener, then enables UFW if it was inactive. Neither action runs during ordinary installation, and neither removes unrelated rules or packages. Package installation uses the detected apk/apt/dnf/yum/pacman/zypper backend.
+
 ## Service backends
 
 ```text

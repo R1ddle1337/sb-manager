@@ -2,7 +2,7 @@
 
 `sb-manager` 是一个面向 systemd/OpenRC Linux 的、状态驱动的 sing-box 多协议管理脚本。安装后输入 `sb` 即可打开中文交互面板，也可以使用完整的非交互 CLI。
 
-> 当前版本：`0.1.0-alpha.24`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
+> 当前版本：`0.1.0-alpha.25`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
 
 ## 功能
 
@@ -141,7 +141,7 @@ sudo bash install.sh
 bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/install.sh)
 ```
 
-`install.sh` 默认先解析 `main` 的最新 commit SHA，再按该不可变 commit 下载源码；也可设置 `SBM_INSTALL_REF=v0.1.0-alpha.24` 固定版本。显式指定 `main` 等可变分支仍需 `SBM_ALLOW_MUTABLE_REF=1`。离线发布包可使用 `build-release.sh` 生成，并核验 `SHA256SUMS`、`PROVENANCE-SHA256SUMS` 及可选的 GPG 签名文件。
+`install.sh` 默认先解析 `main` 的最新 commit SHA，再按该不可变 commit 下载源码；也可设置 `SBM_INSTALL_REF=v0.1.0-alpha.25` 固定版本。显式指定 `main` 等可变分支仍需 `SBM_ALLOW_MUTABLE_REF=1`。离线发布包可使用 `build-release.sh` 生成，并核验 `SHA256SUMS`、`PROVENANCE-SHA256SUMS` 及可选的 GPG 签名文件。
 
 安装完成后：
 
@@ -308,15 +308,20 @@ sb logs follow
 sb doctor
 ```
 
-防火墙与端口管理（安装时不会自动执行）：
+防火墙与端口管理（安装器不会自动执行，需在面板或 CLI 中显式选择）：
+
+交互面板路径：`12. 防火墙与协议端口` → `5. 安装并启用 Fail2ban` 或 `6. 安装并启用 UFW`。
 
 ```bash
 sb firewall ports                 # 查看所有节点的 TCP/UDP 端口
 sb firewall ufw-allow --yes       # 为所有启用协议端口执行 ufw allow
+sb firewall fail2ban --yes        # 安装并启用 Fail2ban：SSH 180 秒内 5 次失败，永久封禁
+sb firewall ufw --yes              # 安装并启用 UFW，放行 22/80/443 及启用协议端口
+sb firewall status                 # 查看 UFW/Fail2ban 状态
 sb firewall clear-iptables --yes  # 先备份，再清理 INPUT 全局 DROP/REJECT
 ```
 
-`clear-iptables` 只处理 INPUT 链的全局 DROP/REJECT 和默认 DROP/REJECT 策略，不会清空整套规则；备份保存在 `/var/lib/sb-manager/firewall/`。执行 UFW 放行前请确认 SSH 端口已允许，UFW 未安装时面板只提示安装命令。
+`fail2ban` 只覆盖 SSH jail：`findtime=180`、`maxretry=5`、`bantime=-1`，不会替换其他 jail。`ufw` 操作会先保存 iptables/UFW 状态，再幂等放行 TCP 22、80、443 和当前启用的 sing-box 协议端口；UFW 未安装时会按当前发行版调用包管理器安装。UFW 启用后仍请确认 SSH 使用的是 22 端口，非标准 SSH 端口需另行放行。备份和状态快照保存在 `/var/lib/sb-manager/firewall/`。
 
 完整帮助：
 
@@ -342,7 +347,7 @@ sb --help
 - Tunnel Token 使用受限文件保存，不直接写入 systemd `ExecStart` 或 OpenRC 脚本。
 - sing-box 以独立的 `sbmanager` 低权限用户运行。
 - systemd 通过 unit 的 ambient capability 提供低端口绑定能力；OpenRC 只在托管的 sing-box/Nginx 可执行文件上设置 `cap_net_bind_service`。
-- 脚本安装时不会自动启用或修改 UFW/firewalld；防火墙变更只能通过显式的 `sb firewall` 操作执行。
+- 脚本安装时不会自动启用 UFW 或 Fail2ban；防火墙变更只能通过显式的 `sb firewall` 操作执行。`sb firewall ufw --yes` 会启用 UFW 并放行 22/80/443 及启用协议端口，`sb firewall fail2ban --yes` 会启用永久 SSH 封禁策略。
 - 直连协议的安全组和防火墙端口由管理员明确开放。
 
 ## 卸载

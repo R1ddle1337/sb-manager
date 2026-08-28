@@ -76,6 +76,12 @@ Completion requires all checkboxes above, updated architecture/schema/security d
 - [x] Preserve counters across rule changes, backup/restore, clean shutdown, systemd reboot, and OpenRC startup.
 - [x] Avoid taking over existing host qdiscs or implicitly opening firewall ports.
 
+## Explicit Firewall Protection
+
+- [x] Add panel/CLI setup for Fail2ban SSH protection with a 180-second window, five retries, and permanent bans.
+- [x] Add panel/CLI UFW installation, idempotent TCP 22/80/443 allows, and active protocol-port allows before enablement.
+- [x] Snapshot existing iptables/UFW status and Fail2ban jail configuration before these explicit host changes.
+
 ## Acceptance record (2026-08-28)
 
 The complete smoke suite passed on Debian 13.6 using official sing-box

@@ -30,7 +30,7 @@ Every generated server configuration includes the official `$schema` URL and mus
 - Services run as `sbmanager` with the minimum low-port capability.
 - Secrets, exports, and backups remain outside generated topology state.
 - Updates preserve a known-good core/config pair and do not automatically cross a minor version.
-- Host firewall and cloud security-group changes remain explicit operator actions.
+- Host firewall and cloud security-group changes remain explicit operator actions. The firewall panel can explicitly install/configure UFW and Fail2ban; installation itself does not enable either component.
 - Optional Nginx Stream multiplexing never makes sing-box inbounds share a socket directly; only the Nginx frontend owns the public TCP port.
 
 ## Version Gates
