@@ -373,6 +373,7 @@ sha256sum /tmp/sb-manager-install.sh
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - [`docs/STATE_SCHEMA.md`](docs/STATE_SCHEMA.md)
+- [`docs/REMOTE_ACCEPTANCE_2026-08-28.md`](docs/REMOTE_ACCEPTANCE_2026-08-28.md)
 
 ## 重要说明
 
