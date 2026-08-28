@@ -190,7 +190,7 @@ ui_add_node() {
           node_add vless --name "$name" --domain "$domain" --address "$address" --port "$port" --security "$security"
           ;;
         2)
-          security=reality; prompt_value domain 'Reality SNI' ''; prompt_value address '客户端连接地址' "$(ui_client_address_default "$domain")"; ui_prompt_port port tcp 'TCP 端口' 443 8443 9443 10443
+          security=reality; prompt_value domain 'Reality SNI' ''; prompt_value address '客户端连接地址' "$(ui_client_address_default '')"; ui_prompt_port port tcp 'TCP 端口' 443 8443 9443 10443
           prompt_value handshake_server 'Reality 握手域名' ''; prompt_value handshake_port 'Reality 握手端口' '443'
           node_add vless --name "$name" --domain "$domain" --address "$address" --port "$port" --security "$security" --handshake-server "$handshake_server" --handshake-port "$handshake_port"
           ;;
@@ -207,7 +207,7 @@ ui_add_node() {
       ;;
     9)
       prompt_value name '节点名称' 'ShadowTLS'; prompt_value handshake_server '握手目标域名' ''; prompt_value handshake_port '握手目标端口' '443'
-      prompt_value address '客户端连接地址' "$(ui_client_address_default "$handshake_server")"; ui_prompt_port port tcp 'TCP 端口' 443 8443 9443 10443
+      prompt_value address '客户端连接地址' "$(ui_client_address_default '')"; ui_prompt_port port tcp 'TCP 端口' 443 8443 9443 10443
       prompt_value strict_mode '严格模式（true/false）' 'true'; prompt_value wildcard_sni '通配 SNI（off/authed/all）' 'off'
       node_add shadowtls --name "$name" --address "$address" --port "$port" --handshake-server "$handshake_server" --handshake-port "$handshake_port" --strict-mode "$strict_mode" --wildcard-sni "$wildcard_sni"
       ;;

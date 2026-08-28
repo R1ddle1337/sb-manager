@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-alpha.14
+
+- Keep Reality SNI and ShadowTLS handshake targets separate from the client endpoint: omitted endpoints now use the detected public IPv4.
+
 ## 0.1.0-alpha.13
 
 - Apply the selected outbound IP strategy to both server direct outbounds and exported client configurations.

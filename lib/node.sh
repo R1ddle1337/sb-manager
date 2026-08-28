@@ -176,7 +176,13 @@ _node_add() {
     *) die "不支持的协议：$type";;
   esac
   if [[ "$address_supplied" == 0 ]]; then
-    address=$(node_auto_address "$domain")
+    case "$protocol" in
+      vless)
+        if [[ "$security" == reality ]]; then address=$(node_auto_address ''); else address=$(node_auto_address "$domain"); fi
+        ;;
+      shadowtls) address=$(node_auto_address '') ;;
+      *) address=$(node_auto_address "$domain");;
+    esac
     address_source=auto
   fi
   if [[ "$protocol" == hysteria2 ]]; then
