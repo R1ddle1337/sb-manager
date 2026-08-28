@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-alpha.16
+
+- Default VLESS Reality SNI and handshake target to `www.apple.com` while retaining custom domain prompts and CLI values.
+
 ## 0.1.0-alpha.15
 
 - Use the numbered node selector for the panel's share-link and client-export action, with an explicit all-nodes option.

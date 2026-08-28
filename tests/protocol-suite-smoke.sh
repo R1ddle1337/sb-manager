@@ -37,12 +37,13 @@ node_add trojan --id trojan-test --port 24444 --domain edge.example.com --addres
 node_add tuic --id tuic-test --port 24444 --domain edge.example.com --address 192.0.2.1
 node_add vless --id vless-test --port 24445 --domain edge.example.com --address 192.0.2.1 --security tls
 jq '.settings.public_ipv4="198.51.100.20"' "$SBM_STATE" >"$ROOT/state.new"; mv "$ROOT/state.new" "$SBM_STATE"
-node_add vless --id reality-test --port 24446 --domain www.microsoft.com --security reality --handshake-server www.microsoft.com
+node_add vless --id reality-test --port 24446 --security reality --handshake-server www.apple.com
 node_add naive --id naive-test --port 24447 --domain edge.example.com --address 192.0.2.1 --network tcp
 node_add shadowtls --id shadowtls-test --port 24448 --handshake-server www.microsoft.com
 
 [[ $(jq '.nodes|length' "$SBM_STATE") == 6 ]]
 [[ $(jq -r '.nodes[]|select(.id=="reality-test")|.server_address' "$SBM_STATE") == 198.51.100.20 ]]
+[[ $(jq -r '.nodes[]|select(.id=="reality-test")|.domain' "$SBM_STATE") == www.apple.com ]]
 [[ $(jq -r '.nodes[]|select(.id=="shadowtls-test")|.server_address' "$SBM_STATE") == 198.51.100.20 ]]
 [[ $(jq '.inbounds|length' "$SBM_CONFIG") == 6 ]]
 "$SBM_SING_BOX_BIN" check -c "$SBM_CONFIG"

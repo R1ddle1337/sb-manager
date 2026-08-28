@@ -195,8 +195,8 @@ ui_add_node() {
           node_add vless --name "$name" --domain "$domain" --address "$address" --port "$port" --security "$security"
           ;;
         2)
-          security=reality; prompt_value domain 'Reality SNI' ''; prompt_value address '客户端连接地址' "$(ui_client_address_default '')"; ui_prompt_port port tcp 'TCP 端口' 443 8443 9443 10443
-          prompt_value handshake_server 'Reality 握手域名' ''; prompt_value handshake_port 'Reality 握手端口' '443'
+          security=reality; prompt_value domain 'Reality SNI' 'www.apple.com'; prompt_value address '客户端连接地址' "$(ui_client_address_default '')"; ui_prompt_port port tcp 'TCP 端口' 443 8443 9443 10443
+          prompt_value handshake_server 'Reality 握手域名' 'www.apple.com'; prompt_value handshake_port 'Reality 握手端口' '443'
           node_add vless --name "$name" --domain "$domain" --address "$address" --port "$port" --security "$security" --handshake-server "$handshake_server" --handshake-port "$handshake_port"
           ;;
         *) log_error '选择无效';;
