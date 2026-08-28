@@ -383,7 +383,7 @@ ui_firewall_menu() {
     2) confirm '将先备份规则，再移除 INPUT 链全局 DROP/REJECT 并调整默认策略，继续？' N && firewall_clear_iptables_input_deny 1 ;;
     3)
       firewall_list_protocol_ports
-      command_exists ufw || { log_error '未安装 UFW；请先执行 apt-get install ufw。'; return; }
+      command_exists ufw || { log_error '未安装 UFW；请使用发行版包管理器安装（Alpine：apk add ufw）。'; return; }
       confirm '将为所有启用协议端口执行 UFW allow，继续？' N && firewall_ufw_allow_protocol_ports 1
       ;;
   esac

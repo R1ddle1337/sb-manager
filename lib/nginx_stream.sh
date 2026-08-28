@@ -144,6 +144,34 @@ nginx_stream_module_path() {
   return 1
 }
 
+nginx_stream_file_capabilities() {
+  local binary=${1:-$SBM_NGINX_STREAM_BIN} target
+  target=$(readlink -f "$binary" 2>/dev/null || true)
+  [[ -n "$target" ]] || target=$binary
+  command_exists getcap || return 0
+  getcap "$target" 2>/dev/null || true
+}
+
+nginx_stream_prepare_binary_for_backend() {
+  local binary=${1:-$SBM_NGINX_STREAM_BIN} backend=${2:-} target managed
+  target=$(readlink -f "$binary" 2>/dev/null || true)
+  [[ -n "$target" ]] || target=$binary
+  [[ -f "$target" && -x "$target" ]] || return 1
+  [[ -n "$backend" ]] || backend=$(effective_init_system)
+  case "$backend" in
+    openrc)
+      managed=$SBM_NGINX_STREAM_OPENRC_BIN
+      mkdir -p "$(dirname "$managed")"
+      if [[ "$target" != "$managed" ]]; then install -m 0755 "$target" "$managed"; fi
+      command_exists setcap || die 'OpenRC Nginx Stream 需要 setcap；请安装 Alpine 的 libcap 包。'
+      setcap 'cap_net_bind_service=+ep' "$managed" || die "无法为托管 Nginx 设置低端口能力：$managed"
+      ;;
+    systemd) ;;
+    none|'') ;;
+    *) die "无法为未知服务后端准备 Nginx：$backend" ;;
+  esac
+}
+
 nginx_stream_runtime_ready() {
   [[ -x "$SBM_NGINX_STREAM_BIN" ]] && nginx_stream_module_path >/dev/null
 }
@@ -152,8 +180,20 @@ nginx_stream_install_dependencies() {
   local nginx_preexisting=0 mask_created=0 install_rc=0
   nginx_stream_runtime_ready && return 0
   [[ ${SBM_TEST_MODE:-0} == 1 ]] && { log_error '测试模式缺少 Nginx Stream 测试二进制或模块。'; return 1; }
-  [[ $(init_system 2>/dev/null || true) == systemd ]] || { log_error 'Nginx Stream 复用目前只支持 Debian/systemd。'; return 1; }
-  if command_exists apt-get; then
+  case "$(init_system 2>/dev/null || true)" in
+    systemd|openrc) ;;
+    *) log_error 'Nginx Stream 复用需要 systemd 或 OpenRC。'; return 1 ;;
+  esac
+  if command_exists apk; then
+    if [[ -x "$SBM_NGINX_STREAM_BIN" ]] || service_exists nginx; then nginx_preexisting=1; fi
+    apk add --no-cache nginx nginx-mod-stream || install_rc=$?
+    (( install_rc == 0 )) || return "$install_rc"
+    if (( nginx_preexisting == 0 )); then
+      service_disable nginx || true
+      service_stop nginx || true
+    fi
+  elif command_exists apt-get; then
+    [[ $(init_system 2>/dev/null || true) == systemd ]] || { log_error '当前发行版的 Nginx Stream 自动安装仅支持 systemd；请手动安装 nginx 和 ngx_stream_module。'; return 1; }
     if [[ -x "$SBM_NGINX_STREAM_BIN" ]] || systemctl cat nginx.service >/dev/null 2>&1; then nginx_preexisting=1; fi
     if [[ "$nginx_preexisting" == 0 ]]; then
       systemctl mask nginx.service >/dev/null 2>&1 && mask_created=1
@@ -167,7 +207,7 @@ nginx_stream_install_dependencies() {
     fi
     (( install_rc == 0 )) || return "$install_rc"
   else
-    log_error '未发现 apt-get；请手动安装 nginx-core 和 libnginx-mod-stream。'
+    log_error '未发现 apk 或 apt-get；请手动安装 nginx 及其 stream 模块。'
     return 1
   fi
   nginx_stream_runtime_ready || { log_error 'Nginx Stream 模块安装后仍未找到。'; return 1; }
@@ -218,9 +258,12 @@ nginx_stream_write_config() {
 }
 
 nginx_stream_write_service() {
-  [[ $(init_system 2>/dev/null || true) == systemd ]] || return 1
-  mkdir -p "$SBM_SYSTEMD_DIR"
-  cat >"$SBM_SYSTEMD_DIR/$SBM_NGINX_STREAM_SERVICE" <<EOF_UNIT
+  local backend=${1:-$(effective_init_system)} unit service_binary=$SBM_NGINX_STREAM_BIN start_pre
+  nginx_stream_prepare_binary_for_backend "$SBM_NGINX_STREAM_BIN" "$backend"
+  case "$backend" in
+    systemd)
+      mkdir -p "$SBM_SYSTEMD_DIR"
+      cat >"$SBM_SYSTEMD_DIR/$SBM_NGINX_STREAM_SERVICE" <<EOF_UNIT
 [Unit]
 Description=sb-manager Nginx Stream SNI multiplexer
 Documentation=https://nginx.org/en/docs/stream/ngx_stream_ssl_preread_module.html
@@ -259,7 +302,21 @@ UMask=0027
 [Install]
 WantedBy=multi-user.target
 EOF_UNIT
-  chmod 0644 "$SBM_SYSTEMD_DIR/$SBM_NGINX_STREAM_SERVICE"
+      chmod 0644 "$SBM_SYSTEMD_DIR/$SBM_NGINX_STREAM_SERVICE"
+      ;;
+    openrc)
+      service_binary=$SBM_NGINX_STREAM_OPENRC_BIN
+      start_pre="checkpath --directory --mode 0750 --owner \"$SBM_SERVICE_USER:$SBM_SERVICE_USER\" \"$SBM_NGINX_STREAM_RUNTIME_DIR\""
+      write_openrc_supervised_service \
+        "$SBM_OPENRC_DIR/$(service_native_name "$SBM_NGINX_STREAM_SERVICE")" \
+        'sb-manager Nginx Stream' 'sb-manager Nginx Stream SNI multiplexer' \
+        "$service_binary" "-c $SBM_NGINX_STREAM_CONFIG" \
+        "$SBM_SERVICE_USER" "$SBM_NGINX_STREAM_LOG" "$SBM_NGINX_STREAM_ERROR_LOG" \
+        "need $(service_native_name "$SBM_SERVICE")" \
+        '' "$SBM_VAR" "$start_pre" "-g 'daemon off;'"
+      ;;
+    *) return 1 ;;
+  esac
 }
 
 nginx_stream_prepare_transition() {
@@ -278,10 +335,14 @@ nginx_stream_reconcile() {
     fi
     return 0
   fi
-  [[ $(init_system 2>/dev/null || true) == systemd ]] || { log_error 'Nginx Stream 复用目前只支持 Debian/systemd。'; return 1; }
+  local backend
+  backend=$(effective_init_system)
+  [[ "$backend" == systemd || "$backend" == openrc ]] || { log_error 'Nginx Stream 复用需要 systemd 或 OpenRC。'; return 1; }
   nginx_stream_install_dependencies || return 1
   mkdir -p "$SBM_NGINX_STREAM_RUNTIME_DIR" "$(dirname "$SBM_NGINX_STREAM_CONFIG")"
-  nginx_stream_write_service || return 1
+  chown "$SBM_SERVICE_USER":"$SBM_SERVICE_USER" "$SBM_NGINX_STREAM_RUNTIME_DIR" 2>/dev/null || true
+  chmod 0750 "$SBM_NGINX_STREAM_RUNTIME_DIR" 2>/dev/null || true
+  nginx_stream_write_service "$backend" || return 1
   nginx_stream_write_config "$SBM_STATE" || return 1
   service_reload_manager
   service_enable "$SBM_NGINX_STREAM_SERVICE"
@@ -398,18 +459,19 @@ nginx_stream_status() {
   routes=$(jq '.nginx_stream.routes|length' "$SBM_STATE")
   backend=$(init_system 2>/dev/null || true)
   printf 'Nginx Stream 复用：%s，公网端口：%s/TCP，路由：%s 条\n' "$([[ "$enabled" == true ]] && echo '启用' || echo '停用')" "$port" "$routes"
-  if [[ "$enabled" == true && "$SBM_SKIP_INIT" != 1 && "$backend" == systemd ]] && service_exists "$SBM_NGINX_STREAM_SERVICE"; then
+  if [[ "$enabled" == true && "$SBM_SKIP_INIT" != 1 && ("$backend" == systemd || "$backend" == openrc) ]] && service_exists "$SBM_NGINX_STREAM_SERVICE"; then
     service_status_text "$SBM_NGINX_STREAM_SERVICE" || true
   fi
 }
 
 nginx_stream_doctor_check() {
-  local enabled port routes
+  local enabled port routes backend
   enabled=$(jq -r '.nginx_stream.enabled // false' "$SBM_STATE")
   [[ "$enabled" == true ]] || return 0
   port=$(jq -r '.nginx_stream.port' "$SBM_STATE"); routes=$(jq '.nginx_stream.routes|length' "$SBM_STATE")
-  if [[ "$(init_system 2>/dev/null || true)" != systemd ]]; then
-    check_line FAIL 'Nginx Stream 复用已启用，但当前不是 systemd 后端'; failures=$((failures + 1)); return 0
+  backend=$(init_system 2>/dev/null || true)
+  if [[ "$backend" != systemd && "$backend" != openrc ]]; then
+    check_line FAIL 'Nginx Stream 复用已启用，但当前不是 systemd/OpenRC 后端'; failures=$((failures + 1)); return 0
   fi
   if ! nginx_stream_runtime_ready; then
     check_line FAIL 'Nginx Stream 复用已启用，但 nginx/ngx_stream_module 缺失'; failures=$((failures + 1)); return 0

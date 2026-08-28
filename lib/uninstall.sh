@@ -67,6 +67,7 @@ uninstall_manager() {
     "$SBM_SYSTEMD_DIR/$SBM_SUBSCRIPTION_SERVICE" \
     "$SBM_OPENRC_DIR/sb-sing-box" \
     "$SBM_OPENRC_DIR/sb-cloudflared" \
+    "$SBM_OPENRC_DIR/$(service_native_name "$SBM_NGINX_STREAM_SERVICE")" \
     "$SBM_OPENRC_DIR/$(service_native_name "$SBM_SUBSCRIPTION_SERVICE")" \
     "$SBM_PERIODIC_DIR/daily/sb-core-update" \
     "$SBM_PERIODIC_DIR/daily/sb-acme-renew" \
@@ -77,6 +78,8 @@ uninstall_manager() {
   remove_manager_owned_link "$SBM_SING_BOX_BIN"
   remove_manager_owned_link "$SBM_CLOUDFLARED_BIN"
   remove_manager_owned_link "$SBM_BIN_DIR/sb"
+  rm -f -- "$SBM_NGINX_STREAM_OPENRC_BIN"
+  rmdir -- "$(dirname "$SBM_NGINX_STREAM_OPENRC_BIN")" 2>/dev/null || true
   rm -rf -- "$SBM_LIB" "$SBM_RUN"
 
   if [[ "$purge" == 1 ]]; then

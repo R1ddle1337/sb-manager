@@ -2,7 +2,7 @@
 
 `sb-manager` 是一个面向 systemd/OpenRC Linux 的、状态驱动的 sing-box 多协议管理脚本。安装后输入 `sb` 即可打开中文交互面板，也可以使用完整的非交互 CLI。
 
-> 当前版本：`0.1.0-alpha.22`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
+> 当前版本：`0.1.0-alpha.23`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
 
 ## 功能
 
@@ -44,7 +44,7 @@ sing-box 官方不会为这些协议强制规定唯一端口，文档示例常�
 
 ### 可选 Nginx Stream 端口复用
 
-Debian/systemd 可选择启用独立的 Nginx Stream SNI 透传服务。它不终止 TLS，只读取 ClientHello 的 SNI，把公网 `443/TCP` 转发到 sing-box 的不同 loopback 后端。支持 AnyTLS、Trojan、VLESS TLS/Reality、Naive TCP 和 ShadowTLS v3；每个路由必须使用唯一且与协议 `server_name` 一致的域名。Shadowsocks、VMess Tunnel、Hysteria2、TUIC 和 Naive QUIC 不属于该 TCP/SNI 复用范围。
+systemd 或 Alpine/OpenRC 均可选择启用独立的 Nginx Stream SNI 透传服务。它不终止 TLS，只读取 ClientHello 的 SNI，把公网 `443/TCP` 转发到 sing-box 的不同 loopback 后端。支持 AnyTLS、Trojan、VLESS TLS/Reality、Naive TCP 和 ShadowTLS v3；每个路由必须使用唯一且与协议 `server_name` 一致的域名。Shadowsocks、VMess Tunnel、Hysteria2、TUIC 和 Naive QUIC 不属于该 TCP/SNI 复用范围。
 
 ```bash
 sb mux route add trojan-main trojan.example.com
@@ -53,7 +53,7 @@ sb mux enable 443
 sb mux status
 ```
 
-启用时按需安装 Debian 的 `nginx-core` 与 `libnginx-mod-stream`，将已登记节点改为 `127.0.0.1:<自动后端端口>`，分享链接和客户端导出使用公网复用端口。未知 SNI 会被拒绝。执行 `sb mux disable` 后恢复节点原来的独立监听端口；路由定义保留，便于再次启用。系统已有 Nginx 配置不会被改写，目标端口冲突会触发事务回滚。
+启用时按需安装 Debian 的 `nginx-core`/`libnginx-mod-stream` 或 Alpine 的 `nginx`/`nginx-mod-stream`，将已登记节点改为 `127.0.0.1:<自动后端端口>`，分享链接和客户端导出使用公网复用端口。未知 SNI 会被拒绝。执行 `sb mux disable` 后恢复节点原来的独立监听端口；路由定义保留，便于再次启用。系统已有 Nginx 配置不会被改写，目标端口冲突会触发事务回滚。OpenRC 使用独立的前台 supervise-daemon 服务，并把 Nginx 复制到持久化数据目录后仅授予 `cap_net_bind_service`，避免升级覆盖能力设置。
 
 ## 支持环境
 
@@ -93,6 +93,8 @@ bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/i
 /var/log/sb-manager/sing-box.err.log
 /var/log/sb-manager/cloudflared.log
 /var/log/sb-manager/cloudflared.err.log
+/var/log/sb-manager/nginx-stream.log
+/var/log/sb-manager/nginx-stream.err.log
 ```
 
 官方 sing-box Linux 核心使用 glibc ABI，Alpine 由 `gcompat` 提供运行时兼容。AnyTLS/Hysteria2 使用 443 等低位端口时，安装器会为 sing-box 核心设置最小的 `cap_net_bind_service` 文件能力，服务本身仍以 `sbmanager` 低权限用户运行。自动更新和 ACME 续期使用 Alpine `dcron` 的 `/etc/periodic` 任务。
@@ -113,7 +115,7 @@ sudo bash install.sh
 bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/install.sh)
 ```
 
-`install.sh` 默认先解析 `main` 的最新 commit SHA，再按该不可变 commit 下载源码；也可设置 `SBM_INSTALL_REF=v0.1.0-alpha.22` 固定版本。显式指定 `main` 等可变分支仍需 `SBM_ALLOW_MUTABLE_REF=1`。离线发布包可使用 `build-release.sh` 生成，并核验 `SHA256SUMS`、`PROVENANCE-SHA256SUMS` 及可选的 GPG 签名文件。
+`install.sh` 默认先解析 `main` 的最新 commit SHA，再按该不可变 commit 下载源码；也可设置 `SBM_INSTALL_REF=v0.1.0-alpha.23` 固定版本。显式指定 `main` 等可变分支仍需 `SBM_ALLOW_MUTABLE_REF=1`。离线发布包可使用 `build-release.sh` 生成，并核验 `SHA256SUMS`、`PROVENANCE-SHA256SUMS` 及可选的 GPG 签名文件。
 
 安装完成后：
 
@@ -307,12 +309,13 @@ sb --help
 /etc/sb-manager/certs/
 /var/lib/sb-manager/backups/
 /var/lib/sb-manager/exports/
+/var/lib/sb-manager/nginx-stream/nginx  # 仅在 OpenRC 启用 Nginx Stream 时
 ```
 
 - 状态、Token、节点密码、私钥及导出文件不会提交到仓库。
 - Tunnel Token 使用受限文件保存，不直接写入 systemd `ExecStart` 或 OpenRC 脚本。
 - sing-box 以独立的 `sbmanager` 低权限用户运行。
-- systemd 通过 unit 的 ambient capability 提供低端口绑定能力；OpenRC 才在核心文件上设置 `cap_net_bind_service`。
+- systemd 通过 unit 的 ambient capability 提供低端口绑定能力；OpenRC 只在托管的 sing-box/Nginx 可执行文件上设置 `cap_net_bind_service`。
 - 脚本安装时不会自动启用或修改 UFW/firewalld；防火墙变更只能通过显式的 `sb firewall` 操作执行。
 - 直连协议的安全组和防火墙端口由管理员明确开放。
 
@@ -326,7 +329,7 @@ sb uninstall --purge         # 完全卸载并删除节点、证书、密钥和�
 sb uninstall --purge --yes   # 非交互完全卸载
 ```
 
-## Debian/systemd 路由监听说明
+## Linux 路由监听说明
 
 sing-box 在 Linux 启动时会通过 Netlink 订阅路由变化。systemd 服务必须在 `RestrictAddressFamilies` 中允许 `AF_NETLINK`；缺失时日志会出现：
 
@@ -334,7 +337,7 @@ sing-box 在 Linux 启动时会通过 Netlink 订阅路由变化。systemd 服�
 start service: subscribe route updates: address family not supported by protocol
 ```
 
-`0.1.0-alpha.5` 起，安装器、实际启动预检和 `sb doctor` 都会检查这一项。
+`0.1.0-alpha.5` 起，安装器、实际启动预检和 `sb doctor` 都会检查这一项。OpenRC/Alpine 不使用 systemd 沙箱，服务脚本通过同一配置直接运行并由 `supervise-daemon` 监控。
 
 ## 诊断与修复
 
@@ -363,7 +366,7 @@ sb repair
 sb doctor
 ```
 
-`sb repair` 会停止重启循环、修复目录遍历权限、清除 systemd 后端不需要的旧 file capabilities，并在与正式服务相同的 systemd 沙箱中预检核心执行；不会删除节点、证书或密钥。
+`sb repair` 会停止重启循环、修复目录遍历权限、按后端校正低端口能力，并在 systemd 上使用与正式服务相同的沙箱预检核心执行；不会删除节点、证书或密钥。
 
 尚未更新到 `0.1.0-alpha.5` 时，可手动执行：
 
@@ -405,6 +408,9 @@ SBM_TEST_SING_BOX=/path/to/sing-box bash tests/run.sh
 SBM_TEST_SING_BOX=/path/to/sing-box bash tests/install-smoke.sh
 bash tests/systemd-exec-smoke.sh
 bash tests/openrc-lifecycle.sh
+bash tests/openrc-nginx-stream-smoke.sh
+# 在 Alpine 3.21-3.24 的一次性 VM/容器中以 root 运行：
+bash tests/alpine-nginx-stream-smoke.sh
 ```
 
 在指定 Debian 13 测试机上运行完整验收（官方核心目录放在仓库外）：

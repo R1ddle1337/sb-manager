@@ -52,7 +52,7 @@ firewall_collect_protocol_ports() {
 
 firewall_ufw_allow_protocol_ports() {
   local assume_yes=${1:-0} port kind count=0
-  command_exists ufw || die '未安装 UFW；请先执行 apt-get install ufw。'
+  command_exists ufw || die '未安装 UFW；请使用发行版包管理器安装（Alpine：apk add ufw）。'
   if [[ "$assume_yes" != 1 ]]; then
     confirm '将为所有启用协议端口执行 UFW allow，继续？' N || return 0
   fi

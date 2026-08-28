@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-alpha.23
+
+- Extend Nginx Stream SNI multiplexing to Alpine/OpenRC with `apk` dependency installation, supervised foreground service output, persistent low-port capability handling, and OpenRC diagnostics/rollback/uninstall coverage.
+- Verify real Nginx Stream startup on Alpine 3.21, 3.22, 3.23, and 3.24, plus the complete Alpine 3.23 installer/OpenRC smoke path with official sing-box and cloudflared assets.
+
 ## 0.1.0-alpha.22
 
 - Include the setup-time Snell renderer load fix and final Debian firewall regression coverage.

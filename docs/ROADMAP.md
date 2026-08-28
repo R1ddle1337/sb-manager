@@ -66,7 +66,7 @@ Completion requires all checkboxes above, updated architecture/schema/security d
 - [x] Preserve direct ports and restore them when multiplexing is disabled.
 - [x] Integrate CLI, panel, systemd sandbox, diagnostics, exports, backup normalization, uninstall, and transaction rollback.
 - [x] Reject unsupported protocols, duplicate/mismatched SNI, duplicate backends, unknown SNI, and occupied frontend ports.
-- [x] Validate real TLS/Reality/ShadowTLS paths and service lifecycle on Debian 13.
+- [x] Validate real TLS/Reality/ShadowTLS paths and service lifecycle on Debian 13 and Alpine/OpenRC.
 
 ## Acceptance record (2026-08-28)
 
@@ -78,6 +78,6 @@ subscription systemd sandbox startup, API loopback gating, service lifecycle,
 installer rollback injection, recovery fault injection, ACME pinning, network
 probing, and reboot persistence. The existing production unit was restored to
 its pre-test `enabled/inactive` state; its `/etc/sb-manager` and
-`/usr/local/lib/sb-manager` data were not modified. Per the current project
-scope, acceptance is limited to this Debian 13 server; Ubuntu, Alpine/OpenRC,
-and RPM-family hosts are intentionally outside this run.
+`/usr/local/lib/sb-manager` data were not modified. Alpine/OpenRC coverage is
+provided by the dedicated musl smoke suite; Ubuntu and RPM-family hosts remain
+covered by the shared service and package-manager abstractions.

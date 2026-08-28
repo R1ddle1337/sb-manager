@@ -60,6 +60,9 @@ doctor_repair_runtime() {
   fi
   ensure_program_permissions
   prepare_singbox_binary_for_backend "$(readlink -f "$SBM_SING_BOX_BIN")"
+  if [[ $(jq -r '.nginx_stream.enabled // false' "$SBM_STATE" 2>/dev/null || true) == true ]] && declare -F nginx_stream_prepare_binary_for_backend >/dev/null 2>&1; then
+    nginx_stream_prepare_binary_for_backend "$SBM_NGINX_STREAM_BIN" "$(effective_init_system)"
+  fi
   if id "$SBM_SERVICE_USER" >/dev/null 2>&1; then
     set_group_if_exists "$SBM_SERVICE_USER" "$SBM_ETC"
     set_group_if_exists "$SBM_SERVICE_USER" "$SBM_GENERATED_DIR"
@@ -197,7 +200,10 @@ doctor_probe() {
 doctor_network_summary() {
   local backend=${1:-} active_firewalls=0 name
   for name in nftables ufw firewalld; do
-    if command_exists systemctl && systemctl is-active --quiet "$name" 2>/dev/null; then
+    if [[ "$backend" == systemd ]] && command_exists systemctl && systemctl is-active --quiet "$name" 2>/dev/null; then
+      check_line PASS "检测到运行中的防火墙服务：$name"
+      active_firewalls=1
+    elif [[ "$backend" == openrc ]] && command_exists rc-service && rc-service "$name" status >/dev/null 2>&1; then
       check_line PASS "检测到运行中的防火墙服务：$name"
       active_firewalls=1
     fi
@@ -206,7 +212,7 @@ doctor_network_summary() {
     check_line WARN '未检测到 nftables、ufw 或 firewalld 运行；请确认云安全组和主机策略已限制开放端口'
     warnings=$((warnings + 1))
   fi
-  if [[ "$backend" == systemd ]] && command_exists ss; then
+  if [[ "$backend" == systemd || "$backend" == openrc ]] && command_exists ss; then
     if ss -H -lnt 2>/dev/null | awk '{print $4}' | grep -Eq '^\[::\]:'; then
       check_line WARN '存在 IPv6 wildcard TCP 监听；请确认 IPv6 安全组和 DNS 暴露符合预期'
       warnings=$((warnings + 1))
@@ -409,6 +415,13 @@ doctor_run() {
   if [[ "$backend" == openrc && "$low_port_required" == 1 ]]; then
     if singbox_has_bind_capability "${core_target:-$SBM_SING_BOX_BIN}"; then check_line PASS 'OpenRC sing-box 核心具备低端口绑定能力'
     else check_line FAIL 'OpenRC sing-box 核心缺少 cap_net_bind_service；运行 sb repair'; failures=$((failures + 1)); fi
+  fi
+  if [[ "$backend" == openrc && $(jq -r '.nginx_stream.enabled // false' "$SBM_STATE") == true ]] && (( $(jq -r '.nginx_stream.port' "$SBM_STATE") < 1024 )); then
+    if nginx_stream_file_capabilities "$SBM_NGINX_STREAM_OPENRC_BIN" | grep -q cap_net_bind_service; then
+      check_line PASS 'OpenRC Nginx 核心具备低端口绑定能力'
+    else
+      check_line FAIL 'OpenRC Nginx 核心缺少 cap_net_bind_service；运行 sb repair'; failures=$((failures + 1))
+    fi
   fi
 
   if command_exists timedatectl; then

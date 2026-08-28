@@ -30,7 +30,7 @@ setup_rollback_on_error() {
       "$SETUP_SYSTEMD_DIR/sb-quick-tunnel-refresh.service" "$SETUP_SYSTEMD_DIR/sb-quick-tunnel-refresh.timer" \
       "$SETUP_SYSTEMD_DIR/sb-subscription.service"
     [[ ! -d "$SETUP_ROLLBACK_DIR/systemd" ]] || cp -a "$SETUP_ROLLBACK_DIR/systemd"/. "$SETUP_SYSTEMD_DIR"/
-    rm -f "$SETUP_OPENRC_DIR/sb-sing-box" "$SETUP_OPENRC_DIR/sb-cloudflared" "$SETUP_OPENRC_DIR/sb-subscription"
+    rm -f "$SETUP_OPENRC_DIR/sb-sing-box" "$SETUP_OPENRC_DIR/sb-cloudflared" "$SETUP_OPENRC_DIR/sb-nginx-stream" "$SETUP_OPENRC_DIR/sb-subscription"
     [[ ! -d "$SETUP_ROLLBACK_DIR/openrc" ]] || cp -a "$SETUP_ROLLBACK_DIR/openrc"/. "$SETUP_OPENRC_DIR"/
     command -v systemctl >/dev/null 2>&1 && systemctl daemon-reload >/dev/null 2>&1 || true
   fi

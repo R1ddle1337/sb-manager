@@ -33,6 +33,7 @@ for test in \
   tests/doctor-smoke.sh \
   tests/service-lifecycle.sh \
   tests/openrc-lifecycle.sh \
+  tests/openrc-nginx-stream-smoke.sh \
   tests/systemd-exec-smoke.sh \
   tests/systemd-real-exec.sh \
   tests/install-smoke.sh \

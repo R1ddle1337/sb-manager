@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 [[ -f /etc/alpine-release ]] || { echo 'This test must run on Alpine.' >&2; exit 1; }
+if command -v apk >/dev/null 2>&1; then
+  # The test intentionally runs setup in test mode, so provide the musl
+  # compatibility/runtime tools that a clean Alpine image does not contain.
+  apk add --no-cache jq openssl tar gzip coreutils util-linux procps findutils \
+    python3 iproute2 shadow openrc dcron libcap musl-utils gcompat >/dev/null
+fi
 ROOT=$(mktemp -d)
 trap 'rm -rf "$ROOT"' EXIT
 PROJECT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)

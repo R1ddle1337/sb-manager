@@ -33,9 +33,11 @@ the official `libcronet.so` companion required by Naive client outbounds.
   reboot; it was then removed and the production unit restored to its prior
   `enabled/inactive` state.
 
-Cross-distribution acceptance is intentionally outside the current Debian-only
-scope; the implementation retains separate OpenRC/Alpine tests for a future
-dedicated host.
+The real-host acceptance above remains Debian-specific. A later Alpine
+compatibility run used clean 3.21, 3.22, 3.23, and 3.24 musl containers for the
+real `nginx`/`nginx-mod-stream` configuration and managed file-capability path;
+3.23 additionally passed the official sing-box/cloudflared download,
+installation, OpenRC lifecycle, node/Tunnel transaction, and purge smoke test.
 
 ## Follow-up 2026-08-28 (13.215.157.232)
 

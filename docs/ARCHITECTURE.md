@@ -59,7 +59,7 @@ sb-nginx-stream (ssl_preread; no TLS termination)
         └─ unknown/missing SNI     → reject backend
 ```
 
-The feature is off by default and currently limited to Debian/systemd. State retains each node's direct listen port and stores separate route backend ports. Rendering substitutes loopback backends only while the mux is enabled; exports substitute the public mux port. Transition order is stop mux → validate/install candidate → restart sing-box → validate/start mux. Any failure restores the previous state, sing-box configuration, and service topology.
+The feature is off by default. On systemd it uses a hardened unit; on OpenRC it uses a foreground `supervise-daemon` service and a persistent copy of the Nginx binary with only `cap_net_bind_service`. State retains each node's direct listen port and stores separate route backend ports. Rendering substitutes loopback backends only while the mux is enabled; exports substitute the public mux port. Transition order is stop mux → validate/install candidate → restart sing-box → validate/start mux. Any failure restores the previous state, sing-box configuration, and service topology.
 
 ## Trust boundaries
 

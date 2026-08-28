@@ -241,6 +241,7 @@ service_log_files() {
   case "$native" in
     sb-sing-box) printf '%s\n%s\n' "$SBM_SINGBOX_LOG" "$SBM_SINGBOX_ERROR_LOG" ;;
     sb-cloudflared) printf '%s\n%s\n' "$SBM_TUNNEL_LOG" "$SBM_TUNNEL_ERROR_LOG" ;;
+    sb-nginx-stream) printf '%s\n%s\n' "$SBM_NGINX_STREAM_LOG" "$SBM_NGINX_STREAM_ERROR_LOG" ;;
   esac
 }
 
@@ -289,7 +290,8 @@ singbox_has_bind_capability() {
 }
 
 write_openrc_supervised_service() {
-  local path=$1 name=$2 description=$3 command=$4 args=$5 user=$6 stdout_log=$7 stderr_log=$8 dependency=${9:-net} start_post=${10:-} home=${11:-$SBM_VAR}
+  local path=$1 name=$2 description=$3 command=$4 args=$5 user=$6 stdout_log=$7 stderr_log=$8 dependency=${9:-net} start_post=${10:-} home=${11:-$SBM_VAR} start_pre_extra=${12:-} foreground_args=${13:-} foreground_line=''
+  [[ -z "$foreground_args" ]] || foreground_line="command_args_foreground=\"$foreground_args\""
   mkdir -p "$(dirname "$path")" "$SBM_LOG_DIR"
   cat >"$path" <<EOF_OPENRC
 #!/sbin/openrc-run
@@ -298,6 +300,7 @@ description="$description"
 supervisor=supervise-daemon
 command="$command"
 command_args="$args"
+${foreground_line}
 command_user="$user:$user"
 respawn_delay=3
 respawn_max=0
@@ -315,6 +318,7 @@ start_pre() {
   checkpath --directory --mode 0750 --owner "$user:$user" "$SBM_LOG_DIR"
   checkpath --file --mode 0640 --owner "$user:$user" "$stdout_log"
   checkpath --file --mode 0640 --owner "$user:$user" "$stderr_log"
+  ${start_pre_extra}
 }
 ${start_post}
 EOF_OPENRC
