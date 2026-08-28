@@ -25,7 +25,9 @@ if [[ "$REF" == latest ]]; then
     --connect-timeout 15 --max-time 60 -H 'Accept: application/vnd.github+json' \
     -H 'User-Agent: sb-manager' "https://api.github.com/repos/${REPOSITORY}/commits/main") \
     || { echo '无法解析仓库最新 commit。' >&2; exit 1; }
-  REF=$(printf '%s\n' "$latest_json" | sed -n 's/.*"sha"[[:space:]]*:[[:space:]]*"\([0-9a-fA-F]\{40\}\)".*/\1/p' | head -n1)
+  REF=$(printf '%s\n' "$latest_json" \
+    | grep -oE '"sha"[[:space:]]*:[[:space:]]*"[0-9a-fA-F]{40}"' \
+    | head -n1 | sed -E 's/.*"([0-9a-fA-F]{40})".*/\1/')
   [[ "$REF" =~ ^[0-9a-fA-F]{40}$ ]] || { echo 'GitHub API 未返回有效 commit SHA。' >&2; exit 1; }
   printf '使用最新不可变 commit：%s\n' "$REF" >&2
 elif [[ ${SBM_ALLOW_MUTABLE_REF:-0} != 1 && "$REF" =~ ^(main|master|develop|development|trunk)$ ]]; then
