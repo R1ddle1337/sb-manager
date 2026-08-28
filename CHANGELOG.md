@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-alpha.19
+
+- Generate random persistent Naive usernames for new users and credential rotations while preserving existing usernames until rotation.
+- Add Snell v5 node provisioning with per-node PSK, per-user userkeys, optional HTTP obfuscation, client exports, and 1.14+ core gating.
+
 ## 0.1.0-alpha.18
 
 - Default AnyTLS client exports and share links to Chrome uTLS fingerprint (`chrome`).

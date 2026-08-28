@@ -121,7 +121,7 @@ nginx_stream_validate_state() {
       node_id=$(jq -r '.id' <<<"$node"); protocol=$(jq -r '.protocol' <<<"$node")
       if [[ -z ${seen_nodes[$node_id]+x} ]]; then
         case "$protocol" in
-          vmess-ws-cf|anytls|trojan|shadowtls|vless|shadowsocks)
+          vmess-ws-cf|anytls|trojan|shadowtls|vless|shadowsocks|snell)
             [[ $(jq -r '.port' <<<"$node") != "$port" ]] || { log_error "节点 $node_id 占用 Nginx Stream 公网端口 ${port}/TCP。"; return 1; }
             ;;
           naive)

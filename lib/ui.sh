@@ -136,7 +136,7 @@ ui_prompt_port() {
 }
 
 ui_add_node() {
-  local choice domain address port name id obfs method security security_choice
+  local choice domain address port name id obfs method security security_choice snell_obfs_choice snell_obfs_host
   local handshake_server handshake_port congestion_control network strict_mode wildcard_sni
   printf '%s\n' \
     '1. VMess + WebSocket + Cloudflare Tunnel' \
@@ -148,6 +148,7 @@ ui_add_node() {
     '7. VLESS（TLS/Reality）' \
     '8. NaiveProxy（HTTPS/QUIC）' \
     '9. ShadowTLS v3' \
+    '10. Snell v5（需要 sing-box 1.14+）' \
     '0. 返回'
   prompt_value choice '选择协议' '0'
   case "$choice" in
@@ -215,6 +216,15 @@ ui_add_node() {
       prompt_value address '客户端连接地址' "$(ui_client_address_default '')"; ui_prompt_port port tcp 'TCP 端口' 443 8443 9443 10443
       prompt_value strict_mode '严格模式（true/false）' 'true'; prompt_value wildcard_sni '通配 SNI（off/authed/all）' 'off'
       node_add shadowtls --name "$name" --address "$address" --port "$port" --handshake-server "$handshake_server" --handshake-port "$handshake_port" --strict-mode "$strict_mode" --wildcard-sni "$wildcard_sni"
+      ;;
+    10)
+      prompt_value name '节点名称' 'Snell'; prompt_value address '客户端连接地址（域名或 IP）' "$(ui_client_address_default '')"; ui_prompt_port port tcp 'TCP 端口' 6160 443 8443 9443 10443
+      printf '1. 不启用 HTTP 混淆（默认）\n2. HTTP 混淆\n'; prompt_value snell_obfs_choice '选择混淆' '1'
+      case "$snell_obfs_choice" in
+        1) obfs=none; node_add snell --name "$name" --address "$address" --port "$port" --obfs none ;;
+        2) prompt_value snell_obfs_host 'HTTP 混淆 Host' 'bing.com'; node_add snell --name "$name" --address "$address" --port "$port" --obfs http --obfs-host "$snell_obfs_host" ;;
+        *) log_error '选择无效';;
+      esac
       ;;
     0) return;; *) log_error '选择无效';;
   esac

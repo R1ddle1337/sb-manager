@@ -23,6 +23,7 @@ source "$PROJECT/protocols/tuic.sh"
 source "$PROJECT/protocols/vless.sh"
 source "$PROJECT/protocols/naive.sh"
 source "$PROJECT/protocols/shadowtls.sh"
+source "$PROJECT/protocols/snell.sh"
 source "$PROJECT/lib/render.sh"
 source "$PROJECT/lib/core.sh"
 source "$PROJECT/lib/node.sh"
@@ -48,6 +49,15 @@ node_add shadowtls --id shadowtls-test --port 24448 --handshake-server www.micro
 [[ $(jq '.inbounds|length' "$SBM_CONFIG") == 6 ]]
 "$SBM_SING_BOX_BIN" check -c "$SBM_CONFIG"
 
+naive_username=$(jq -r '.inbounds[]|select(.tag=="in-naive-test")|.users[0].username' "$SBM_CONFIG")
+[[ "$naive_username" =~ ^[0-9a-f]{24}$ ]]
+node_user_add naive-test alice 'Alice Naive'
+alice_naive_username=$(jq -r '.username' "$(state_user_secret_path naive-test alice)")
+[[ "$alice_naive_username" =~ ^[0-9a-f]{24}$ ]]
+node_rotate naive-test alice
+rotated_naive_username=$(jq -r '.username' "$(state_user_secret_path naive-test alice)")
+[[ "$rotated_naive_username" =~ ^[0-9a-f]{24}$ && "$rotated_naive_username" != "$alice_naive_username" ]]
+
 "$SBM_SING_BOX_BIN" run -c "$SBM_CONFIG" >"$ROOT/runtime.log" 2>&1 &
 runtime_pid=$!
 for _ in {1..30}; do kill -0 "$runtime_pid" 2>/dev/null || { cat "$ROOT/runtime.log" >&2; exit 1; }; sleep 0.1; done
@@ -70,7 +80,12 @@ done
 
 [[ $(jq -r '.inbounds[]|select(.tag=="in-tuic-test")|.zero_rtt_handshake' "$SBM_CONFIG") == false ]]
 [[ $(jq -r '.inbounds[]|select(.tag=="in-reality-test")|.tls.reality.enabled' "$SBM_CONFIG") == true ]]
-[[ $(jq -r '.inbounds[]|select(.tag=="in-naive-test")|.users[0].username' "$SBM_CONFIG") == default ]]
+
+# Snell is introduced in sing-box 1.14; stable cores reject it before state mutation.
+if (node_add snell --id snell-stable-rejected --port 24449 --address 192.0.2.1 >/dev/null 2>&1); then
+  echo 'Snell unexpectedly accepted by a stable core' >&2
+  exit 1
+fi
 export_client_config "$ROOT/client-mixed.json" mixed
 export_client_config "$ROOT/client-tun.json" tun
 jq -e '.inbounds[0].type=="mixed" and .route.default_domain_resolver=="dns-local"' "$ROOT/client-mixed.json" >/dev/null

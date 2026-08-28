@@ -81,7 +81,7 @@
         "properties": {
           "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,47}$"},
           "name": {"type": "string"},
-          "protocol": {"enum": ["vmess-ws-cf", "shadowsocks", "anytls", "hysteria2", "trojan", "tuic", "vless", "naive", "shadowtls"]},
+          "protocol": {"enum": ["vmess-ws-cf", "shadowsocks", "anytls", "hysteria2", "trojan", "tuic", "vless", "naive", "shadowtls", "snell"]},
           "enabled": {"type": "boolean"},
           "listen": {"type": "string", "minLength": 1},
           "port": {"type": "integer", "minimum": 1, "maximum": 65535},

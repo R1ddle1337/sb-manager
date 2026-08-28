@@ -20,6 +20,7 @@ node_share_uri() {
     vless) protocol_vless_share "$node" "$secret" "$node_secret" ;;
     naive) protocol_naive_share "$node" "$secret" ;;
     shadowtls) protocol_shadowtls_share "$node" "$secret" ;;
+    snell) protocol_snell_share "$node" "$secret" "$node_secret" ;;
   esac
 }
 
@@ -42,6 +43,7 @@ node_client_outbound() {
     vless) outbound=$(protocol_vless_client_outbound "$node" "$secret" "$node_secret") ;;
     naive) outbound=$(protocol_naive_client_outbound "$node" "$secret") ;;
     shadowtls) outbound=$(protocol_shadowtls_client_outbound "$node" "$secret") ;;
+    snell) outbound=$(protocol_snell_client_outbound "$node" "$secret" "$node_secret") ;;
     *) die "不支持导出的协议：$protocol" ;;
   esac
   tag="proxy-${id}-${user_id}"

@@ -24,6 +24,7 @@ source "$SBM_LIB/protocols/tuic.sh"
 source "$SBM_LIB/protocols/vless.sh"
 source "$SBM_LIB/protocols/naive.sh"
 source "$SBM_LIB/protocols/shadowtls.sh"
+source "$SBM_LIB/protocols/snell.sh"
 source "$SBM_LIB/lib/render.sh"
 source "$SBM_LIB/lib/core.sh"
 source "$SBM_LIB/lib/node.sh"
@@ -45,7 +46,7 @@ sb-manager：状态驱动的 sing-box 多协议管理器
   sb                              打开交互面板
   sb status                       查看状态
   sb node list [--json]           列出节点
-  sb node add <vmess|ss|anytls|hy2|trojan|tuic|vless|naive|shadowtls> [参数]
+  sb node add <vmess|ss|anytls|hy2|trojan|tuic|vless|naive|shadowtls|snell> [参数]
   sb node show <ID>
   sb node enable|disable|delete|rotate <ID>
   sb node set <ID> --port N|--address HOST|--domain DOMAIN|--name NAME|--path PATH
@@ -89,6 +90,7 @@ sb-manager：状态驱动的 sing-box 多协议管理器
   VMess: --path PATH
   SS:    --method 2022-blake3-aes-128-gcm|... --network tcp
   HY2:   --obfs salamander --masquerade URL
+  Snell: --obfs none|http [--obfs-host DOMAIN] (需要 sing-box 1.14+)
   通用:  --disabled
 EOF_HELP
 }

@@ -42,6 +42,7 @@ Cloudflare edge → cloudflared → 127.0.0.1:<VMess WS port>
 Internet → TCP/TLS <AnyTLS port>
 Internet → UDP/QUIC <Hysteria2 port>
 Internet → TCP <Shadowsocks 2022 port>
+Internet → TCP <Snell v5 port>
 ```
 
 VMess-WS-CF never listens on a public interface. AnyTLS and Hysteria2 can share the same numeric port because one is TCP and the other UDP.

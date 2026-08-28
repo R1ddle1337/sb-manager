@@ -10,6 +10,7 @@ printf '%s\n' '{"settings":{"default_server_address":""}}' >"$SBM_STATE"
 source "$PROJECT/lib/common.sh"
 source "$PROJECT/lib/node.sh"
 source "$PROJECT/lib/ui.sh"
+source "$PROJECT/protocols/snell.sh"
 state_list_nodes() { jq -c '.nodes[]?' "$SBM_STATE"; }
 state_node_exists() { jq -e --arg id "$1" '.nodes[]? | select(.id==$id)' "$SBM_STATE" >/dev/null; }
 
@@ -25,10 +26,11 @@ for label in \
   'TUIC' \
   'VLESS' \
   'NaiveProxy' \
-  'ShadowTLS v3'; do
+  'ShadowTLS v3' \
+  'Snell v5（需要 sing-box 1.14+）'; do
   grep -Fq "$label" <<<"$menu"
 done
-[[ $(grep -Ec '^[1-9]\. ' <<<"$menu") == 9 ]]
+[[ $(grep -Ec '^[1-9]\. ' <<<"$menu") == 10 ]]
 settings_menu=$(ui_settings_menu)
 grep -Fq 'Nginx Stream 443/TCP 多协议复用' <<<"$settings_menu"
 grep -Fq '出站 IP 优先级' <<<"$settings_menu"

@@ -12,6 +12,7 @@ node_protocol_label() {
     vless) printf 'VLESS' ;;
     naive) printf 'NaiveProxy' ;;
     shadowtls) printf 'ShadowTLS v3' ;;
+    snell) printf 'Snell v5' ;;
     *) printf '%s' "$1" ;;
   esac
 }
@@ -104,13 +105,13 @@ node_show() {
 
 _node_add() {
   local type=$1; shift
-  local id='' name='' port='' domain='' address='' address_supplied=0 address_source=auto path='' method='2022-blake3-aes-256-gcm' network='tcp' mux=true enabled=true obfs='' masquerade='' security='tls' flow='' handshake_server='' handshake_port=443 congestion_control='cubic' strict_mode=true wildcard_sni='off'
+  local id='' name='' port='' domain='' address='' address_supplied=0 address_source=auto path='' method='2022-blake3-aes-256-gcm' network='tcp' mux=true enabled=true obfs='' obfs_host='' masquerade='' security='tls' flow='' handshake_server='' handshake_port=443 congestion_control='cubic' strict_mode=true wildcard_sni='off'
   while (($#)); do
     case "$1" in
       --id) id=${2:?}; shift 2;; --name) name=${2:?}; shift 2;; --port) port=${2:?}; shift 2;;
       --domain) domain=${2:?}; shift 2;; --address) address=${2:?}; address_supplied=1; address_source=manual; shift 2;; --path) path=${2:?}; shift 2;;
       --method) method=${2:?}; shift 2;; --network) network=${2:?}; shift 2;; --no-mux) mux=false; shift;;
-      --obfs) obfs=${2:?}; shift 2;; --masquerade) masquerade=${2:?}; shift 2;; --disabled) enabled=false; shift;;
+      --obfs) obfs=${2:?}; shift 2;; --obfs-host) obfs_host=${2:?}; shift 2;; --masquerade) masquerade=${2:?}; shift 2;; --disabled) enabled=false; shift;;
       --security) security=${2:?}; shift 2;; --flow) flow=${2:?}; shift 2;;
       --handshake-server) handshake_server=${2:?}; shift 2;; --handshake-port) handshake_port=${2:?}; shift 2;;
       --congestion-control) congestion_control=${2:?}; shift 2;;
@@ -118,7 +119,7 @@ _node_add() {
       *) die "未知参数：$1";;
     esac
   done
-  local protocol base transport secret node_secret='' node candidate user_secret_path default_address created_at reality_secret=''
+  local protocol base transport secret node_secret='' node candidate user_secret_path default_address created_at reality_secret='' snell_obfs_mode snell_obfs_host
   default_address=$(jq -r '.settings.default_server_address // ""' "$SBM_STATE")
   case "$type" in
     vmess|vmess-ws-cf)
@@ -168,10 +169,18 @@ _node_add() {
       protocol=vless; base=vless; transport=tcp; port=${port:-443}; [[ "$security" == tls || "$security" == reality ]] || die 'VLESS security 必须是 tls 或 reality。'; if [[ "$security" == reality && -z "$domain" ]]; then domain=www.apple.com; fi; [[ -n "$domain" ]] || die 'VLESS 必须指定 --domain。'; name=${name:-VLESS}; address=${address:-${default_address:-$domain}}; flow=${flow:-xtls-rprx-vision}; [[ "$security" != reality || -n "$handshake_server" ]] || die 'VLESS Reality 必须指定 --handshake-server。'; validate_domain "$domain" || die "无效域名：$domain"; validate_port "$handshake_port" || die "无效 Reality 握手端口：$handshake_port"; secret=$(jq -n --arg uuid "$(random_uuid)" '{uuid:$uuid}'); [[ "$security" != reality ]] || reality_secret=$(protocol_vless_generate_reality_secret)
       ;;
     naive)
-      protocol=naive; base=naive; [[ "$network" == tcp || "$network" == udp ]] || die 'Naive network 必须是 tcp 或 udp。'; transport=$network; port=${port:-443}; domain=${domain:?Naive 必须指定 --domain。}; validate_domain "$domain" || die "无效域名：$domain"; name=${name:-Naive}; address=${address:-${default_address:-$domain}}; secret=$(jq -n --arg username default --arg password "$(random_password 24)" '{username:$username,password:$password}')
+      protocol=naive; base=naive; [[ "$network" == tcp || "$network" == udp ]] || die 'Naive network 必须是 tcp 或 udp。'; transport=$network; port=${port:-443}; domain=${domain:?Naive 必须指定 --domain。}; validate_domain "$domain" || die "无效域名：$domain"; name=${name:-Naive}; address=${address:-${default_address:-$domain}}; secret=$(jq -n --arg username "$(random_hex 12)" --arg password "$(random_password 24)" '{username:$username,password:$password}')
       ;;
     shadowtls)
       protocol=shadowtls; base=shadowtls; transport=tcp; port=${port:-443}; handshake_server=${handshake_server:?ShadowTLS 必须指定 --handshake-server。}; validate_domain "$handshake_server" || die "无效握手域名：$handshake_server"; validate_port "$handshake_port" || die "无效握手端口：$handshake_port"; case "$strict_mode" in true|false) ;; *) die 'strict-mode 必须是 true 或 false。';; esac; case "$wildcard_sni" in off|authed|all) ;; *) die 'wildcard-sni 必须是 off、authed 或 all。';; esac; name=${name:-ShadowTLS}; address=${address:-${default_address:-$handshake_server}}; domain=$handshake_server; secret=$(jq -n --arg password "$(random_password 24)" '{password:$password}')
+      ;;
+    snell)
+      [[ "$enabled" != true ]] || version_ge "$(core_current_version)" 1.14.0-rc.1 || die 'Snell 需要 sing-box 1.14.0-rc.1 或更高版本核心。'
+      protocol=snell; base=snell; transport=tcp; port=${port:-6160}; name=${name:-Snell}; address=${address:-$default_address}
+      case "$obfs" in ''|none) snell_obfs_mode=none;; http) snell_obfs_mode=http;; *) die 'Snell 混淆必须是 none 或 http。';; esac
+      snell_obfs_host=${obfs_host:-bing.com}; [[ "$snell_obfs_mode" != http ]] || { validate_domain "$snell_obfs_host" || die "无效 Snell HTTP 混淆 Host：$snell_obfs_host"; }
+      secret=$(jq -n --arg userkey "$(random_password 24)" '{userkey:$userkey}')
+      node_secret=$(jq -n --arg psk "$(random_password 24)" '{psk:$psk}')
       ;;
     *) die "不支持的协议：$type";;
   esac
@@ -233,6 +242,9 @@ _node_add() {
     shadowtls)
       node=$(jq -n --arg id "$id" --arg name "$name" --argjson port "$port" --arg address "$address" --arg hs "$handshake_server" --argjson hp "$handshake_port" --argjson strict "$strict_mode" --arg wildcard "$wildcard_sni" --arg now "$created_at" --argjson enabled "$enabled" '{id:$id,name:$name,protocol:"shadowtls",enabled:$enabled,listen:"::",port:$port,server_address:$address,handshake_server:$hs,handshake_port:$hp,strict_mode:$strict,wildcard_sni:$wildcard,created_at:$now,users:[{id:"default",name:$name,enabled:true,created_at:$now}]}')
       ;;
+    snell)
+      node=$(jq -n --arg id "$id" --arg name "$name" --argjson port "$port" --arg address "$address" --arg obfs_mode "$snell_obfs_mode" --arg obfs_host "$snell_obfs_host" --arg now "$created_at" --argjson enabled "$enabled" '{id:$id,name:$name,protocol:"snell",enabled:$enabled,listen:"::",port:$port,server_address:$address,obfs_mode:$obfs_mode,obfs_host:$obfs_host,created_at:$now,users:[{id:"default",name:$name,enabled:true,created_at:$now}]}')
+      ;;
   esac
   if [[ "$protocol" != vmess-ws-cf ]]; then
     node=$(jq --arg source "$address_source" '.server_address_source=$source' <<<"$node")
@@ -289,8 +301,9 @@ _node_rotate() {
     trojan) new=$(jq -n --arg password "$(random_password 24)" '{password:$password}') ;;
     tuic) new=$(jq -n --arg uuid "$(random_uuid)" --arg password "$(random_password 24)" '{uuid:$uuid,password:$password}') ;;
     vless) new=$(jq -n --arg uuid "$(random_uuid)" '{uuid:$uuid}') ;;
-    naive) new=$(jq -n --arg username "$user_id" --arg password "$(random_password 24)" '{username:$username,password:$password}') ;;
+    naive) new=$(jq -n --arg username "$(random_hex 12)" --arg password "$(random_password 24)" '{username:$username,password:$password}') ;;
     shadowtls) new=$(jq -n --arg password "$(random_password 24)" '{password:$password}') ;;
+    snell) new=$(jq -n --arg userkey "$(random_password 24)" '{userkey:$userkey}') ;;
   esac
   state_write_user_secret "$id" "$user_id" "$new"
   candidate=$(state_candidate); cp "$SBM_STATE" "$candidate"
@@ -332,8 +345,9 @@ node_user_generate_secret() {
     anytls|hysteria2|trojan) jq -n --arg password "$(random_password 24)" '{password:$password}' ;;
     tuic) jq -n --arg uuid "$(random_uuid)" --arg password "$(random_password 24)" '{uuid:$uuid,password:$password}' ;;
     vless) jq -n --arg uuid "$(random_uuid)" '{uuid:$uuid}' ;;
-    naive) jq -n --arg username "$user_id" --arg password "$(random_password 24)" '{username:$username,password:$password}' ;;
+    naive) jq -n --arg username "$(random_hex 12)" --arg password "$(random_password 24)" '{username:$username,password:$password}' ;;
     shadowtls) jq -n --arg password "$(random_password 24)" '{password:$password}' ;;
+    snell) jq -n --arg userkey "$(random_password 24)" '{userkey:$userkey}' ;;
     *) die "协议暂不支持多用户：$protocol" ;;
   esac
 }

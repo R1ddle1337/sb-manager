@@ -5,7 +5,7 @@ node_transport_kinds() {
   local node=$1 protocol network
   protocol=$(jq -r '.protocol' <<<"$node")
   case "$protocol" in
-    vmess-ws-cf|anytls|trojan|vless|shadowtls) printf 'tcp\n' ;;
+    vmess-ws-cf|anytls|trojan|vless|shadowtls|snell) printf 'tcp\n' ;;
     hysteria2|tuic) printf 'udp\n' ;;
     naive) jq -r '.network // "tcp"' <<<"$node" ;;
     shadowsocks)
@@ -41,7 +41,10 @@ validate_state_semantics() {
     port=$(jq -r '.port' <<<"$node")
     validate_node_id "$id" || die "节点 ID 不规范：$id"
     validate_port "$port" || die "节点 $id 的端口无效：$port"
-    case "$protocol" in vmess-ws-cf|shadowsocks|anytls|hysteria2|trojan|tuic|vless|naive|shadowtls) ;; *) die "节点 $id 使用未知协议：$protocol" ;; esac
+    case "$protocol" in vmess-ws-cf|shadowsocks|anytls|hysteria2|trojan|tuic|vless|naive|shadowtls|snell) ;; *) die "节点 $id 使用未知协议：$protocol" ;; esac
+    if [[ "$protocol" == snell && $(jq -r '.enabled' <<<"$node") == true ]]; then
+      version_ge "$(core_current_version)" 1.14.0-rc.1 || die 'Snell 需要 sing-box 1.14.0-rc.1 或更高版本核心。'
+    fi
     user_ids=$(jq -r '.users[].id' <<<"$node" | sort)
     count=$(printf '%s\n' "$user_ids" | sed '/^$/d' | uniq -d | wc -l)
     (( count == 0 )) || die "节点 $id 存在重复用户 ID。"
@@ -62,7 +65,7 @@ validate_state_semantics() {
       while IFS= read -r user_id; do
         [[ -r "$(state_user_secret_path "$id" "$user_id")" ]] || die "节点 $id 的用户 $user_id 缺少密钥文件。"
       done < <(jq -r '.users[] | select(.enabled==true) | .id' <<<"$node")
-      if [[ "$protocol" == hysteria2 || ("$protocol" == vless && $(jq -r '.security' <<<"$node") == reality) ]]; then
+      if [[ "$protocol" == hysteria2 || "$protocol" == snell || ("$protocol" == vless && $(jq -r '.security' <<<"$node") == reality) ]]; then
         [[ -r "$(state_secret_path "$id")" ]] || die "节点 $id 缺少协议级密钥文件。"
       fi
     fi
@@ -93,6 +96,7 @@ render_inbound_for_node() {
     vless) protocol_vless_render "$node" "$credentials" "$node_secret" ;;
     naive) protocol_naive_render "$node" "$credentials" ;;
     shadowtls) protocol_shadowtls_render "$node" "$credentials" ;;
+    snell) protocol_snell_render "$node" "$credentials" "$node_secret" ;;
     *) die "未知协议：$protocol" ;;
   esac
 }

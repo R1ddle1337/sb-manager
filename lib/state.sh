@@ -170,7 +170,7 @@ state_validate() {
       type == "object"
       and (.id | string and test("^[a-z0-9][a-z0-9._-]{0,47}$"))
       and (.name | nonempty and (explode | all(.[]; . >= 32 and . != 127)))
-      and (.protocol | IN("vmess-ws-cf", "shadowsocks", "anytls", "hysteria2", "trojan", "tuic", "vless", "naive", "shadowtls"))
+      and (.protocol | IN("vmess-ws-cf", "shadowsocks", "anytls", "hysteria2", "trojan", "tuic", "vless", "naive", "shadowtls", "snell"))
       and (.enabled | type == "boolean")
       and (.listen | nonempty)
       and (.port | port)
@@ -212,6 +212,10 @@ state_validate() {
         and (.handshake_port | port)
         and (.strict_mode | type == "boolean")
         and (.wildcard_sni | IN("off", "authed", "all"))
+      elif .protocol == "snell" then
+        (.server_address | string)
+        and (.obfs_mode | IN("none", "http"))
+        and (.obfs_host | nonempty)
       else false end;
     type == "object"
     and .schema_version == 2

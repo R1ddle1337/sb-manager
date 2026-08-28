@@ -2,7 +2,7 @@
 
 `sb-manager` 是一个面向 systemd/OpenRC Linux 的、状态驱动的 sing-box 多协议管理脚本。安装后输入 `sb` 即可打开中文交互面板，也可以使用完整的非交互 CLI。
 
-> 当前版本：`0.1.0-alpha.18`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
+> 当前版本：`0.1.0-alpha.19`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
 
 ## 功能
 
@@ -11,7 +11,7 @@
 - AnyTLS（TCP/TLS）
 - Hysteria2（UDP/QUIC，可选 salamander）
 - Trojan（TLS）、TUIC（QUIC）、VLESS（TLS/Reality）
-- NaiveProxy（HTTPS/QUIC）与 ShadowTLS v3
+- NaiveProxy（HTTPS/QUIC）、ShadowTLS v3 与 Snell v5
 - 可选 Nginx Stream SNI 透传，让多个 TLS/TCP 协议共享一个公网端口
 - acme.sh + Cloudflare DNS-01 证书申请、部署与续期
 - sing-box 核心检查、自动更新策略、版本切换与回滚
@@ -167,6 +167,16 @@ sb share ss-main
 ```
 
 需要在云厂商安全组及本机防火墙开放对应的 `TCP 8388`。
+
+### Snell v5
+
+Snell 需要 sing-box `1.14.0-rc.1` 或更高版本核心。服务端使用 v5，客户端 outbound 使用兼容的 v4；默认不启用 HTTP 混淆，可按需设置 `--obfs http --obfs-host example.com`。
+
+```bash
+sb core update 1.14.0-rc.1
+sb node add snell --id snell-main --address YOUR_SERVER_IP --port 6160
+sb share snell-main
+```
 
 ### AnyTLS 与 Hysteria2
 

@@ -19,6 +19,7 @@ Every generated server configuration includes the official `$schema` URL and mus
 | VLESS TLS/Reality | VLESS chapters and `02-配置基础/TLS-ECH-Reality-uTLS.md` | UUID, Vision flow, Reality keypair/Short ID, `with_utls` |
 | Naive | Naive chapters and build-tag matrix | TLS/QUIC mode; client requires `with_naive_outbound` and `libcronet.so` |
 | ShadowTLS v3 | ShadowTLS chapters | v3 users, handshake target, strict/wildcard SNI values |
+| Snell v5 | `05/06-*/Naive-ShadowTLS-AnyTLS-Snell.md` | 1.14+ only; server v5, client v4, PSK/userkey, optional HTTP obfs |
 | Nginx Stream passthrough | Official rule that duplicate listeners require an explicit reuse layer; Nginx `ssl_preread` semantics | unique exact SNI, loopback backends, no TLS termination, unknown-SNI rejection, transactional rollback |
 
 ## Configuration and Security Rules

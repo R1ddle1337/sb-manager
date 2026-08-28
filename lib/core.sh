@@ -103,6 +103,9 @@ core_validate_build_tags() {
   if jq -e '.nodes[]? | select(.enabled==true and .protocol=="vless" and .security=="reality")' "$state" >/dev/null; then
     grep -Eq '(^|[,[:space:]])with_utls([,[:space:]]|$)' <<<"$output" || { log_error '当前 Reality 配置需要 with_utls 构建标签。'; return 1; }
   fi
+  if jq -e '.nodes[]? | select(.enabled==true and .protocol=="snell")' "$state" >/dev/null; then
+    version_ge "$(extract_semver "$output")" 1.14.0-rc.1 || { log_error '当前 Snell 配置需要 sing-box 1.14.0-rc.1 或更高版本核心。'; return 1; }
+  fi
 }
 
 verify_asset_digest() {
