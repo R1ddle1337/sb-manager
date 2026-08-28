@@ -28,9 +28,10 @@ setup_rollback_on_error() {
       "$SETUP_SYSTEMD_DIR/sb-core-update.service" "$SETUP_SYSTEMD_DIR/sb-core-update.timer" \
       "$SETUP_SYSTEMD_DIR/sb-acme-renew.service" "$SETUP_SYSTEMD_DIR/sb-acme-renew.timer" \
       "$SETUP_SYSTEMD_DIR/sb-quick-tunnel-refresh.service" "$SETUP_SYSTEMD_DIR/sb-quick-tunnel-refresh.timer" \
-      "$SETUP_SYSTEMD_DIR/sb-subscription.service"
+      "$SETUP_SYSTEMD_DIR/sb-subscription.service" "$SETUP_SYSTEMD_DIR/sb-traffic.service" \
+      "$SETUP_SYSTEMD_DIR/sb-traffic-sync.service" "$SETUP_SYSTEMD_DIR/sb-traffic-sync.timer"
     [[ ! -d "$SETUP_ROLLBACK_DIR/systemd" ]] || cp -a "$SETUP_ROLLBACK_DIR/systemd"/. "$SETUP_SYSTEMD_DIR"/
-    rm -f "$SETUP_OPENRC_DIR/sb-sing-box" "$SETUP_OPENRC_DIR/sb-cloudflared" "$SETUP_OPENRC_DIR/sb-nginx-stream" "$SETUP_OPENRC_DIR/sb-subscription"
+    rm -f "$SETUP_OPENRC_DIR/sb-sing-box" "$SETUP_OPENRC_DIR/sb-cloudflared" "$SETUP_OPENRC_DIR/sb-nginx-stream" "$SETUP_OPENRC_DIR/sb-subscription" "$SETUP_OPENRC_DIR/sb-traffic"
     [[ ! -d "$SETUP_ROLLBACK_DIR/openrc" ]] || cp -a "$SETUP_ROLLBACK_DIR/openrc"/. "$SETUP_OPENRC_DIR"/
     command -v systemctl >/dev/null 2>&1 && systemctl daemon-reload >/dev/null 2>&1 || true
   fi
@@ -68,19 +69,19 @@ done
 install_dependencies() {
   local packages=(curl ca-certificates jq openssl tar gzip coreutils util-linux procps findutils logrotate python3)
   if command -v apk >/dev/null 2>&1; then
-    apk add --no-cache bash "${packages[@]}" iproute2 shadow openrc dcron libcap musl-utils gcompat
+    apk add --no-cache bash "${packages[@]}" iproute2 nftables shadow openrc dcron libcap musl-utils gcompat
   elif command -v apt-get >/dev/null 2>&1; then
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -y
-    apt-get install -y --no-install-recommends "${packages[@]}" iproute2 passwd libcap2-bin
+    apt-get install -y --no-install-recommends "${packages[@]}" iproute2 nftables passwd libcap2-bin
   elif command -v dnf >/dev/null 2>&1; then
-    dnf install -y "${packages[@]}" iproute shadow-utils libcap
+    dnf install -y "${packages[@]}" iproute nftables shadow-utils libcap
   elif command -v yum >/dev/null 2>&1; then
-    yum install -y "${packages[@]}" iproute shadow-utils libcap
+    yum install -y "${packages[@]}" iproute nftables shadow-utils libcap
   elif command -v pacman >/dev/null 2>&1; then
-    pacman -Sy --noconfirm --needed "${packages[@]}" iproute2 shadow libcap
+    pacman -Sy --noconfirm --needed "${packages[@]}" iproute2 nftables shadow libcap
   elif command -v zypper >/dev/null 2>&1; then
-    zypper --non-interactive install "${packages[@]}" iproute2 shadow libcap-progs
+    zypper --non-interactive install "${packages[@]}" iproute2 nftables shadow libcap-progs
   else
     echo '不支持的包管理器。当前支持 apk、apt、dnf、yum、pacman、zypper。' >&2
     exit 1
@@ -200,6 +201,44 @@ Persistent=true
 [Install]
 WantedBy=timers.target
 EOF_UNIT
+
+  cat >"$SBM_SYSTEMD_DIR/$SBM_TRAFFIC_SERVICE" <<EOF_UNIT
+[Unit]
+Description=sb-manager traffic control lifecycle
+After=network-pre.target nftables.service ufw.service firewalld.service
+Before=$SBM_SERVICE
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=$SBM_BIN_DIR/sb traffic reconcile
+ExecStop=$SBM_BIN_DIR/sb traffic sync
+
+[Install]
+WantedBy=multi-user.target
+EOF_UNIT
+  cat >"$SBM_SYSTEMD_DIR/sb-traffic-sync.service" <<EOF_UNIT
+[Unit]
+Description=Checkpoint and maintain sb-manager traffic counters
+After=$SBM_TRAFFIC_SERVICE
+
+[Service]
+Type=oneshot
+ExecStart=$SBM_BIN_DIR/sb traffic tick
+EOF_UNIT
+  cat >"$SBM_SYSTEMD_DIR/sb-traffic-sync.timer" <<'EOF_UNIT'
+[Unit]
+Description=Periodic sb-manager traffic counter checkpoint
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF_UNIT
   chmod 0644 "$SBM_SYSTEMD_DIR/$SBM_SERVICE" "$SBM_SYSTEMD_DIR"/sb-*.service "$SBM_SYSTEMD_DIR"/sb-*.timer
 }
 
@@ -223,6 +262,31 @@ write_openrc_runtime() {
     "$SBM_SINGBOX_LOG" "$SBM_SINGBOX_ERROR_LOG" 'after firewall'
   write_periodic_job daily sb-core-update "$SBM_BIN_DIR/sb core auto"
   write_periodic_job daily sb-acme-renew "$SBM_BIN_DIR/sb cert renew --quiet"
+  write_periodic_job 15min sb-traffic-sync "$SBM_BIN_DIR/sb traffic tick"
+  cat >"$SBM_OPENRC_DIR/$(service_native_name "$SBM_TRAFFIC_SERVICE")" <<EOF_OPENRC
+#!/sbin/openrc-run
+name="sb-manager traffic control"
+description="Restore and checkpoint sb-manager nftables traffic rules"
+
+depend() {
+  need localmount
+  after firewall
+  before sb-sing-box
+}
+
+start() {
+  ebegin "Applying sb-manager traffic controls"
+  "$SBM_BIN_DIR/sb" traffic reconcile
+  eend \$?
+}
+
+stop() {
+  ebegin "Checkpointing sb-manager traffic counters"
+  "$SBM_BIN_DIR/sb" traffic sync
+  eend \$?
+}
+EOF_OPENRC
+  chmod 0755 "$SBM_OPENRC_DIR/$(service_native_name "$SBM_TRAFFIC_SERVICE")"
   mkdir -p "$(dirname "$SBM_LOGROTATE_FILE")"
   cat >"$SBM_LOGROTATE_FILE" <<EOF_LOGROTATE
 $SBM_LOG_DIR/*.log {
@@ -244,9 +308,11 @@ scheduler_reconcile() {
   [[ "$NO_START" == 0 && "$TEST_MODE" != 1 ]] || return 0
   case "$(init_system)" in
     systemd)
-      systemctl enable --now sb-core-update.timer sb-acme-renew.timer
+      systemctl enable --now sb-core-update.timer sb-acme-renew.timer sb-traffic-sync.timer "$SBM_TRAFFIC_SERVICE"
       ;;
     openrc)
+      service_enable "$SBM_TRAFFIC_SERVICE"
+      service_active "$SBM_TRAFFIC_SERVICE" || service_start "$SBM_TRAFFIC_SERVICE"
       if service_exists crond; then
         service_enable crond || true
         service_active crond || service_start crond || log_warn '无法启动 crond；自动更新和证书续期定时任务不会运行。'
@@ -307,6 +373,7 @@ source "$TARGET_LIB/protocols/naive.sh"
 source "$TARGET_LIB/protocols/shadowtls.sh"
 source "$TARGET_LIB/protocols/snell.sh"
 source "$TARGET_LIB/lib/render.sh"
+source "$TARGET_LIB/lib/traffic.sh"
 source "$TARGET_LIB/lib/core.sh"
 source "$TARGET_LIB/lib/tunnel.sh"
 source "$TARGET_LIB/lib/subscription.sh"
@@ -421,6 +488,10 @@ if [[ "$NO_START" == 0 && "$TEST_MODE" != 1 ]]; then
   fi
   if ! nginx_stream_reconcile; then
     runtime_exec_diagnostics "$SBM_SING_BOX_BIN"
+    exit 1
+  fi
+  if ! traffic_reconcile; then
+    log_error '流量控制规则协调失败。'
     exit 1
   fi
   tunnel_reconcile 1 || true

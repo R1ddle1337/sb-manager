@@ -4,7 +4,7 @@
 ui_pause() { [[ -t 0 ]] && { printf '\n按 Enter 返回…'; read -r _; }; }
 ui_clear() { [[ -t 1 ]] && clear || true; }
 ui_header() {
-  local service_state enabled mux_state
+  local service_state enabled mux_state traffic_count
   ui_clear
   enabled=$(state_enabled_count)
   if [[ "$SBM_SKIP_INIT" == 1 ]]; then
@@ -22,6 +22,8 @@ ui_header() {
   printf '  服务 %-18s Tunnel %-18s\n' "$service_state" "$(jq -r '.tunnel.mode' "$SBM_STATE")"
   mux_state=$(jq -r 'if .nginx_stream.enabled then ((.nginx_stream.port|tostring) + "/TCP") else "off" end' "$SBM_STATE")
   printf '  Nginx Stream %-36s\n' "$mux_state"
+  traffic_count=$(jq '[.nodes[]? | select(.traffic.enabled==true)] | length' "$SBM_STATE")
+  printf '  流量控制 %-36s\n' "${traffic_count} 个节点"
   printf '%s╰─────────────────────────────────────────────────────╯%s\n\n' "$C_CYAN" "$C_RESET"
 }
 
@@ -389,18 +391,48 @@ ui_firewall_menu() {
   esac
 }
 
+ui_traffic_menu() {
+  local c id quota reset_day upload_rate download_rate mode mode_choice
+  traffic_status all
+  printf '\n1. 配置/启用节点流量控制\n2. 停用节点流量控制\n3. 立即重置节点统计\n4. 移除配置与累计用量\n5. 重新加载运行规则\n0. 返回\n'
+  prompt_value c '选择操作' '0'
+  case "$c" in
+    1)
+      ui_select_node id || return
+      quota=$(jq -r --arg id "$id" '.nodes[]|select(.id==$id)|if .traffic.quota_bytes==null then "unlimited" else (.traffic.quota_bytes|tostring)+"B" end' "$SBM_STATE")
+      reset_day=$(jq -r --arg id "$id" '.nodes[]|select(.id==$id)|.traffic.reset_day' "$SBM_STATE")
+      upload_rate=$(jq -r --arg id "$id" '.nodes[]|select(.id==$id)|if .traffic.upload_rate_bps==null then "unlimited" else (.traffic.upload_rate_bps|tostring)+"bps" end' "$SBM_STATE")
+      download_rate=$(jq -r --arg id "$id" '.nodes[]|select(.id==$id)|if .traffic.download_rate_bps==null then "unlimited" else (.traffic.download_rate_bps|tostring)+"bps" end' "$SBM_STATE")
+      mode=$(jq -r --arg id "$id" '.nodes[]|select(.id==$id)|.traffic.quota_mode' "$SBM_STATE")
+      prompt_value quota '月配额（如 100G；unlimited 不限）' "$quota"
+      printf '1. 上行+下行计入配额\n2. 仅下行计入配额\n'
+      [[ "$mode" == download ]] && mode_choice=2 || mode_choice=1
+      prompt_value mode_choice '配额统计方式' "$mode_choice"
+      case "$mode_choice" in 1) mode=total;; 2) mode=download;; *) log_error '选择无效'; return;; esac
+      prompt_value reset_day '每月重置日（1-28，UTC）' "$reset_day"
+      prompt_value upload_rate '上行限速（如 20M；unlimited 不限）' "$upload_rate"
+      prompt_value download_rate '下行限速（如 100M；unlimited 不限）' "$download_rate"
+      traffic_set "$id" --quota "$quota" --quota-mode "$mode" --reset-day "$reset_day" --upload-rate "$upload_rate" --download-rate "$download_rate"
+      ;;
+    2) ui_select_node id || return; traffic_disable "$id" ;;
+    3) ui_select_node id 1 || return; confirm "确认清零 $id 的本周期流量统计？" N && traffic_reset "$id" ;;
+    4) ui_select_node id || return; confirm "确认移除 $id 的流量控制配置和累计用量？" N && traffic_remove "$id" ;;
+    5) traffic_reconcile ;;
+  esac
+}
+
 ui_main() {
   [[ -t 0 ]] || { sb_help; return; }
   local choice
   while true; do
     ui_header
-    printf '1. 查看运行状态\n2. 添加协议节点\n3. 管理现有节点\n4. 分享链接与客户端导出\n5. 域名与证书管理\n6. Cloudflare Tunnel 管理\n7. 核心与组件更新\n8. 日志\n9. 诊断与修复\n10. 备份与恢复\n11. 全局设置\n12. 防火墙与协议端口\n13. 卸载与彻底清理\n0. 退出\n\n'
+    printf '1. 查看运行状态\n2. 添加协议节点\n3. 管理现有节点\n4. 分享链接与客户端导出\n5. 域名与证书管理\n6. Cloudflare Tunnel 管理\n7. 核心与组件更新\n8. 日志\n9. 诊断与修复\n10. 备份与恢复\n11. 全局设置\n12. 防火墙与协议端口\n13. 流量统计、配额与限速\n14. 卸载与彻底清理\n0. 退出\n\n'
     prompt_value choice '请选择' '0'
     case "$choice" in
       1) status_summary; node_list;; 2) ui_add_node;; 3) ui_manage_nodes;;
       4) ui_share_export_menu || continue;;
-      5) ui_cert_menu;; 6) ui_tunnel_menu;; 7) ui_update_menu;; 8) show_logs all 100;; 9) ui_doctor_menu;; 10) ui_backup_menu;; 11) ui_settings_menu;; 12) ui_firewall_menu;;
-      13) ui_uninstall_menu; [[ ${SBM_UNINSTALLED:-0} == 1 ]] && return;;
+      5) ui_cert_menu;; 6) ui_tunnel_menu;; 7) ui_update_menu;; 8) show_logs all 100;; 9) ui_doctor_menu;; 10) ui_backup_menu;; 11) ui_settings_menu;; 12) ui_firewall_menu;; 13) ui_traffic_menu;;
+      14) ui_uninstall_menu; [[ ${SBM_UNINSTALLED:-0} == 1 ]] && return;;
       0) return;; *) log_error '选择无效';;
     esac
     ui_pause

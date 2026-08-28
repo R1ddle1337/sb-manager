@@ -2,7 +2,7 @@
 
 `sb-manager` 是一个面向 systemd/OpenRC Linux 的、状态驱动的 sing-box 多协议管理脚本。安装后输入 `sb` 即可打开中文交互面板，也可以使用完整的非交互 CLI。
 
-> 当前版本：`0.1.0-alpha.23`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
+> 当前版本：`0.1.0-alpha.24`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
 
 ## 功能
 
@@ -17,6 +17,7 @@
 - sing-box 核心检查、自动更新策略、版本切换与回滚
 - cloudflared 独立更新
 - 节点添加、编辑、启停、删除和凭据轮换
+- 节点级双向流量统计、月配额与独立上/下行速率控制
 - 分享 URI 与 sing-box outbound JSON 导出
 - 客户端导出支持 IPv4 优先、IPv6 优先或仅 IPv4 的出站解析策略
 - Naive 分享链接使用与服务端一致的用户账号；ShadowTLS 需使用支持该协议的 sing-box/NekoBox 客户端
@@ -24,6 +25,30 @@
 - 备份、恢复、日志、`sb doctor` 诊断与 `sb repair` 自动修复
 - 低权限 systemd/OpenRC 服务；不会关闭或清空系统防火墙
 - 防火墙面板可查看启用协议端口、显式执行 UFW allow，并在备份后清理 INPUT 链全局拦截
+
+### 节点流量控制
+
+流量控制按节点的实际 sing-box 监听端口识别 TCP/UDP 流量，同时覆盖 IPv4、IPv6、Cloudflare Tunnel 回源和 Nginx Stream loopback 后端。配置保存在 `state.json`；累计用量保存在权限为 `0600` 的 `/var/lib/sb-manager/traffic-usage.json`，不会从生成的 `config.json` 反推。
+
+```bash
+# 双向合计 100 GiB/月，每月 1 日 UTC 重置；上行 20 Mbit/s、下行 100 Mbit/s
+sb traffic set ss-main --quota 100G --reset-day 1 \
+  --upload-rate 20M --download-rate 100M --quota-mode total
+
+# 只把下行计入配额；同一速率应用到两个方向
+sb traffic set ss-main --quota 2T --quota-mode download --rate 50M
+
+sb traffic status
+sb traffic status ss-main --json
+sb traffic disable ss-main       # 保留配置与累计用量
+sb traffic set ss-main           # 按原配置重新启用
+sb traffic reset ss-main         # 交互确认后清零本周期
+sb traffic remove ss-main        # 删除配置与累计用量
+```
+
+配额单位 `K/M/G/T/P` 按 1024 进制换算；速率单位 `K/M/G` 按 bit/s 的 1000 进制换算。`unlimited` 可单独取消配额或某一方向的限速。每月重置日限制为 1–28，避免短月歧义。
+
+实现使用项目独占的 `inet sb_manager_traffic` nftables 表，不写入 `/etc/nftables.conf`、不开放端口，也不接管网卡根 qdisc。速率上限是 nftables policer：超出瞬时上限的数据包会被丢弃，TCP 会通过拥塞控制回落；它不是 `tc` 的平滑排队整形。计数每 5 分钟（OpenRC 为 15 分钟）落盘并在正常关机时再同步；突然断电最多可能丢失一个同步周期的未落盘用量。
 
 ## 网络模型
 
@@ -70,6 +95,7 @@ sb mux status
 - systemd 或 OpenRC 作为实际服务管理器
 - Bash 4+
 - root 权限
+- 启用流量控制时需要 `nftables`（安装器会自动补齐）
 - `x86_64/amd64`、`aarch64/arm64`、ARMv7 或 x86 32 位
 - 服务器可访问 GitHub Releases、Cloudflare 和 ACME 服务
 
@@ -86,7 +112,7 @@ apk add --no-cache bash curl ca-certificates
 bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/install.sh)
 ```
 
-安装器会继续补齐 OpenRC、dcron、libcap、gcompat、shadow、jq、openssl、iproute2 等依赖。OpenRC 服务日志位于：
+安装器会继续补齐 OpenRC、dcron、libcap、gcompat、shadow、jq、openssl、iproute2、nftables 等依赖。OpenRC 服务日志位于：
 
 ```text
 /var/log/sb-manager/sing-box.log
@@ -115,7 +141,7 @@ sudo bash install.sh
 bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/install.sh)
 ```
 
-`install.sh` 默认先解析 `main` 的最新 commit SHA，再按该不可变 commit 下载源码；也可设置 `SBM_INSTALL_REF=v0.1.0-alpha.23` 固定版本。显式指定 `main` 等可变分支仍需 `SBM_ALLOW_MUTABLE_REF=1`。离线发布包可使用 `build-release.sh` 生成，并核验 `SHA256SUMS`、`PROVENANCE-SHA256SUMS` 及可选的 GPG 签名文件。
+`install.sh` 默认先解析 `main` 的最新 commit SHA，再按该不可变 commit 下载源码；也可设置 `SBM_INSTALL_REF=v0.1.0-alpha.24` 固定版本。显式指定 `main` 等可变分支仍需 `SBM_ALLOW_MUTABLE_REF=1`。离线发布包可使用 `build-release.sh` 生成，并核验 `SHA256SUMS`、`PROVENANCE-SHA256SUMS` 及可选的 GPG 签名文件。
 
 安装完成后：
 

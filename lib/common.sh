@@ -6,7 +6,7 @@ SBM_LIB="${SBM_LIB:-${SBM_PREFIX}/lib/sb-manager}"
 SBM_BIN_DIR="${SBM_BIN_DIR:-${SBM_PREFIX}/bin}"
 if [[ -z ${SBM_VERSION:-} ]]; then
   if [[ -r "$SBM_LIB/VERSION" ]]; then SBM_VERSION=$(tr -d '[:space:]' <"$SBM_LIB/VERSION" 2>/dev/null || true); fi
-  SBM_VERSION=${SBM_VERSION:-0.1.0-alpha.23}
+  SBM_VERSION=${SBM_VERSION:-0.1.0-alpha.24}
 fi
 SBM_ETC="${SBM_ETC:-/etc/sb-manager}"
 SBM_VAR="${SBM_VAR:-/var/lib/sb-manager}"
@@ -50,6 +50,9 @@ SBM_NGINX_STREAM_RUNTIME_DIR="${SBM_NGINX_STREAM_RUNTIME_DIR:-/run/sb-manager-ng
 SBM_NGINX_STREAM_PID="${SBM_NGINX_STREAM_PID:-$SBM_NGINX_STREAM_RUNTIME_DIR/nginx.pid}"
 SBM_NGINX_STREAM_BIN="${SBM_NGINX_STREAM_BIN:-/usr/sbin/nginx}"
 SBM_NGINX_STREAM_OPENRC_BIN="${SBM_NGINX_STREAM_OPENRC_BIN:-$SBM_VAR/nginx-stream/nginx}"
+SBM_TRAFFIC_USAGE="${SBM_TRAFFIC_USAGE:-$SBM_VAR/traffic-usage.json}"
+SBM_TRAFFIC_TABLE="${SBM_TRAFFIC_TABLE:-sb_manager_traffic}"
+SBM_TRAFFIC_SERVICE="${SBM_TRAFFIC_SERVICE:-sb-traffic.service}"
 
 if [[ -t 1 && "${NO_COLOR:-}" == "" ]]; then
   C_RESET=$'\033[0m'; C_BOLD=$'\033[1m'; C_RED=$'\033[31m'; C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'; C_BLUE=$'\033[34m'; C_CYAN=$'\033[36m'

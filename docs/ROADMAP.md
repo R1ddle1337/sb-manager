@@ -68,6 +68,14 @@ Completion requires all checkboxes above, updated architecture/schema/security d
 - [x] Reject unsupported protocols, duplicate/mismatched SNI, duplicate backends, unknown SNI, and occupied frontend ports.
 - [x] Validate real TLS/Reality/ShadowTLS paths and service lifecycle on Debian 13 and Alpine/OpenRC.
 
+## Node Traffic Accounting and Control
+
+- [x] Keep traffic policy in node state and accumulated counters in a protected runtime journal.
+- [x] Count TCP/UDP and IPv4/IPv6 upload/download traffic on effective direct, Tunnel, and Nginx Stream listeners.
+- [x] Enforce total/download monthly quotas and independent directional rate ceilings in an owned nftables table.
+- [x] Preserve counters across rule changes, backup/restore, clean shutdown, systemd reboot, and OpenRC startup.
+- [x] Avoid taking over existing host qdiscs or implicitly opening firewall ports.
+
 ## Acceptance record (2026-08-28)
 
 The complete smoke suite passed on Debian 13.6 using official sing-box

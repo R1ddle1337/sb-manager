@@ -37,6 +37,14 @@ uninstall_manager() {
   if [[ "$assume_yes" != 1 ]]; then confirm "$message" N || return 0; fi
 
   backend=$(init_system 2>/dev/null || true)
+  if [[ "$SBM_SKIP_INIT" != 1 ]] && declare -F traffic_delete_table_unlocked >/dev/null 2>&1; then
+    if jq -e '.schema_version==2 and (.nodes|type=="array")' "$SBM_STATE" >/dev/null 2>&1; then
+      traffic_checkpoint_unlocked || log_warn '卸载前流量计数同步失败。'
+    else
+      log_warn '状态文件无效，跳过卸载前流量计数同步。'
+    fi
+    traffic_delete_table_unlocked || true
+  fi
   if [[ "$SBM_SKIP_INIT" != 1 ]]; then
     service_disable "$SBM_TUNNEL_SERVICE" || true
     service_stop "$SBM_TUNNEL_SERVICE" || true
@@ -46,9 +54,11 @@ uninstall_manager() {
     service_stop "$SBM_NGINX_STREAM_SERVICE" || true
     service_disable "$SBM_SUBSCRIPTION_SERVICE" || true
     service_stop "$SBM_SUBSCRIPTION_SERVICE" || true
+    service_disable "$SBM_TRAFFIC_SERVICE" || true
+    service_stop "$SBM_TRAFFIC_SERVICE" || true
     if [[ "$backend" == systemd ]]; then
-      systemctl disable --now sb-core-update.timer sb-acme-renew.timer sb-quick-tunnel-refresh.timer >/dev/null 2>&1 || true
-      systemctl reset-failed "$SBM_SERVICE" "$SBM_TUNNEL_SERVICE" "$SBM_NGINX_STREAM_SERVICE" >/dev/null 2>&1 || true
+      systemctl disable --now sb-core-update.timer sb-acme-renew.timer sb-quick-tunnel-refresh.timer sb-traffic-sync.timer >/dev/null 2>&1 || true
+      systemctl reset-failed "$SBM_SERVICE" "$SBM_TUNNEL_SERVICE" "$SBM_NGINX_STREAM_SERVICE" "$SBM_TRAFFIC_SERVICE" >/dev/null 2>&1 || true
     fi
   fi
 
@@ -65,13 +75,18 @@ uninstall_manager() {
     "$SBM_SYSTEMD_DIR/sb-quick-tunnel-refresh.service" \
     "$SBM_SYSTEMD_DIR/sb-quick-tunnel-refresh.timer" \
     "$SBM_SYSTEMD_DIR/$SBM_SUBSCRIPTION_SERVICE" \
+    "$SBM_SYSTEMD_DIR/$SBM_TRAFFIC_SERVICE" \
+    "$SBM_SYSTEMD_DIR/sb-traffic-sync.service" \
+    "$SBM_SYSTEMD_DIR/sb-traffic-sync.timer" \
     "$SBM_OPENRC_DIR/sb-sing-box" \
     "$SBM_OPENRC_DIR/sb-cloudflared" \
     "$SBM_OPENRC_DIR/$(service_native_name "$SBM_NGINX_STREAM_SERVICE")" \
     "$SBM_OPENRC_DIR/$(service_native_name "$SBM_SUBSCRIPTION_SERVICE")" \
+    "$SBM_OPENRC_DIR/$(service_native_name "$SBM_TRAFFIC_SERVICE")" \
     "$SBM_PERIODIC_DIR/daily/sb-core-update" \
     "$SBM_PERIODIC_DIR/daily/sb-acme-renew" \
     "$SBM_PERIODIC_DIR/15min/sb-quick-tunnel-refresh" \
+    "$SBM_PERIODIC_DIR/15min/sb-traffic-sync" \
     "$SBM_LOGROTATE_FILE"
   service_reload_manager || true
 

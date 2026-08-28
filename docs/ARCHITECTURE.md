@@ -22,6 +22,27 @@ state.json + secret files + certificates
 
 The generated sing-box configuration is never treated as the source of truth. Users edit state only through `sb`; protocol modules render the complete configuration every time.
 
+## Traffic control plane
+
+```text
+state.json: nodes[].traffic                 /var/lib/sb-manager/traffic-usage.json
+              │                                           │
+              └──────────────┬────────────────────────────┘
+                             ▼
+                 candidate nftables transaction
+                             │
+                             ▼
+                inet sb_manager_traffic (owned table)
+                  ├─ input:  client → listener (upload)
+                  └─ output: listener → client (download)
+```
+
+The traffic subsystem is separate from sing-box rendering but participates in the same manager lock, snapshots, state transitions, backup/restore, and rollback. Node state holds policy (`quota_bytes`, `quota_mode`, reset day, and directional bit rates); the protected runtime journal holds only cycle IDs and accumulated counters. Before replacing rules, live named counters are checkpointed and used as the initial values of the new atomic nftables transaction. A systemd lifecycle unit restores rules at boot and checkpoints at shutdown; a timer checkpoints and processes UTC billing-cycle rollover every five minutes without rebuilding an already-correct table. OpenRC uses an equivalent boot service and a 15-minute dcron job.
+
+Rules match the effective listener returned by the Nginx Stream topology layer. Direct nodes therefore match their public listener, routed nodes match the unique loopback backend, and Tunnel-backed VMess matches its loopback origin. Loopback listeners are matched on the `output` hook in both destination (client/Tunnel → sing-box) and source (sing-box → client/Tunnel) directions; direct listeners use `input` for upload and `output` for download. Each rule includes the protocol transport, so TCP and UDP nodes may retain the same numeric port without sharing counters.
+
+The implementation deliberately does not install `tc` qdiscs. Rate enforcement uses nftables named byte-rate limits as a policer, which avoids replacing an operator's root qdisc and works uniformly for IPv4, IPv6, TCP, UDP, and loopback traffic. The owned table is not persisted in the host firewall configuration and never adds allow rules; boot reconciliation rebuilds it from manager state.
+
 ## Service backends
 
 ```text
@@ -68,6 +89,7 @@ The feature is off by default. On systemd it uses a hardened unit; on OpenRC it 
 - `generated/config.json`: contains runtime credentials and is readable only by root and the `sbmanager` service group.
 - `certs/`: certificate key mode `0640`, readable by the service group.
 - `exports/` and backups: mode `0600`; both contain credentials.
+- `traffic-usage.json`: runtime billing-cycle counters, mode `0600`; included in snapshots and backups.
 - OpenRC service scripts contain only paths and arguments; Tunnel tokens remain in a protected file.
 
 ## Update model

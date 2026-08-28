@@ -19,6 +19,9 @@ node_transport_kinds() {
 validate_state_semantics() {
   local state=$1 ids count node id protocol port domain cert_dir kind key user_ids user_id enabled_users
   state_validate "$state"
+  if declare -F traffic_validate_state >/dev/null 2>&1; then
+    traffic_validate_state "$state"
+  fi
   if declare -F nginx_stream_validate_state >/dev/null 2>&1; then
     nginx_stream_validate_state "$state" || die 'Nginx Stream 状态无效。'
   fi

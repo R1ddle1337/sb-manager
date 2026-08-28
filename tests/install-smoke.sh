@@ -50,6 +50,16 @@ runuser -u "$SBM_SERVICE_USER" -- test -r "$SBM_CONFIG"
 runuser -u "$SBM_SERVICE_USER" -- test -x "$SBM_VAR"
 runuser -u "$SBM_SERVICE_USER" -- test -w "$SBM_VAR/cloudflared-home"
 [[ -f "$SBM_SYSTEMD_DIR/sb-sing-box.service" && -f "$SBM_SYSTEMD_DIR/sb-core-update.timer" ]]
+[[ -f "$SBM_SYSTEMD_DIR/sb-traffic.service" && -f "$SBM_SYSTEMD_DIR/sb-traffic-sync.timer" ]]
+grep -Fq 'traffic reconcile' "$SBM_SYSTEMD_DIR/sb-traffic.service"
+grep -Fq 'traffic tick' "$SBM_SYSTEMD_DIR/sb-traffic-sync.service"
+if command -v systemd-analyze >/dev/null 2>&1; then
+  systemd-analyze verify \
+    "$SBM_SYSTEMD_DIR/sb-sing-box.service" \
+    "$SBM_SYSTEMD_DIR/sb-traffic.service" \
+    "$SBM_SYSTEMD_DIR/sb-traffic-sync.service" \
+    "$SBM_SYSTEMD_DIR/sb-traffic-sync.timer" >/dev/null
+fi
 "$SBM_BIN_DIR/sb" node add vmess --id persist-test --port 29111 --domain cdn.example.com --address cdn.example.com
 [[ $(jq '.nodes|length' "$SBM_STATE") == 1 ]]
 

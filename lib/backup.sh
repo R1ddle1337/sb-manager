@@ -3,6 +3,9 @@
 
 _backup_create() {
   local output=${1:-$SBM_BACKUPS/sb-manager-$(now_stamp).tar.gz} recipient=${2:-} stage plain output_tmp
+  if [[ "$SBM_SKIP_INIT" != "1" ]] && declare -F traffic_checkpoint_unlocked >/dev/null 2>&1; then
+    traffic_checkpoint_unlocked
+  fi
   mkdir -p "$(dirname "$output")"
   stage=$(mktemp -d "$SBM_RUN/backup.XXXXXX")
   plain=$(mktemp "$SBM_RUN/backup-archive.XXXXXX")
@@ -14,6 +17,7 @@ _backup_create() {
   [[ -d "$SBM_CERTS" ]] && cp -a "$SBM_CERTS" "$stage/etc/certs"
   [[ -f "$SBM_CONFIG" ]] && cp -a "$SBM_CONFIG" "$stage/etc/config.json"
   [[ -d "$SBM_SUBSCRIPTIONS" ]] && cp -a "$SBM_SUBSCRIPTIONS" "$stage/var/subscriptions"
+  [[ -f "$SBM_TRAFFIC_USAGE" ]] && cp -a "$SBM_TRAFFIC_USAGE" "$stage/var/traffic-usage.json"
   {
     printf 'manager_version=%s\n' "$SBM_VERSION"
     printf 'created_at=%s\n' "$(now_iso)"
@@ -85,6 +89,18 @@ _restore_backup() {
     rm -rf "$SBM_SUBSCRIPTIONS"
     mv "$SBM_SUBSCRIPTIONS.restore" "$SBM_SUBSCRIPTIONS"
   fi
+  rm -f "$SBM_TRAFFIC_USAGE.restore"
+  if [[ -f "$stage/var/traffic-usage.json" ]]; then
+    if declare -F traffic_usage_validate >/dev/null 2>&1; then
+      traffic_usage_validate "$stage/var/traffic-usage.json" || { rm -rf "$stage"; die '备份中的流量用量账本无效。'; }
+    else
+      jq -e '.schema_version==1 and (.nodes|type=="object")' "$stage/var/traffic-usage.json" >/dev/null || { rm -rf "$stage"; die '备份中的流量用量账本无效。'; }
+    fi
+    install -m 0600 "$stage/var/traffic-usage.json" "$SBM_TRAFFIC_USAGE.restore"
+  else
+    jq -n --arg now "$(now_iso)" '{schema_version:1,updated_at:$now,nodes:{}}' >"$SBM_TRAFFIC_USAGE.restore"
+    chmod 0600 "$SBM_TRAFFIC_USAGE.restore"
+  fi
   state_init_dirs
   find "$SBM_SECRETS" -type f -exec chmod 0600 {} + 2>/dev/null || true
   chmod 0700 "$SBM_SECRETS/nodes" 2>/dev/null || true
@@ -95,6 +111,10 @@ _restore_backup() {
   candidate=$(state_candidate); cp "$stage/etc/state.json" "$candidate"
   apply_candidate_state "$candidate" restore || { rm -f "$candidate"; return 1; }
   rm -f "$candidate"
+  mv -f "$SBM_TRAFFIC_USAGE.restore" "$SBM_TRAFFIC_USAGE"
+  if [[ "$SBM_SKIP_INIT" != "1" ]] && declare -F traffic_reconcile_unlocked >/dev/null 2>&1; then
+    traffic_reconcile_unlocked 0 || return 1
+  fi
   local d
   while IFS= read -r d; do cert_hook "$d" || return 1; done < <(jq -r '.certificates[].domain' "$SBM_STATE")
   tunnel_reconcile 1 || return 1
@@ -117,7 +137,7 @@ backup_validate_archive() {
     path=${path%/}
     [[ -n "$path" && "$path" != /* && "$path" != *$'\n'* ]] || return 1
     case "$path" in
-      etc|etc/state.json|etc/config.json|etc/secrets|etc/secrets/*|etc/certs|etc/certs/*|meta|meta/manifest.txt|var|var/subscriptions|var/subscriptions/*) ;;
+      etc|etc/state.json|etc/config.json|etc/secrets|etc/secrets/*|etc/certs|etc/certs/*|meta|meta/manifest.txt|var|var/subscriptions|var/subscriptions/*|var/traffic-usage.json) ;;
       *) return 1 ;;
     esac
     IFS=/ read -r -a parts <<<"$path"

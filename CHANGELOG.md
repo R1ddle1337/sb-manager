@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-alpha.24
+
+- Add node-level upload/download accounting, UTC monthly total/download quotas, and directional nftables rate ceilings without taking over the host's `tc` qdisc.
+- Persist traffic policy in normalized schema-v2 node state and accumulated usage in a protected journal, with transactional rollback, backup/restore, systemd/OpenRC boot recovery, periodic checkpoints, diagnostics, CLI, and panel integration.
+
 ## 0.1.0-alpha.23
 
 - Extend Nginx Stream SNI multiplexing to Alpine/OpenRC with `apk` dependency installation, supervised foreground service output, persistent low-port capability handling, and OpenRC diagnostics/rollback/uninstall coverage.

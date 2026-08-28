@@ -246,6 +246,7 @@ _node_add() {
       node=$(jq -n --arg id "$id" --arg name "$name" --argjson port "$port" --arg address "$address" --arg obfs_mode "$snell_obfs_mode" --arg obfs_host "$snell_obfs_host" --arg now "$created_at" --argjson enabled "$enabled" '{id:$id,name:$name,protocol:"snell",enabled:$enabled,listen:"::",port:$port,server_address:$address,obfs_mode:$obfs_mode,obfs_host:$obfs_host,created_at:$now,users:[{id:"default",name:$name,enabled:true,created_at:$now}]}')
       ;;
   esac
+  node=$(jq '.traffic={configured:false,enabled:false,quota_bytes:null,quota_mode:"total",reset_day:1,upload_rate_bps:null,download_rate_bps:null}' <<<"$node")
   if [[ "$protocol" != vmess-ws-cf ]]; then
     node=$(jq --arg source "$address_source" '.server_address_source=$source' <<<"$node")
   fi

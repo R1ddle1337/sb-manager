@@ -102,6 +102,16 @@ state_normalize_v2_file() {
     | .settings.outbound_ip_strategy //= "prefer_ipv4"
     | .api //= {enabled:false,listen:"127.0.0.1",port:9090,dashboard:false}
     | .nginx_stream //= {enabled:false,listen:"::",port:443,routes:[]}
+    | .nodes |= map(
+        .traffic //= {}
+        | .traffic.configured //= false
+        | .traffic.enabled //= false
+        | .traffic.quota_bytes //= null
+        | .traffic.quota_mode //= "total"
+        | .traffic.reset_day //= 1
+        | .traffic.upload_rate_bps //= null
+        | .traffic.download_rate_bps //= null
+      )
   ' "$file" >"$tmp"
   chmod 0600 "$tmp"
   if cmp -s "$tmp" "$file"; then rm -f "$tmp"; else mv -f "$tmp" "$file"; fi
@@ -149,6 +159,7 @@ state_migrate_v1_to_v2() {
     | .nodes |= map(
         . as $node
         | .users=[{id:"default",name:$node.name,enabled:true,created_at:$node.created_at}]
+        | .traffic={configured:false,enabled:false,quota_bytes:null,quota_mode:"total",reset_day:1,upload_rate_bps:null,download_rate_bps:null}
         | if .protocol=="shadowsocks" then .credential_mode="legacy" else . end
       )
   ' "$SBM_STATE" >"$candidate"
@@ -166,6 +177,18 @@ state_validate() {
     def nonempty: string and length > 0;
     def timestamp: nonempty and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$");
     def port: type == "number" and floor == . and . >= 1 and . <= 65535;
+    def traffic_value:
+      (type == "number" and floor == . and . >= 1 and . <= 9000000000000000) or type == "null";
+    def node_traffic:
+      type == "object"
+      and (.configured | type == "boolean")
+      and (.enabled | type == "boolean")
+      and (if .enabled then .configured else true end)
+      and (.quota_bytes | traffic_value)
+      and (.quota_mode | IN("total", "download"))
+      and (.reset_day | type == "number" and floor == . and . >= 1 and . <= 28)
+      and (.upload_rate_bps | traffic_value)
+      and (.download_rate_bps | traffic_value);
     def node_common:
       type == "object"
       and (.id | string and test("^[a-z0-9][a-z0-9._-]{0,47}$"))
@@ -265,6 +288,7 @@ state_validate() {
     and (.nodes | type == "array")
     and all(.nodes[];
       node_common and node_protocol
+      and (.traffic | node_traffic)
       and (.users | type == "array" and length > 0)
       and all(.users[];
         type == "object"
@@ -370,11 +394,16 @@ snapshot_create() {
   stamp=$(now_stamp)
   mkdir -p "$SBM_BACKUPS/snapshots"
   dir=$(mktemp -d "$SBM_BACKUPS/snapshots/${stamp}-${reason//[^a-zA-Z0-9._-]/_}.XXXXXX")
+  if [[ "$SBM_SKIP_INIT" != "1" ]] && declare -F traffic_checkpoint_unlocked >/dev/null 2>&1 \
+    && jq -e '.schema_version==2 and all(.nodes[]?; (.traffic.reset_day // 0) >= 1)' "$SBM_STATE" >/dev/null 2>&1; then
+    traffic_checkpoint_unlocked || log_warn '创建快照前无法同步流量用量；快照中的用量可能稍旧。'
+  fi
   [[ -f "$SBM_STATE" ]] && cp -a "$SBM_STATE" "$dir/state.json"
   [[ -f "$SBM_CONFIG" ]] && cp -a "$SBM_CONFIG" "$dir/config.json"
   [[ -d "$SBM_SECRETS" ]] && cp -a "$SBM_SECRETS" "$dir/secrets"
   [[ -d "$SBM_CERTS" ]] && cp -a "$SBM_CERTS" "$dir/certs"
   [[ -d "$SBM_SUBSCRIPTIONS" ]] && cp -a "$SBM_SUBSCRIPTIONS" "$dir/subscriptions"
+  [[ -f "$SBM_TRAFFIC_USAGE" ]] && cp -a "$SBM_TRAFFIC_USAGE" "$dir/traffic-usage.json"
   printf '%s\n' "$dir"
 }
 
@@ -409,6 +438,11 @@ snapshot_restore_payload() {
     rm -rf -- "$SBM_SUBSCRIPTIONS"
     mv -f -- "$tmp" "$SBM_SUBSCRIPTIONS"
   fi
+  if [[ -f "$snapshot/traffic-usage.json" ]]; then
+    install -m 0600 "$snapshot/traffic-usage.json" "$SBM_TRAFFIC_USAGE"
+  else
+    rm -f "$SBM_TRAFFIC_USAGE"
+  fi
   state_init_dirs
   return 0
 }
@@ -428,6 +462,9 @@ snapshot_restore() {
   fi
   if [[ "$SBM_SKIP_INIT" != "1" ]] && service_exists "$SBM_SERVICE"; then
     singbox_service_reconcile || return 1
+  fi
+  if [[ "$SBM_SKIP_INIT" != "1" ]] && declare -F traffic_reconcile_unlocked >/dev/null 2>&1; then
+    traffic_reconcile_unlocked 0 || return 1
   fi
   if declare -F nginx_stream_reconcile >/dev/null 2>&1; then
     nginx_stream_reconcile || return 1
@@ -484,6 +521,9 @@ state_install_candidate() {
   if declare -F nginx_stream_prepare_transition >/dev/null 2>&1; then
     nginx_stream_prepare_transition "$candidate" || return 1
   fi
+  if [[ "$SBM_SKIP_INIT" != "1" ]] && declare -F traffic_checkpoint_unlocked >/dev/null 2>&1; then
+    traffic_checkpoint_unlocked || return 1
+  fi
   install -m 0600 "$candidate" "$state_tmp"
   install -m 0640 "$config" "$config_tmp"
   set_group_if_exists "$SBM_SERVICE_USER" "$config_tmp"
@@ -494,6 +534,13 @@ state_install_candidate() {
     if ! singbox_service_reconcile; then
       log_error "新配置启动失败，正在回滚。"
       snapshot_restore "$backup" || log_error "自动回滚失败，请立即检查快照：$backup"
+      return 1
+    fi
+  fi
+  if [[ "$SBM_SKIP_INIT" != "1" ]] && declare -F traffic_reconcile_unlocked >/dev/null 2>&1; then
+    if ! traffic_reconcile_unlocked 0; then
+      log_error '流量控制规则应用失败，正在回滚。'
+      snapshot_restore "$backup" || log_error '自动回滚失败，请立即检查快照。'
       return 1
     fi
   fi

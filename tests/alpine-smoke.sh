@@ -5,7 +5,7 @@ if command -v apk >/dev/null 2>&1; then
   # The test intentionally runs setup in test mode, so provide the musl
   # compatibility/runtime tools that a clean Alpine image does not contain.
   apk add --no-cache jq openssl tar gzip coreutils util-linux procps findutils \
-    python3 iproute2 shadow openrc dcron libcap musl-utils gcompat >/dev/null
+    python3 iproute2 nftables shadow openrc dcron libcap musl-utils gcompat >/dev/null
 fi
 ROOT=$(mktemp -d)
 trap 'rm -rf "$ROOT"' EXIT
@@ -103,6 +103,9 @@ bash "$PROJECT/setup.sh" --no-menu --no-start
 [[ -x "$SBM_OPENRC_DIR/sb-sing-box" ]]
 [[ -x "$SBM_PERIODIC_DIR/daily/sb-core-update" ]]
 [[ -x "$SBM_PERIODIC_DIR/daily/sb-acme-renew" ]]
+[[ -x "$SBM_OPENRC_DIR/sb-traffic" ]]
+[[ -x "$SBM_PERIODIC_DIR/15min/sb-traffic-sync" ]]
+grep -Fq 'traffic reconcile' "$SBM_OPENRC_DIR/sb-traffic"
 grep -q 'supervisor=supervise-daemon' "$SBM_OPENRC_DIR/sb-sing-box"
 grep -q 'command_user="root:root"' "$SBM_OPENRC_DIR/sb-sing-box"
 getcap "$(readlink -f "$SBM_SING_BOX_BIN")" | grep -q cap_net_bind_service

@@ -12,7 +12,7 @@ check_line() {
 }
 
 status_summary() {
-  local sb_ver cf_ver nodes enabled certs mode service_state backend mux_state mux_port
+  local sb_ver cf_ver nodes enabled certs mode service_state backend mux_state mux_port traffic_count
   sb_ver=$(core_current_version || true)
   cf_ver=$(cloudflared_current_version || true)
   nodes=$(jq '.nodes|length' "$SBM_STATE")
@@ -21,6 +21,7 @@ status_summary() {
   mode=$(jq -r '.tunnel.mode' "$SBM_STATE")
   mux_state=$(jq -r '.nginx_stream.enabled // false' "$SBM_STATE")
   mux_port=$(jq -r '.nginx_stream.port // 443' "$SBM_STATE")
+  traffic_count=$(jq '[.nodes[]? | select(.traffic.enabled==true)] | length' "$SBM_STATE")
   backend=$(init_system_label)
   if [[ "$SBM_SKIP_INIT" == 1 ]]; then
     service_state='测试模式'
@@ -38,6 +39,7 @@ status_summary() {
   printf '节点          : %s 个，启用 %s 个\n' "$nodes" "$enabled"
   printf '证书          : %s 个\n' "$certs"
   printf 'Nginx复用     : %s (%s/TCP)\n' "$([[ "$mux_state" == true ]] && echo '启用' || echo '停用')" "$mux_port"
+  printf '流量控制      : %s 个节点\n' "$traffic_count"
   if [[ -s "$SBM_VAR/updates/sing-box.json" ]]; then
     local pending
     pending=$(jq -r '.latest // ""' "$SBM_VAR/updates/sing-box.json" 2>/dev/null || true)
@@ -105,6 +107,7 @@ doctor_repair_runtime() {
     fi
     singbox_service_reconcile
     if declare -F nginx_stream_reconcile >/dev/null 2>&1; then nginx_stream_reconcile; fi
+    if declare -F traffic_reconcile >/dev/null 2>&1; then traffic_reconcile; fi
     if [[ $(jq -r '.tunnel.mode' "$SBM_STATE") != none ]]; then tunnel_reconcile 1; fi
   fi
   log_ok '自动修复流程完成。'
@@ -288,6 +291,9 @@ doctor_run() {
 
   if declare -F nginx_stream_doctor_check >/dev/null 2>&1; then
     nginx_stream_doctor_check
+  fi
+  if declare -F traffic_doctor_check >/dev/null 2>&1; then
+    traffic_doctor_check
   fi
 
   if id "$SBM_SERVICE_USER" >/dev/null 2>&1; then

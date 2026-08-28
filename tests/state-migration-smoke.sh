@@ -30,7 +30,7 @@ jq '.schema_version=1 | .nodes |= map(del(.users,.credential_mode))' "$SBM_STATE
 mv "$SBM_STATE.v1" "$SBM_STATE"
 
 state_init
-jq -e '.schema_version==2 and (.nodes[0].users[0].id=="default")' "$SBM_STATE" >/dev/null
+jq -e '.schema_version==2 and (.nodes[0].users[0].id=="default") and (.nodes[0].traffic.configured==false)' "$SBM_STATE" >/dev/null
 [[ -s $(state_user_secret_path legacy-ss default) ]]
 [[ ! -e $SBM_SECRETS/nodes/legacy-ss.json ]]
 render_current_config
@@ -39,8 +39,9 @@ find "$SBM_BACKUPS/snapshots" -maxdepth 1 -type d -name '*schema-v1*' | grep -q 
 
 # Older schema-v2 state files are normalized in place when new optional
 # manager-owned sections are introduced.
-jq 'del(.nginx_stream)' "$SBM_STATE" >"$SBM_STATE.old-v2"
+jq 'del(.nginx_stream,.nodes[].traffic)' "$SBM_STATE" >"$SBM_STATE.old-v2"
 mv "$SBM_STATE.old-v2" "$SBM_STATE"
 state_init
 jq -e '.nginx_stream=={enabled:false,listen:"::",port:443,routes:[]}' "$SBM_STATE" >/dev/null
+jq -e '.nodes[0].traffic=={configured:false,enabled:false,quota_bytes:null,quota_mode:"total",reset_day:1,upload_rate_bps:null,download_rate_bps:null}' "$SBM_STATE" >/dev/null
 printf 'STATE MIGRATION SMOKE PASSED\n'

@@ -28,6 +28,7 @@ source "$SBM_LIB/protocols/snell.sh"
 source "$SBM_LIB/lib/render.sh"
 source "$SBM_LIB/lib/core.sh"
 source "$SBM_LIB/lib/node.sh"
+source "$SBM_LIB/lib/traffic.sh"
 source "$SBM_LIB/lib/firewall.sh"
 source "$SBM_LIB/lib/export.sh"
 source "$SBM_LIB/lib/cert.sh"
@@ -62,6 +63,12 @@ sb-manager：状态驱动的 sing-box 多协议管理器
   sb subscription list|status|revoke <TOKEN>
   sb api enable [PORT] [--dashboard]|disable|status|show-token
   sb mux status|enable [PORT]|disable|route list|route add NODE_ID SNI [BACKEND_PORT]|route remove NODE_ID
+  sb traffic status [NODE_ID] [--json]
+  sb traffic set NODE_ID [--quota 100G|unlimited] [--reset-day 1-28]
+                 [--rate 50M|unlimited] [--upload-rate RATE] [--download-rate RATE]
+                 [--quota-mode total|download]
+  sb traffic disable|remove NODE_ID
+  sb traffic reset NODE_ID|all [--yes]
 
   sb cert setup-cloudflare [TOKEN] [ZONE_ID] [EMAIL]
   sb cert issue <DOMAIN> [EMAIL]
@@ -247,6 +254,37 @@ main() {
         *) die '用法：sb mux status|enable [PORT]|disable|route list|route add NODE_ID SNI [BACKEND_PORT]|route remove NODE_ID' ;;
       esac
       ;;
+    traffic)
+      local action=${2:-status}
+      case "$action" in
+        status)
+          local target=all json=0 arg
+          shift 2 || true
+          for arg in "$@"; do
+            case "$arg" in --json) json=1;; *) [[ "$target" == all ]] || die '用法：sb traffic status [NODE_ID] [--json]'; target=$arg;; esac
+          done
+          traffic_status "$target" "$json"
+          ;;
+        set)
+          local id=${3:?缺少节点 ID}; shift 3
+          traffic_set "$id" "$@"
+          ;;
+        disable) (($# == 3)) || die '用法：sb traffic disable NODE_ID'; traffic_disable "$3" ;;
+        remove) (($# == 3)) || die '用法：sb traffic remove NODE_ID'; traffic_remove "$3" ;;
+        reset)
+          local target=${3:?缺少节点 ID} assume_yes=0
+          if (($# != 3)) && ! { (($# == 4)) && [[ ${4:-} == --yes || ${4:-} == -y ]]; }; then
+            die '用法：sb traffic reset NODE_ID|all [--yes]'
+          fi
+          (($# == 3)) || assume_yes=1
+          if [[ "$assume_yes" == 1 ]] || confirm "确认清零 $target 的本周期流量统计？" N; then traffic_reset "$target"; fi
+          ;;
+        reconcile) (($# == 2)) || die '用法：sb traffic reconcile'; traffic_reconcile ;;
+        sync) (($# == 2)) || die '用法：sb traffic sync'; traffic_checkpoint ;;
+        tick) (($# == 2)) || die '用法：sb traffic tick'; traffic_tick ;;
+        *) die '用法：sb traffic status|set|disable|remove|reset' ;;
+      esac
+      ;;
     core)
       local action=${2:-check}
       case "$action" in
@@ -296,7 +334,7 @@ main() {
       done
       backup_restore "$archive" "$assume_yes" "$identity"
       ;;
-    restart) singbox_service_reconcile; nginx_stream_reconcile; [[ $(jq -r '.tunnel.mode' "$SBM_STATE") != none ]] && service_try_restart "$SBM_TUNNEL_SERVICE"; status_summary ;;
+    restart) singbox_service_reconcile; nginx_stream_reconcile; traffic_reconcile; [[ $(jq -r '.tunnel.mode' "$SBM_STATE") != none ]] && service_try_restart "$SBM_TUNNEL_SERVICE"; status_summary ;;
     settings)
       case ${2:-show} in
         show) settings_show_addresses ;;

@@ -38,6 +38,10 @@ grep -Fq '出站 IP 优先级' <<<"$settings_menu"
 firewall_menu=$(ui_firewall_menu)
 grep -Fq '查看所有协议端口' <<<"$firewall_menu"
 grep -Fq 'UFW allow' <<<"$firewall_menu"
+traffic_status() { printf 'traffic-status\n'; }
+traffic_menu=$(ui_traffic_menu)
+grep -Fq '配置/启用节点流量控制' <<<"$traffic_menu"
+grep -Fq '立即重置节点统计' <<<"$traffic_menu"
 
 # A busy preferred port must fall back to the next documented alternate.
 node_port_in_state() { [[ "$2" == 443 ]]; }
