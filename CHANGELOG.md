@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-alpha.10
+
+- Use the managed ACME home/config/certificate directories for issue, install, and renewal operations instead of silently falling back to `/root/.acme.sh`.
+- Migrate existing root-owned acme.sh domain material and account metadata during upgrade, while keeping Cloudflare credentials in the sb-manager secret file.
+- Treat acme.sh's exit code 2 for an in-window renewal skip as an idempotent issue operation.
+
 ## 0.1.0-alpha.9
 
 - Fix an ACME deployment deadlock caused by the reload hook re-entering `state_init` while certificate issuance held the manager lock.
