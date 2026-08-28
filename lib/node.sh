@@ -28,7 +28,7 @@ node_choose_port() {
   local kind=$1 i port
   for ((i=0; i<200; i++)); do
     port=$((20000 + RANDOM % 35000))
-    if ! node_port_in_state "$kind" "$port"; then printf '%s\n' "$port"; return 0; fi
+    if ! node_port_in_state "$kind" "$port" && ! host_port_in_use "$kind" "$port"; then printf '%s\n' "$port"; return 0; fi
   done
   die "无法自动选择空闲端口。"
 }

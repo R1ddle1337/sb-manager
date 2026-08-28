@@ -39,6 +39,25 @@ ui_require_certificate() {
   fi
 }
 
+ui_port_default() {
+  local kind=$1; shift
+  local port
+  for port in "$@"; do
+    if ! node_port_in_state "$kind" "$port" && ! host_port_in_use "$kind" "$port"; then
+      printf '%s\n' "$port"
+      return 0
+    fi
+  done
+  node_choose_port "$kind"
+}
+
+ui_prompt_port() {
+  local __var=$1 kind=$2 label=$3 suggested
+  shift 3
+  suggested=$(ui_port_default "$kind" "$@")
+  prompt_value "$__var" "$label（推荐 $suggested）" "$suggested"
+}
+
 ui_add_node() {
   local choice domain address port name id obfs method security security_choice
   local handshake_server handshake_port congestion_control network strict_mode wildcard_sni default_addr
@@ -64,31 +83,31 @@ ui_add_node() {
       node_add "${args[@]}"
       ;;
     2)
-      prompt_value name '节点名称' 'Shadowsocks 2022'; prompt_value address '客户端连接地址（域名或 IP）' "$default_addr"; prompt_value port 'TCP 端口' '8388'
+      prompt_value name '节点名称' 'Shadowsocks 2022'; prompt_value address '客户端连接地址（域名或 IP）' "$default_addr"; ui_prompt_port port tcp 'TCP 端口' 8388 8389 8390 8443
       printf '1. 2022-blake3-aes-128-gcm（默认）\n2. 2022-blake3-aes-256-gcm\n3. 2022-blake3-chacha20-poly1305\n'; prompt_value method '选择方法' '1'
       case "$method" in 1) method=2022-blake3-aes-128-gcm;; 2) method=2022-blake3-aes-256-gcm;; 3) method=2022-blake3-chacha20-poly1305;; *) log_error '选择无效'; return;; esac
       node_add ss --name "$name" --address "$address" --port "$port" --method "$method"
       ;;
     3)
-      prompt_value name '节点名称' 'AnyTLS'; prompt_value domain 'TLS 域名（必须已签发证书）' ''; prompt_value address '客户端连接地址' "${default_addr:-$domain}"; prompt_value port 'TCP 端口' '443'
+      prompt_value name '节点名称' 'AnyTLS'; prompt_value domain 'TLS 域名（必须已签发证书）' ''; prompt_value address '客户端连接地址' "${default_addr:-$domain}"; ui_prompt_port port tcp 'TCP 端口' 443 8443 9443 10443
       ui_require_certificate "$domain" || return
       node_add anytls --name "$name" --domain "$domain" --address "$address" --port "$port"
       ;;
     4)
-      prompt_value name '节点名称' 'Hysteria2'; prompt_value domain 'TLS 域名（必须已签发证书）' ''; prompt_value address '客户端连接地址' "${default_addr:-$domain}"; prompt_value port 'UDP 端口' '443'
+      prompt_value name '节点名称' 'Hysteria2'; prompt_value domain 'TLS 域名（必须已签发证书）' ''; prompt_value address '客户端连接地址' "${default_addr:-$domain}"; ui_prompt_port port udp 'UDP 端口' 443 8443 9443 10443
       ui_require_certificate "$domain" || return
       prompt_value obfs '启用 salamander 混淆？(y/N)' 'N'
       if [[ "$obfs" =~ ^[Yy]$ ]]; then node_add hy2 --name "$name" --domain "$domain" --address "$address" --port "$port" --obfs salamander; else node_add hy2 --name "$name" --domain "$domain" --address "$address" --port "$port"; fi
       ;;
     5)
       prompt_value name '节点名称' 'Trojan'; prompt_value domain 'TLS 域名（必须已签发证书）' ''
-      prompt_value address '客户端连接地址' "${default_addr:-$domain}"; prompt_value port 'TCP 端口' '443'
+      prompt_value address '客户端连接地址' "${default_addr:-$domain}"; ui_prompt_port port tcp 'TCP 端口' 443 8443 9443 10443
       ui_require_certificate "$domain" || return
       node_add trojan --name "$name" --domain "$domain" --address "$address" --port "$port"
       ;;
     6)
       prompt_value name '节点名称' 'TUIC'; prompt_value domain 'TLS 域名（必须已签发证书）' ''
-      prompt_value address '客户端连接地址' "${default_addr:-$domain}"; prompt_value port 'UDP 端口' '443'
+      prompt_value address '客户端连接地址' "${default_addr:-$domain}"; ui_prompt_port port udp 'UDP 端口' 443 8443 9443 10443
       printf '1. cubic（默认）\n2. new_reno\n3. bbr\n'; prompt_value congestion_control '拥塞控制' '1'
       case "$congestion_control" in 1) congestion_control=cubic;; 2) congestion_control=new_reno;; 3) congestion_control=bbr;; *) log_error '选择无效'; return;; esac
       ui_require_certificate "$domain" || return
@@ -96,7 +115,7 @@ ui_add_node() {
       ;;
     7)
       prompt_value name '节点名称' 'VLESS'; prompt_value domain 'TLS 域名或 Reality SNI' ''
-      prompt_value address '客户端连接地址' "${default_addr:-$domain}"; prompt_value port 'TCP 端口' '443'
+      prompt_value address '客户端连接地址' "${default_addr:-$domain}"; ui_prompt_port port tcp 'TCP 端口' 443 8443 9443 10443
       printf '1. TLS（需要本地证书）\n2. Reality（使用 Reality 密钥对）\n'; prompt_value security_choice '选择安全层' '1'
       case "$security_choice" in
         1)
@@ -112,15 +131,16 @@ ui_add_node() {
       ;;
     8)
       prompt_value name '节点名称' 'NaiveProxy'; prompt_value domain 'TLS 域名（必须已签发证书）' ''
-      prompt_value address '客户端连接地址' "${default_addr:-$domain}"; prompt_value port '端口' '443'
+      prompt_value address '客户端连接地址' "${default_addr:-$domain}"
       printf '1. HTTPS/TCP（默认）\n2. QUIC/UDP\n'; prompt_value security_choice '选择传输' '1'
       case "$security_choice" in 1) network=tcp;; 2) network=udp;; *) log_error '选择无效'; return;; esac
+      ui_prompt_port port "$network" '端口' 443 8443 9443 10443
       ui_require_certificate "$domain" || return
       node_add naive --name "$name" --domain "$domain" --address "$address" --port "$port" --network "$network"
       ;;
     9)
       prompt_value name '节点名称' 'ShadowTLS'; prompt_value handshake_server '握手目标域名' ''; prompt_value handshake_port '握手目标端口' '443'
-      prompt_value address '客户端连接地址' "${default_addr:-$handshake_server}"; prompt_value port 'TCP 端口' '443'
+      prompt_value address '客户端连接地址' "${default_addr:-$handshake_server}"; ui_prompt_port port tcp 'TCP 端口' 443 8443 9443 10443
       prompt_value strict_mode '严格模式（true/false）' 'true'; prompt_value wildcard_sni '通配 SNI（off/authed/all）' 'off'
       node_add shadowtls --name "$name" --address "$address" --port "$port" --handshake-server "$handshake_server" --handshake-port "$handshake_port" --strict-mode "$strict_mode" --wildcard-sni "$wildcard_sni"
       ;;

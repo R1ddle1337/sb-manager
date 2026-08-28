@@ -26,4 +26,10 @@ for label in \
   grep -Fq "$label" <<<"$menu"
 done
 [[ $(grep -Ec '^[1-9]\. ' <<<"$menu") == 9 ]]
+
+# A busy preferred port must fall back to the next documented alternate.
+node_port_in_state() { [[ "$2" == 443 ]]; }
+host_port_in_use() { return 1; }
+node_choose_port() { printf '20000\n'; }
+[[ $(ui_port_default tcp 443 8443 9443) == 8443 ]]
 printf 'UI MENU SMOKE PASSED\n'
