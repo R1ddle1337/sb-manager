@@ -9,6 +9,26 @@ SBM_CF_DNS_ENV="${SBM_CF_DNS_ENV:-$SBM_SECRETS/dns-cloudflare.env}"
 SBM_ACME_VERSION="${SBM_ACME_VERSION:-3.1.4}"
 SBM_ACME_COMMIT="${SBM_ACME_COMMIT:-3661fd86b6304115e42f43910e6dd452ab9866d6}"
 SBM_ACME_SHA256="${SBM_ACME_SHA256:-9af3ad3d775a5782246df4cdd4b4e7b9b3179deb63c509b10e3ba0433093a884}"
+SBM_ACME_ISSUE_TIMEOUT="${SBM_ACME_ISSUE_TIMEOUT:-600}"
+SBM_ACME_INSTALL_TIMEOUT="${SBM_ACME_INSTALL_TIMEOUT:-120}"
+SBM_ACME_CRON_TIMEOUT="${SBM_ACME_CRON_TIMEOUT:-900}"
+
+acme_run_timed() {
+  local label=$1 seconds=$2 rc=0
+  shift 2
+  [[ "$seconds" =~ ^[1-9][0-9]*$ ]] || { log_error "$label 超时设置无效：$seconds"; return 1; }
+  if timeout --kill-after=15s "${seconds}s" "$SBM_ACME_BIN" "$@"; then
+    return 0
+  else
+    rc=$?
+  fi
+  if [[ "$rc" == 124 || "$rc" == 137 ]]; then
+    log_error "$label 超过 ${seconds} 秒，已终止并回滚；请检查 DNS API、域名 NS 和网络。"
+  else
+    log_error "$label 失败（退出码 $rc）。"
+  fi
+  return "$rc"
+}
 
 acme_install() {
   local email=${1:-} force=${2:-0} url tmpdir source actual
@@ -66,7 +86,8 @@ cert_load_cloudflare_env() {
 }
 
 cert_hook() {
-  local domain=$1 dir="$SBM_CERTS/$domain" cert_pub key_pub
+  local domain=$1 dir cert_pub key_pub
+  dir="$SBM_CERTS/$domain"
   [[ -s "$dir/fullchain.pem" && -s "$dir/key.pem" ]] || return 1
   openssl x509 -in "$dir/fullchain.pem" -noout -checkend 0 >/dev/null 2>&1 || { log_error "$domain 证书无效或已经过期。"; return 1; }
   openssl verify -purpose sslserver -CAfile "$dir/fullchain.pem" "$dir/fullchain.pem" >/dev/null 2>&1 || {
@@ -107,12 +128,14 @@ _cert_issue() {
   cert_load_cloudflare_env
   dir="$SBM_CERTS/$domain"; mkdir -p "$dir"; chmod 0750 "$dir"
   log_info "使用 Cloudflare DNS-01 为 $domain 签发 ECDSA 证书…"
-  "$SBM_ACME_BIN" --issue --dns dns_cf -d "$domain" --server letsencrypt --keylength ec-256
-  reloadcmd="$SBM_BIN_DIR/sb cert hook $(printf '%q' "$domain")"
-  "$SBM_ACME_BIN" --install-cert -d "$domain" --ecc \
-    --fullchain-file "$dir/fullchain.pem" --key-file "$dir/key.pem" --reloadcmd "$reloadcmd"
-  cert_hook "$domain"
-  _cert_record_state "$domain"
+  acme_run_timed "为 $domain 签发证书" "$SBM_ACME_ISSUE_TIMEOUT" \
+    --issue --dns dns_cf -d "$domain" --server letsencrypt --keylength ec-256 || return $?
+  reloadcmd="SBM_SKIP_STATE_INIT=1 $(printf '%q' "$SBM_BIN_DIR/sb") cert hook $(printf '%q' "$domain")"
+  acme_run_timed "为 $domain 部署证书" "$SBM_ACME_INSTALL_TIMEOUT" \
+    --install-cert -d "$domain" --ecc \
+    --fullchain-file "$dir/fullchain.pem" --key-file "$dir/key.pem" --reloadcmd "$reloadcmd" || return $?
+  cert_hook "$domain" || return $?
+  _cert_record_state "$domain" || return $?
   log_ok "证书已部署：$dir"
 }
 cert_issue() { with_state_transaction cert-issue _cert_issue "$@"; }
@@ -121,7 +144,11 @@ _cert_renew() {
   local quiet=${1:-0}
   [[ -x "$SBM_ACME_BIN" ]] || { [[ "$quiet" == 1 ]] || log_warn "acme.sh 尚未安装。"; return 0; }
   cert_load_cloudflare_env
-  if [[ "$quiet" == 1 ]]; then "$SBM_ACME_BIN" --cron --home "$SBM_ACME_HOME" >/dev/null; else "$SBM_ACME_BIN" --cron --home "$SBM_ACME_HOME"; fi
+  if [[ "$quiet" == 1 ]]; then
+    acme_run_timed 'ACME 定时续签' "$SBM_ACME_CRON_TIMEOUT" --cron --home "$SBM_ACME_HOME" >/dev/null || return $?
+  else
+    acme_run_timed 'ACME 定时续签' "$SBM_ACME_CRON_TIMEOUT" --cron --home "$SBM_ACME_HOME" || return $?
+  fi
   local d
   while IFS= read -r d; do cert_hook "$d" || return 1; done < <(jq -r '.certificates[].domain' "$SBM_STATE")
 }
@@ -149,7 +176,8 @@ cert_list() {
 }
 
 cert_inspect() {
-  local domain=$1 path="$SBM_CERTS/$domain/fullchain.pem"
+  local domain=$1 path
+  path="$SBM_CERTS/$domain/fullchain.pem"
   [[ -s "$path" ]] || die "证书不存在：$domain"
   openssl x509 -in "$path" -noout -subject -issuer -serial -dates -ext subjectAltName
 }

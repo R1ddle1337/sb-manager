@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-alpha.9
+
+- Fix an ACME deployment deadlock caused by the reload hook re-entering `state_init` while certificate issuance held the manager lock.
+- Fix strict-shell expansion in `cert hook` and `cert inspect`, and add bounded issue/install/cron timeouts with transactional rollback.
+- Add remote Debian regression coverage for a reload hook invoked while the manager lock is held and for ACME timeout handling.
+
 ## 0.1.0-alpha.8
 
 - Add optional Debian/systemd Nginx Stream SNI passthrough for sharing one public TCP port across AnyTLS, Trojan, VLESS TLS/Reality, Naive TCP, and ShadowTLS v3.

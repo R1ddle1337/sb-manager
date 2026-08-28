@@ -111,7 +111,9 @@ main() {
 
   [[ ${SBM_TEST_MODE:-0} == 1 ]] || require_root
   require_command jq; require_command openssl; require_command flock
-  state_init
+  if [[ ${SBM_SKIP_STATE_INIT:-0} != 1 || "$cmd" != cert || ${2:-} != hook ]]; then
+    state_init
+  fi
 
   case "$cmd" in
     menu) ui_main ;;
