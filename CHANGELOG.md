@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-alpha.17
+
+- Fix Naive inbound authentication to use each user's protocol username instead of the display name, matching generated `naive+https://` links and client outbounds.
+- Add regression coverage for the Naive username/password mapping.
+
 ## 0.1.0-alpha.16
 
 - Default VLESS Reality SNI and handshake target to `www.apple.com` while retaining custom domain prompts and CLI values.

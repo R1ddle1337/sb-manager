@@ -6,7 +6,7 @@ protocol_naive_render() {
   domain=$(jq -r '.domain' <<<"$node"); cert_dir="$SBM_CERTS/$domain"; network=$(jq -r '.network // "tcp"' <<<"$node")
   base=$(jq -n --arg tag "in-$(jq -r '.id' <<<"$node")" --arg listen "$(jq -r '.listen // "::"' <<<"$node")" \
     --argjson port "$(jq -r '.port' <<<"$node")" --arg network "$network" \
-    --argjson users "$(jq '[.[] | {username:.name,password}]' <<<"$credentials")" \
+    --argjson users "$(jq '[.[] | {username:(.username // .name),password}]' <<<"$credentials")" \
     --arg domain "$domain" --arg cert "$cert_dir/fullchain.pem" --arg key "$cert_dir/key.pem" \
     '{type:"naive",tag:$tag,listen:$listen,listen_port:$port,network:$network,users:$users,
       tls:{enabled:true,server_name:$domain,certificate_path:$cert,key_path:$key}}')

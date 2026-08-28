@@ -70,6 +70,7 @@ done
 
 [[ $(jq -r '.inbounds[]|select(.tag=="in-tuic-test")|.zero_rtt_handshake' "$SBM_CONFIG") == false ]]
 [[ $(jq -r '.inbounds[]|select(.tag=="in-reality-test")|.tls.reality.enabled' "$SBM_CONFIG") == true ]]
+[[ $(jq -r '.inbounds[]|select(.tag=="in-naive-test")|.users[0].username' "$SBM_CONFIG") == default ]]
 export_client_config "$ROOT/client-mixed.json" mixed
 export_client_config "$ROOT/client-tun.json" tun
 jq -e '.inbounds[0].type=="mixed" and .route.default_domain_resolver=="dns-local"' "$ROOT/client-mixed.json" >/dev/null
