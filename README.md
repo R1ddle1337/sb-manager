@@ -34,7 +34,7 @@
 - 节点模板、按标签/地区批量启停，以及配置差异和 dry-run 预览
 - 磁盘、内存、负载、文件描述符、Fail2ban 封禁数和服务重启次数监控
 - sing-box 1.14 特性覆盖矩阵见 [`docs/SINGBOX_1.14_FEATURE_MATRIX.md`](docs/SINGBOX_1.14_FEATURE_MATRIX.md)
-- Go WebUI 独立项目开发基线见 [`docs/SB_MANAGER_WEB_DEVELOPMENT.md`](docs/SB_MANAGER_WEB_DEVELOPMENT.md)
+- Go WebUI 独立项目已开始：[`sb-manager-web`](https://github.com/R1ddle1337/sb-manager-web)；开发基线见 [`docs/SB_MANAGER_WEB_DEVELOPMENT.md`](docs/SB_MANAGER_WEB_DEVELOPMENT.md)
 
 ### 节点流量控制
 

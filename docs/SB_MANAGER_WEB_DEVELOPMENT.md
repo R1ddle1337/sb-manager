@@ -7,7 +7,7 @@
 - 实现语言：Go
 - 第一版目标：单服务器 WebUI
 - 第二版目标：多服务器主动连接 Agent
-- 当前仓库关系：本文件位于 `sb-manager`，作为新项目的设计基线；新项目创建后应复制到其 `docs/` 目录并继续维护。
+- 当前仓库关系：新项目已创建为 [`sb-manager-web`](https://github.com/R1ddle1337/sb-manager-web)；本文件仍是完整设计基线，新项目稳定后同步维护其 `docs/` 目录。
 
 ## 1. 项目定位
 
@@ -219,7 +219,7 @@ sb-manager-web/
 │   ├── config/             # 配置文件和默认值
 │   ├── inventory/          # 服务器清单
 │   ├── runner/             # 固定参数调用 sb CLI
-│   ├── storage/            # bbolt 数据访问
+│   ├── storage/            # SQLite 数据访问
 │   ├── task/               # 任务状态、幂等、超时
 │   ├── tlsutil/            # 证书、指纹、mTLS
 │   └── web/                # HTML 模板和静态资源
@@ -245,7 +245,7 @@ sb-manager-web/
 
 - `CGO_ENABLED=0`
 - 使用标准库 `net/http`、`html/template`、`crypto/*`
-- 使用 `bbolt` 保存控制端元数据
+- 使用纯 Go SQLite 驱动保存控制端元数据并启用 WAL
 - 不在运行时依赖 Node、Python 或外部前端服务
 - 前端使用 Go 模板和少量原生 JavaScript
 
@@ -545,20 +545,17 @@ Agent 必须：
 
 ## 11. 存储设计
 
-### 11.1 bbolt bucket
+### 11.1 SQLite 表
 
-控制端使用单个 bbolt 数据库：
+控制端使用单个 SQLite 数据库：
 
 ```text
-config
 users
 sessions
 servers
-enrollment_tokens
 tasks
-task_events
-audit_events
-backups
+enrollments
+audit
 ```
 
 每条记录包含 `schema_version` 和 `updated_at`，数据库升级必须可回滚或可备份。
@@ -889,7 +886,7 @@ sb backup ...
 - 错误映射
 - enrollment token 过期和单次使用
 - Session、CSRF 和密码哈希
-- bbolt 读写和迁移
+- SQLite 读写、WAL 和迁移
 - 任务幂等和超时
 - Agent 心跳状态
 
@@ -1144,14 +1141,13 @@ sb-manager-web 0.1.0
 新项目正式开始时，建议按以下顺序创建首个迭代：
 
 ```text
-1. 创建 sb-manager-web 仓库
-2. 搭建 Go module 和 cmd/internal/web 目录
-3. 实现 sb CLI runner 和 status 页面
-4. 加入登录、CSRF 和 session
-5. 加入节点列表与只读详情
-6. 加入节点变更、BBR、HY2 buffer 操作
-7. 加入 systemd/OpenRC 安装器
-8. 再开发 Agent 和多服务器
+1. 已创建 sb-manager-web 仓库
+2. 已搭建 Go module 和 cmd/internal/web 目录
+3. 已实现 sb CLI runner、status 页面和 SQLite 存储
+4. 已加入登录、CSRF、session 和节点/系统操作
+5. 已加入 Agent 注册、心跳、任务和批量服务器操作
+6. 已加入 systemd/OpenRC 安装器和 root helper
+7. 继续完善远程 mTLS、备份下载和更完整的页面交互
 ```
 
 在此之前，不修改现有 `sb-manager` 的协议和状态逻辑，避免 WebUI 项目尚未稳定时影响当前服务器脚本。
