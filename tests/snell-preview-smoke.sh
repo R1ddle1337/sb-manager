@@ -39,6 +39,9 @@ jq -e '.inbounds[]|select(.tag=="in-snell-test")|.type=="snell" and .version==5 
 jq -e '.inbounds[]|select(.tag=="in-snell-http-test")|.obfs_mode=="http" and (.obfs_host|not)' "$SBM_CONFIG" >/dev/null
 jq -e '.inbounds[]|select(.tag=="in-snell-v6-test")|(.version==6 and .mode=="unsafe-raw" and (.obfs_mode|not))' "$SBM_CONFIG" >/dev/null
 "$SBM_SING_BOX_BIN" check -c "$SBM_CONFIG"
+node_set snell-v6-test --snell-version 6 --snell-mode default
+[[ $(jq -r '.nodes[]|select(.id=="snell-v6-test")|.snell_mode' "$SBM_STATE") == default ]]
+"$SBM_SING_BOX_BIN" check -c "$SBM_CONFIG"
 "$SBM_SING_BOX_BIN" run -c "$SBM_CONFIG" >"$ROOT/runtime.log" 2>&1 &
 runtime_pid=$!
 for _ in {1..50}; do

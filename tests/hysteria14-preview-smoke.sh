@@ -36,6 +36,12 @@ jq -e '.inbounds[0].obfs.type=="gecko" and .inbounds[0].obfs.min_packet_size==60
 node_client_outbound gecko-test | jq -e '.obfs.type=="gecko" and .obfs.min_packet_size==600 and .obfs.max_packet_size==1100 and .disable_chrome_parrot==true and .bbr_profile=="aggressive" and .brutal_debug==true' >/dev/null
 "$SBM_SING_BOX_BIN" check -c "$SBM_CONFIG"
 
+# Protocol-specific fields are editable through the same transactional path.
+node_set gecko-test --obfs gecko --obfs-min-packet-size 640 --obfs-max-packet-size 1080 \
+  --enable-chrome-parrot --bbr-profile standard --no-brutal-debug
+jq -e '.nodes[0].obfs.type=="gecko" and .nodes[0].obfs.min_packet_size==640 and .nodes[0].obfs.max_packet_size==1080 and .nodes[0].disable_chrome_parrot==false and .nodes[0].bbr_profile=="standard" and .nodes[0].brutal_debug==false' "$SBM_STATE" >/dev/null
+"$SBM_SING_BOX_BIN" check -c "$SBM_CONFIG"
+
 settings_set_dns optimistic true
 settings_set_dns optimistic-timeout 2d
 settings_set_dns timeout 5s
