@@ -7,6 +7,7 @@ TARGET_LIB=${SBM_LIB:-/usr/local/lib/sb-manager}
 TARGET_BIN=${SBM_BIN_DIR:-/usr/local/bin}
 SETUP_SYSTEMD_DIR=${SBM_SYSTEMD_DIR:-/etc/systemd/system}
 SETUP_OPENRC_DIR=${SBM_OPENRC_DIR:-/etc/init.d}
+SETUP_PERIODIC_DIR=${SBM_PERIODIC_DIR:-/etc/periodic}
 PROGRAM_BACKUP_ROOT=${SBM_BACKUPS:-${SBM_VAR:-/var/lib/sb-manager}/backups}
 NO_MENU=0
 NO_START=0
@@ -29,10 +30,16 @@ setup_rollback_on_error() {
       "$SETUP_SYSTEMD_DIR/sb-acme-renew.service" "$SETUP_SYSTEMD_DIR/sb-acme-renew.timer" \
       "$SETUP_SYSTEMD_DIR/sb-quick-tunnel-refresh.service" "$SETUP_SYSTEMD_DIR/sb-quick-tunnel-refresh.timer" \
       "$SETUP_SYSTEMD_DIR/sb-subscription.service" "$SETUP_SYSTEMD_DIR/sb-traffic.service" \
-      "$SETUP_SYSTEMD_DIR/sb-traffic-sync.service" "$SETUP_SYSTEMD_DIR/sb-traffic-sync.timer"
+      "$SETUP_SYSTEMD_DIR/sb-traffic-sync.service" "$SETUP_SYSTEMD_DIR/sb-traffic-sync.timer" \
+      "$SETUP_SYSTEMD_DIR/sb-health-check.service" "$SETUP_SYSTEMD_DIR/sb-health-check.timer"
     [[ ! -d "$SETUP_ROLLBACK_DIR/systemd" ]] || cp -a "$SETUP_ROLLBACK_DIR/systemd"/. "$SETUP_SYSTEMD_DIR"/
     rm -f "$SETUP_OPENRC_DIR/sb-sing-box" "$SETUP_OPENRC_DIR/sb-cloudflared" "$SETUP_OPENRC_DIR/sb-nginx-stream" "$SETUP_OPENRC_DIR/sb-subscription" "$SETUP_OPENRC_DIR/sb-traffic"
     [[ ! -d "$SETUP_ROLLBACK_DIR/openrc" ]] || cp -a "$SETUP_ROLLBACK_DIR/openrc"/. "$SETUP_OPENRC_DIR"/
+    rm -f "$SETUP_PERIODIC_DIR/15min/sb-health-check"
+    if [[ -f "$SETUP_ROLLBACK_DIR/periodic/sb-health-check" ]]; then
+      mkdir -p "$SETUP_PERIODIC_DIR/15min"
+      cp -a "$SETUP_ROLLBACK_DIR/periodic/sb-health-check" "$SETUP_PERIODIC_DIR/15min/sb-health-check"
+    fi
     command -v systemctl >/dev/null 2>&1 && systemctl daemon-reload >/dev/null 2>&1 || true
   fi
   exit "$rc"
@@ -239,6 +246,29 @@ Persistent=true
 [Install]
 WantedBy=timers.target
 EOF_UNIT
+  cat >"$SBM_SYSTEMD_DIR/$SBM_HEALTH_SERVICE" <<EOF_UNIT
+[Unit]
+Description=sb-manager periodic health check and notification
+After=network-online.target $SBM_SERVICE $SBM_TRAFFIC_SERVICE
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=$SBM_BIN_DIR/sb health tick
+EOF_UNIT
+  cat >"$SBM_SYSTEMD_DIR/sb-health-check.timer" <<'EOF_UNIT'
+[Unit]
+Description=Periodic sb-manager health check
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=15min
+RandomizedDelaySec=2min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF_UNIT
   chmod 0644 "$SBM_SYSTEMD_DIR/$SBM_SERVICE" "$SBM_SYSTEMD_DIR"/sb-*.service "$SBM_SYSTEMD_DIR"/sb-*.timer
 }
 
@@ -263,6 +293,7 @@ write_openrc_runtime() {
   write_periodic_job daily sb-core-update "$SBM_BIN_DIR/sb core auto"
   write_periodic_job daily sb-acme-renew "$SBM_BIN_DIR/sb cert renew --quiet"
   write_periodic_job 15min sb-traffic-sync "$SBM_BIN_DIR/sb traffic tick"
+  write_periodic_job 15min sb-health-check "$SBM_BIN_DIR/sb health tick"
   cat >"$SBM_OPENRC_DIR/$(service_native_name "$SBM_TRAFFIC_SERVICE")" <<EOF_OPENRC
 #!/sbin/openrc-run
 name="sb-manager traffic control"
@@ -308,7 +339,7 @@ scheduler_reconcile() {
   [[ "$NO_START" == 0 && "$TEST_MODE" != 1 ]] || return 0
   case "$(init_system)" in
     systemd)
-      systemctl enable --now sb-core-update.timer sb-acme-renew.timer sb-traffic-sync.timer "$SBM_TRAFFIC_SERVICE"
+      systemctl enable --now sb-core-update.timer sb-acme-renew.timer sb-traffic-sync.timer sb-health-check.timer "$SBM_TRAFFIC_SERVICE"
       ;;
     openrc)
       service_enable "$SBM_TRAFFIC_SERVICE"
@@ -336,11 +367,12 @@ if [[ "$src_real" != "$target_real" ]]; then
     mkdir -p "$PROGRAM_BACKUP_ROOT"
     backup=$(mktemp -d "$PROGRAM_BACKUP_ROOT/program-$(date -u +%Y%m%dT%H%M%SZ).XXXXXX")
     SETUP_ROLLBACK_DIR="$backup"
-    mkdir -p "$backup/program" "$backup/systemd" "$backup/openrc"
+    mkdir -p "$backup/program" "$backup/systemd" "$backup/openrc" "$backup/periodic"
     cp -a "$TARGET_LIB"/. "$backup/program/"
     rm -rf "$backup/program/cores"
     for path in "$SETUP_SYSTEMD_DIR"/sb-*.service "$SETUP_SYSTEMD_DIR"/sb-*.timer; do [[ ! -f "$path" ]] || cp -a "$path" "$backup/systemd/"; done
     for path in "$SETUP_OPENRC_DIR"/sb-*; do [[ ! -f "$path" ]] || cp -a "$path" "$backup/openrc/"; done
+    [[ ! -f "$SETUP_PERIODIC_DIR/15min/sb-health-check" ]] || cp -a "$SETUP_PERIODIC_DIR/15min/sb-health-check" "$backup/periodic/"
     SETUP_MUTATED=1
     trap setup_rollback_on_error ERR
   fi
@@ -374,6 +406,9 @@ source "$TARGET_LIB/protocols/shadowtls.sh"
 source "$TARGET_LIB/protocols/snell.sh"
 source "$TARGET_LIB/lib/render.sh"
 source "$TARGET_LIB/lib/traffic.sh"
+source "$TARGET_LIB/lib/notification.sh"
+source "$TARGET_LIB/lib/health.sh"
+source "$TARGET_LIB/lib/status.sh"
 source "$TARGET_LIB/lib/core.sh"
 source "$TARGET_LIB/lib/tunnel.sh"
 source "$TARGET_LIB/lib/subscription.sh"
