@@ -556,7 +556,7 @@ bash tests/alpine-nginx-stream-smoke.sh
 
 ```bash
 SBM_TEST_SING_BOX_STABLE=/opt/sing-box-1.13.19/sing-box \
-SBM_TEST_SING_BOX_PREVIEW=/opt/sing-box-1.14.0-rc.1/sing-box \
+SBM_TEST_SING_BOX_PREVIEW=/opt/sing-box-1.14.0-rc.2/sing-box \
 bash tests/remote-debian13-suite.sh
 ```
 
