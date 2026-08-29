@@ -2,7 +2,7 @@
 # shellcheck shell=bash
 
 protocol_hy2_render() {
-  local node=$1 credentials=$2 node_secret=$3 domain cert_dir base obfs_type obfs_password masquerade min_packet_size max_packet_size
+  local node=$1 credentials=$2 node_secret=$3 domain cert_dir base obfs_type obfs_password masquerade min_packet_size max_packet_size bbr_profile brutal_debug
   domain=$(jq -r '.domain' <<<"$node")
   cert_dir="$SBM_CERTS/$domain"
   obfs_type=$(jq -r '.obfs.type // ""' <<<"$node")
@@ -33,6 +33,10 @@ protocol_hy2_render() {
   if [[ -n "$masquerade" ]]; then
     base=$(jq --arg m "$masquerade" '. + {masquerade:$m}' <<<"$base")
   fi
+  bbr_profile=$(jq -r '.bbr_profile // ""' <<<"$node")
+  brutal_debug=$(jq -r '.brutal_debug // false' <<<"$node")
+  [[ -z "$bbr_profile" ]] || base=$(jq --arg p "$bbr_profile" '. + {bbr_profile:$p}' <<<"$base")
+  [[ "$brutal_debug" != true ]] || base=$(jq '. + {brutal_debug:true}' <<<"$base")
   printf '%s\n' "$base"
 }
 
@@ -55,7 +59,7 @@ protocol_hy2_share() {
 }
 
 protocol_hy2_client_outbound() {
-  local node=$1 secret=$2 node_secret=${3:-'{}'} base obfs_type min_packet_size max_packet_size disable_chrome_parrot
+  local node=$1 secret=$2 node_secret=${3:-'{}'} base obfs_type min_packet_size max_packet_size disable_chrome_parrot bbr_profile brutal_debug
   base=$(jq -n \
     --arg tag "proxy-$(jq -r '.id' <<<"$node")" \
     --arg server "$(jq -r '.server_address // ""' <<<"$node")" \
@@ -78,5 +82,9 @@ protocol_hy2_client_outbound() {
   if [[ "$disable_chrome_parrot" == true ]]; then
     base=$(jq '. + {disable_chrome_parrot:true}' <<<"$base")
   fi
+  bbr_profile=$(jq -r '.bbr_profile // ""' <<<"$node")
+  brutal_debug=$(jq -r '.brutal_debug // false' <<<"$node")
+  [[ -z "$bbr_profile" ]] || base=$(jq --arg p "$bbr_profile" '. + {bbr_profile:$p}' <<<"$base")
+  [[ "$brutal_debug" != true ]] || base=$(jq '. + {brutal_debug:true}' <<<"$base")
   printf '%s\n' "$base"
 }

@@ -142,7 +142,7 @@ ui_prompt_port() {
 
 ui_add_node() {
   local choice domain address port name id obfs method security security_choice snell_obfs_choice snell_obfs_host
-  local hy2_obfs_choice hy2_min_packet_size hy2_max_packet_size hy2_disable_chrome
+  local hy2_obfs_choice hy2_min_packet_size hy2_max_packet_size hy2_disable_chrome hy2_bbr_profile hy2_brutal_debug
   local handshake_server handshake_port congestion_control network strict_mode wildcard_sni
   printf '%s\n' \
     '1. VMess + WebSocket + Cloudflare Tunnel' \
@@ -189,6 +189,16 @@ ui_add_node() {
       esac
       prompt_value hy2_disable_chrome '关闭 Chrome QUIC 指纹伪装？(y/N)' 'N'
       [[ "$hy2_disable_chrome" =~ ^[Yy]$ ]] && hy2_args+=(--disable-chrome-parrot)
+      printf '1. standard（默认）\n2. conservative\n3. aggressive\n4. 不显式设置\n'; prompt_value hy2_bbr_profile 'BBR profile' '4'
+      case "$hy2_bbr_profile" in
+        1) hy2_args+=(--bbr-profile standard) ;;
+        2) hy2_args+=(--bbr-profile conservative) ;;
+        3) hy2_args+=(--bbr-profile aggressive) ;;
+        4) ;;
+        *) log_error '选择无效'; return ;;
+      esac
+      prompt_value hy2_brutal_debug '启用 Hysteria Brutal 调试日志？(y/N)' 'N'
+      [[ "$hy2_brutal_debug" =~ ^[Yy]$ ]] && hy2_args+=(--brutal-debug)
       node_add "${hy2_args[@]}"
       ;;
     5)

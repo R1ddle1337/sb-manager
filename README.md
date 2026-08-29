@@ -250,9 +250,11 @@ sb node add hy2 --id hy2-gecko --domain edge.example.com --address 203.0.113.10 
   --port 443 --obfs gecko --obfs-min-packet-size 600 --obfs-max-packet-size 1100
 sb node add hy2 --id hy2-no-parrot --domain edge.example.com --address 203.0.113.10 \
   --port 8443 --disable-chrome-parrot
+sb node add hy2 --id hy2-bbr --domain edge.example.com --address 203.0.113.10 \
+  --port 9443 --bbr-profile aggressive --brutal-debug
 ```
 
-Gecko 和 `--disable-chrome-parrot` 需要 sing-box `1.14.0-rc.1` 或更高版本；使用 1.13 核心时管理器会拒绝包含这些字段的启用配置。客户端导出会保留 Gecko 包长和 Chrome 指纹设置。也可以通过 `sb core schema [文件]` 导出当前 1.14 核心生成的 JSON Schema。
+Gecko、`--disable-chrome-parrot`、`--bbr-profile` 和 `--brutal-debug` 需要 sing-box `1.14.0-rc.1` 或更高版本；使用 1.13 核心时管理器会拒绝包含这些字段的启用配置。客户端导出会保留 Gecko 包长、BBR profile 和 Chrome 指纹设置。也可以通过 `sb core schema [文件]` 导出当前 1.14 核心生成的 JSON Schema。
 
 DNS 1.14 优化可以在面板“设置 → sing-box 1.14 DNS 优化”中开启，也可以使用 CLI：
 

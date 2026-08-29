@@ -121,14 +121,14 @@ node_show() {
 
 _node_add() {
   local type=$1; shift
-  local id='' name='' port='' domain='' address='' address_supplied=0 address_source=auto path='' method='2022-blake3-aes-256-gcm' network='tcp' mux=true enabled=true obfs='' obfs_host='' obfs_min_packet_size=512 obfs_max_packet_size=1200 disable_chrome_parrot=false masquerade='' security='tls' flow='' handshake_server='' handshake_port=443 congestion_control='cubic' strict_mode=true wildcard_sni='off'
+  local id='' name='' port='' domain='' address='' address_supplied=0 address_source=auto path='' method='2022-blake3-aes-256-gcm' network='tcp' mux=true enabled=true obfs='' obfs_host='' obfs_min_packet_size=512 obfs_max_packet_size=1200 disable_chrome_parrot=false bbr_profile='' brutal_debug=false masquerade='' security='tls' flow='' handshake_server='' handshake_port=443 congestion_control='cubic' strict_mode=true wildcard_sni='off'
   local remark='' region='' purpose='' line='' tags=''
   while (($#)); do
     case "$1" in
       --id) id=${2:?}; shift 2;; --name) name=${2:?}; shift 2;; --port) port=${2:?}; shift 2;;
       --domain) domain=${2:?}; shift 2;; --address) address=${2:?}; address_supplied=1; address_source=manual; shift 2;; --path) path=${2:?}; shift 2;;
       --method) method=${2:?}; shift 2;; --network) network=${2:?}; shift 2;; --no-mux) mux=false; shift;;
-      --obfs) obfs=${2:?}; shift 2;; --obfs-host) obfs_host=${2:?}; shift 2;; --obfs-min-packet-size) obfs_min_packet_size=${2:?}; shift 2;; --obfs-max-packet-size) obfs_max_packet_size=${2:?}; shift 2;; --disable-chrome-parrot) disable_chrome_parrot=true; shift;; --masquerade) masquerade=${2:?}; shift 2;; --disabled) enabled=false; shift;;
+      --obfs) obfs=${2:?}; shift 2;; --obfs-host) obfs_host=${2:?}; shift 2;; --obfs-min-packet-size) obfs_min_packet_size=${2:?}; shift 2;; --obfs-max-packet-size) obfs_max_packet_size=${2:?}; shift 2;; --disable-chrome-parrot) disable_chrome_parrot=true; shift;; --bbr-profile) bbr_profile=${2:?}; shift 2;; --brutal-debug) brutal_debug=true; shift;; --masquerade) masquerade=${2:?}; shift 2;; --disabled) enabled=false; shift;;
       --security) security=${2:?}; shift 2;; --flow) flow=${2:?}; shift 2;;
       --handshake-server) handshake_server=${2:?}; shift 2;; --handshake-port) handshake_port=${2:?}; shift 2;;
       --congestion-control) congestion_control=${2:?}; shift 2;;
@@ -183,6 +183,10 @@ _node_add() {
       fi
       if [[ "$disable_chrome_parrot" == true ]]; then
         version_ge "$(core_current_version)" 1.14.0-rc.1 || die 'Chrome QUIC 指纹开关需要 sing-box 1.14+ 核心。'
+      fi
+      case "$bbr_profile" in ''|conservative|standard|aggressive) ;; *) die 'Hysteria2 BBR profile 必须是 conservative、standard 或 aggressive。';; esac
+      if [[ -n "$bbr_profile" || "$brutal_debug" == true ]]; then
+        version_ge "$(core_current_version)" 1.14.0-rc.1 || die 'Hysteria2 BBR profile/debug 需要 sing-box 1.14+ 核心。'
       fi
       secret=$(jq -n --arg password "$(random_password 24)" --arg obfs_password "$([[ -n "$obfs" ]] && random_password 18 || true)" '{password:$password,obfs_password:$obfs_password}')
       ;;
@@ -251,8 +255,8 @@ _node_add() {
         '{id:$id,name:$name,protocol:"anytls",enabled:$enabled,listen:"::",port:$port,domain:$domain,server_address:$address,created_at:$now,users:[{id:"default",name:$name,enabled:true,created_at:$now}]}')
       ;;
     hysteria2)
-      node=$(jq -n --arg id "$id" --arg name "$name" --argjson port "$port" --arg domain "$domain" --arg address "$address" --arg obfs "$obfs" --argjson obfs_min "$obfs_min_packet_size" --argjson obfs_max "$obfs_max_packet_size" --argjson disable_chrome "$disable_chrome_parrot" --arg masquerade "$masquerade" --arg now "$created_at" --argjson enabled "$enabled" \
-        '{id:$id,name:$name,protocol:"hysteria2",enabled:$enabled,listen:"::",port:$port,domain:$domain,server_address:$address,obfs:(if $obfs=="" then {} elif $obfs=="gecko" then {type:$obfs,min_packet_size:$obfs_min,max_packet_size:$obfs_max} else {type:$obfs} end),disable_chrome_parrot:$disable_chrome,masquerade:$masquerade,created_at:$now,users:[{id:"default",name:$name,enabled:true,created_at:$now}]}')
+      node=$(jq -n --arg id "$id" --arg name "$name" --argjson port "$port" --arg domain "$domain" --arg address "$address" --arg obfs "$obfs" --argjson obfs_min "$obfs_min_packet_size" --argjson obfs_max "$obfs_max_packet_size" --argjson disable_chrome "$disable_chrome_parrot" --arg bbr "$bbr_profile" --argjson brutal "$brutal_debug" --arg masquerade "$masquerade" --arg now "$created_at" --argjson enabled "$enabled" \
+        '{id:$id,name:$name,protocol:"hysteria2",enabled:$enabled,listen:"::",port:$port,domain:$domain,server_address:$address,obfs:(if $obfs=="" then {} elif $obfs=="gecko" then {type:$obfs,min_packet_size:$obfs_min,max_packet_size:$obfs_max} else {type:$obfs} end),disable_chrome_parrot:$disable_chrome,bbr_profile:$bbr,brutal_debug:$brutal,masquerade:$masquerade,created_at:$now,users:[{id:"default",name:$name,enabled:true,created_at:$now}]}')
       ;;
     trojan)
       node=$(jq -n --arg id "$id" --arg name "$name" --argjson port "$port" --arg domain "$domain" --arg address "$address" --arg now "$created_at" --argjson enabled "$enabled" '{id:$id,name:$name,protocol:"trojan",enabled:$enabled,listen:"::",port:$port,domain:$domain,server_address:$address,created_at:$now,users:[{id:"default",name:$name,enabled:true,created_at:$now}]}')

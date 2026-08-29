@@ -162,6 +162,8 @@ state_normalize_v2_file() {
             .obfs //= {}
             | .obfs.type //= ""
             | .disable_chrome_parrot //= false
+            | .bbr_profile //= ""
+            | .brutal_debug //= false
           else . end
       )
   ' "$file" >"$tmp"
@@ -287,6 +289,8 @@ state_validate() {
         and ((.obfs.max_packet_size // 1200) | type == "number" and floor == . and . >= 64 and . <= 1500)
         and ((.obfs.type // "") != "gecko" or ((.obfs.min_packet_size // 512) <= (.obfs.max_packet_size // 1200)))
         and ((.disable_chrome_parrot // false) | type == "boolean")
+        and ((.bbr_profile // "") | IN("", "conservative", "standard", "aggressive"))
+        and ((.brutal_debug // false) | type == "boolean")
         and (.masquerade | string)
       elif .protocol == "trojan" then
         (.domain | nonempty) and (.server_address | string)

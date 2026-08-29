@@ -28,11 +28,12 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 3 -subj '/CN=edge.example.com' \
   -keyout "$SBM_CERTS/edge.example.com/key.pem" -out "$SBM_CERTS/edge.example.com/fullchain.pem" >/dev/null 2>&1
 
 node_add hy2 --id gecko-test --name 'Gecko test' --port 24543 --domain edge.example.com --address 192.0.2.1 \
-  --obfs gecko --obfs-min-packet-size 600 --obfs-max-packet-size 1100 --disable-chrome-parrot
+  --obfs gecko --obfs-min-packet-size 600 --obfs-max-packet-size 1100 --disable-chrome-parrot \
+  --bbr-profile aggressive --brutal-debug
 
-jq -e '.nodes[0].obfs.type=="gecko" and .nodes[0].obfs.min_packet_size==600 and .nodes[0].obfs.max_packet_size==1100 and .nodes[0].disable_chrome_parrot==true' "$SBM_STATE" >/dev/null
-jq -e '.inbounds[0].obfs.type=="gecko" and .inbounds[0].obfs.min_packet_size==600 and .inbounds[0].obfs.max_packet_size==1100' "$SBM_CONFIG" >/dev/null
-node_client_outbound gecko-test | jq -e '.obfs.type=="gecko" and .obfs.min_packet_size==600 and .obfs.max_packet_size==1100 and .disable_chrome_parrot==true' >/dev/null
+jq -e '.nodes[0].obfs.type=="gecko" and .nodes[0].obfs.min_packet_size==600 and .nodes[0].obfs.max_packet_size==1100 and .nodes[0].disable_chrome_parrot==true and .nodes[0].bbr_profile=="aggressive" and .nodes[0].brutal_debug==true' "$SBM_STATE" >/dev/null
+jq -e '.inbounds[0].obfs.type=="gecko" and .inbounds[0].obfs.min_packet_size==600 and .inbounds[0].obfs.max_packet_size==1100 and .inbounds[0].bbr_profile=="aggressive" and .inbounds[0].brutal_debug==true' "$SBM_CONFIG" >/dev/null
+node_client_outbound gecko-test | jq -e '.obfs.type=="gecko" and .obfs.min_packet_size==600 and .obfs.max_packet_size==1100 and .disable_chrome_parrot==true and .bbr_profile=="aggressive" and .brutal_debug==true' >/dev/null
 "$SBM_SING_BOX_BIN" check -c "$SBM_CONFIG"
 
 settings_set_dns optimistic true
