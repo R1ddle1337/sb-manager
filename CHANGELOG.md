@@ -9,6 +9,7 @@
 - Add a loopback-safe `sb api cli` wrapper and a corresponding API/Dashboard panel menu.
 - Add 1.14 TUN DNS mode/address controls to client exports and the interactive panel, while retaining 1.13-safe defaults.
 - Add `sb core capabilities [--json]` and a panel view of sing-box build tags and compiled 1.14 feature support.
+- Document the complete 1.14 feature coverage matrix and the separate-model boundary for Realm/VPN/desktop-only features.
 
 ## 0.1.0-alpha.27
 

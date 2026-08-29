@@ -31,6 +31,7 @@
 - 节点备注、地区、用途、线路和标签，可按标签/地区筛选
 - 节点模板、按标签/地区批量启停，以及配置差异和 dry-run 预览
 - 磁盘、内存、负载、文件描述符、Fail2ban 封禁数和服务重启次数监控
+- sing-box 1.14 特性覆盖矩阵见 [`docs/SINGBOX_1.14_FEATURE_MATRIX.md`](docs/SINGBOX_1.14_FEATURE_MATRIX.md)
 
 ### 节点流量控制
 
