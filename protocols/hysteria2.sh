@@ -2,7 +2,7 @@
 # shellcheck shell=bash
 
 protocol_hy2_render() {
-  local node=$1 credentials=$2 node_secret=$3 domain cert_dir base obfs_type obfs_password masquerade
+  local node=$1 credentials=$2 node_secret=$3 domain cert_dir base obfs_type obfs_password masquerade min_packet_size max_packet_size
   domain=$(jq -r '.domain' <<<"$node")
   cert_dir="$SBM_CERTS/$domain"
   obfs_type=$(jq -r '.obfs.type // ""' <<<"$node")
@@ -21,7 +21,14 @@ protocol_hy2_render() {
       tls:{enabled:true,server_name:$domain,certificate_path:$cert,key_path:$key}
     }')
   if [[ -n "$obfs_type" ]]; then
-    base=$(jq --arg t "$obfs_type" --arg p "$obfs_password" '. + {obfs:{type:$t,password:$p}}' <<<"$base")
+    if [[ "$obfs_type" == gecko ]]; then
+      min_packet_size=$(jq -r '.obfs.min_packet_size // 512' <<<"$node")
+      max_packet_size=$(jq -r '.obfs.max_packet_size // 1200' <<<"$node")
+      base=$(jq --arg t "$obfs_type" --arg p "$obfs_password" --argjson min "$min_packet_size" --argjson max "$max_packet_size" \
+        '. + {obfs:{type:$t,password:$p,min_packet_size:$min,max_packet_size:$max}}' <<<"$base")
+    else
+      base=$(jq --arg t "$obfs_type" --arg p "$obfs_password" '. + {obfs:{type:$t,password:$p}}' <<<"$base")
+    fi
   fi
   if [[ -n "$masquerade" ]]; then
     base=$(jq --arg m "$masquerade" '. + {masquerade:$m}' <<<"$base")
@@ -48,7 +55,7 @@ protocol_hy2_share() {
 }
 
 protocol_hy2_client_outbound() {
-  local node=$1 secret=$2 node_secret=${3:-'{}'} base obfs_type
+  local node=$1 secret=$2 node_secret=${3:-'{}'} base obfs_type min_packet_size max_packet_size disable_chrome_parrot
   base=$(jq -n \
     --arg tag "proxy-$(jq -r '.id' <<<"$node")" \
     --arg server "$(jq -r '.server_address // ""' <<<"$node")" \
@@ -58,7 +65,18 @@ protocol_hy2_client_outbound() {
     '{type:"hysteria2",tag:$tag,server:$server,server_port:$port,password:$password,tls:{enabled:true,server_name:$domain}}')
   obfs_type=$(jq -r '.obfs.type // ""' <<<"$node")
   if [[ -n "$obfs_type" ]]; then
-    base=$(jq --arg t "$obfs_type" --arg p "$(jq -r '.obfs_password // ""' <<<"$node_secret")" '. + {obfs:{type:$t,password:$p}}' <<<"$base")
+    if [[ "$obfs_type" == gecko ]]; then
+      min_packet_size=$(jq -r '.obfs.min_packet_size // 512' <<<"$node")
+      max_packet_size=$(jq -r '.obfs.max_packet_size // 1200' <<<"$node")
+      base=$(jq --arg t "$obfs_type" --arg p "$(jq -r '.obfs_password // ""' <<<"$node_secret")" --argjson min "$min_packet_size" --argjson max "$max_packet_size" \
+        '. + {obfs:{type:$t,password:$p,min_packet_size:$min,max_packet_size:$max}}' <<<"$base")
+    else
+      base=$(jq --arg t "$obfs_type" --arg p "$(jq -r '.obfs_password // ""' <<<"$node_secret")" '. + {obfs:{type:$t,password:$p}}' <<<"$base")
+    fi
+  fi
+  disable_chrome_parrot=$(jq -r '.disable_chrome_parrot // false' <<<"$node")
+  if [[ "$disable_chrome_parrot" == true ]]; then
+    base=$(jq '. + {disable_chrome_parrot:true}' <<<"$base")
   fi
   printf '%s\n' "$base"
 }

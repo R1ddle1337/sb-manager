@@ -142,6 +142,7 @@ ui_prompt_port() {
 
 ui_add_node() {
   local choice domain address port name id obfs method security security_choice snell_obfs_choice snell_obfs_host
+  local hy2_obfs_choice hy2_min_packet_size hy2_max_packet_size hy2_disable_chrome
   local handshake_server handshake_port congestion_control network strict_mode wildcard_sni
   printf '%s\n' \
     '1. VMess + WebSocket + Cloudflare Tunnel' \
@@ -176,8 +177,19 @@ ui_add_node() {
       ;;
     4)
       prompt_value name '节点名称' 'Hysteria2'; ui_select_certificate_domain domain || return; prompt_value address '客户端连接地址' "$(ui_client_address_default "$domain")"; ui_prompt_port port udp 'UDP 端口' 443 8443 9443 10443
-      prompt_value obfs '启用 salamander 混淆？(y/N)' 'N'
-      if [[ "$obfs" =~ ^[Yy]$ ]]; then node_add hy2 --name "$name" --domain "$domain" --address "$address" --port "$port" --obfs salamander; else node_add hy2 --name "$name" --domain "$domain" --address "$address" --port "$port"; fi
+      printf '1. 不启用混淆（默认）\n2. Salamander\n3. Gecko（1.14+，可调包长）\n'; prompt_value hy2_obfs_choice '选择 Hysteria2 混淆' '1'
+      local -a hy2_args=(hy2 --name "$name" --domain "$domain" --address "$address" --port "$port")
+      case "$hy2_obfs_choice" in
+        1) ;;
+        2) hy2_args+=(--obfs salamander) ;;
+        3)
+          prompt_value hy2_min_packet_size 'Gecko 最小包长' '512'; prompt_value hy2_max_packet_size 'Gecko 最大包长' '1200'
+          hy2_args+=(--obfs gecko --obfs-min-packet-size "$hy2_min_packet_size" --obfs-max-packet-size "$hy2_max_packet_size") ;;
+        *) log_error '选择无效'; return ;;
+      esac
+      prompt_value hy2_disable_chrome '关闭 Chrome QUIC 指纹伪装？(y/N)' 'N'
+      [[ "$hy2_disable_chrome" =~ ^[Yy]$ ]] && hy2_args+=(--disable-chrome-parrot)
+      node_add "${hy2_args[@]}"
       ;;
     5)
       prompt_value name '节点名称' 'Trojan'; ui_select_certificate_domain domain || return
@@ -296,12 +308,13 @@ ui_tunnel_menu() {
 }
 
 ui_update_menu() {
-  local c p v
-  printf '1. 检查 sing-box 更新\n2. 更新 sing-box 最新版\n3. 指定 sing-box 版本\n4. 回滚 sing-box\n5. 设置自动更新策略\n6. 更新 cloudflared\n7. 更新 acme.sh\n0. 返回\n'
+  local c p v path
+  printf '1. 检查 sing-box 更新\n2. 更新 sing-box 最新版\n3. 指定 sing-box 版本\n4. 回滚 sing-box\n5. 设置自动更新策略\n6. 更新 cloudflared\n7. 更新 acme.sh\n8. 导出 sing-box 1.14 JSON Schema\n0. 返回\n'
   prompt_value c '选择操作' '0'
   case "$c" in
     1) core_check_update || true;; 2) core_update latest;; 3) prompt_value v '版本号，如 1.14.0-rc.1' ''; core_update "$v";; 4) core_rollback;;
     5) printf 'manual / notify / patch / stable\n'; prompt_value p '策略' 'notify'; core_set_policy "$p";; 6) cloudflared_update;; 7) acme_update;;
+    8) prompt_value path 'Schema 输出文件' "$SBM_EXPORTS/sing-box-schema.json"; core_schema "$path";;
   esac
 }
 

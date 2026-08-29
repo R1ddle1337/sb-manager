@@ -89,6 +89,8 @@ Notification provider choice and thresholds are non-secret state. Telegram token
 
 Snell nodes require a sing-box 1.14.0-rc.1 or newer core. Their protocol-level secret stores the server `psk`; each user secret stores a Snell `userkey`.
 
+Hysteria2 nodes may set `obfs.type` to `salamander` or the sing-box 1.14-only `gecko`. Gecko stores `min_packet_size` and `max_packet_size` in the node state (defaults 512 and 1200); its password remains in the protected node secret. `disable_chrome_parrot` controls the 1.14 Hysteria2 client fingerprint option and defaults to `false`. Enabled nodes using Gecko or disabling Chrome parrot require sing-box 1.14.0-rc.1 or newer.
+
 Multiple TLS nodes may reference the same `certificates[].domain` and certificate files. Certificate identity is independent from listener binding; transport/port validation still prevents two direct TCP listeners from using the same port.
 
 Every node has a normalized `traffic` object. `configured` distinguishes a never-configured node from a disabled policy; `enabled` controls runtime rules without discarding policy or usage. `quota_bytes` and either directional rate may be `null` for unlimited. `quota_mode` is `total` (upload plus download) or `download`; `reset_day` is an integer from 1 through 28 and is evaluated in UTC. Rate values are stored as bit/s. Accumulated counters are runtime data and live in `/var/lib/sb-manager/traffic-usage.json`, not in state or generated sing-box configuration.

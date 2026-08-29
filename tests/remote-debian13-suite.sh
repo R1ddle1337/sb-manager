@@ -52,4 +52,6 @@ printf '\n===== tests/api-preview-smoke.sh (preview) =====\n'
 SBM_TEST_SING_BOX="$PREVIEW" bash "$PROJECT/tests/api-preview-smoke.sh"
 printf '\n===== tests/snell-preview-smoke.sh (preview) =====\n'
 SBM_TEST_SING_BOX="$PREVIEW" bash "$PROJECT/tests/snell-preview-smoke.sh"
+printf '\n===== tests/hysteria14-preview-smoke.sh (preview) =====\n'
+SBM_TEST_SING_BOX="$PREVIEW" bash "$PROJECT/tests/hysteria14-preview-smoke.sh"
 printf '\nREMOTE DEBIAN 13 SUITE PASSED\n'

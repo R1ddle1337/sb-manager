@@ -152,6 +152,11 @@ state_normalize_v2_file() {
         | .traffic.reset_day //= 1
         | .traffic.upload_rate_bps //= null
         | .traffic.download_rate_bps //= null
+        | if .protocol == "hysteria2" then
+            .obfs //= {}
+            | .obfs.type //= ""
+            | .disable_chrome_parrot //= false
+          else . end
       )
   ' "$file" >"$tmp"
   chmod 0600 "$tmp"
@@ -268,6 +273,11 @@ state_validate() {
         (.domain | nonempty)
         and (.server_address | string)
         and (.obfs | type == "object")
+        and ((.obfs.type // "") | IN("", "salamander", "gecko"))
+        and ((.obfs.min_packet_size // 512) | type == "number" and floor == . and . >= 64 and . <= 1500)
+        and ((.obfs.max_packet_size // 1200) | type == "number" and floor == . and . >= 64 and . <= 1500)
+        and ((.obfs.type // "") != "gecko" or ((.obfs.min_packet_size // 512) <= (.obfs.max_packet_size // 1200)))
+        and ((.disable_chrome_parrot // false) | type == "boolean")
         and (.masquerade | string)
       elif .protocol == "trojan" then
         (.domain | nonempty) and (.server_address | string)

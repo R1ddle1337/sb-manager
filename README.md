@@ -241,6 +241,19 @@ sb node add snell --id snell-main --address YOUR_SERVER_IP --port 6160
 sb share snell-main
 ```
 
+### Hysteria2（sing-box 1.14）
+
+1.14 核心支持 Gecko QUIC 混淆（可调链路包长）和 Chrome QUIC 指纹伪装开关。面板添加 Hysteria2 时会让你选择无混淆、Salamander 或 Gecko；Gecko 默认包长为 512–1200 字节，也可以通过 CLI 调整：
+
+```bash
+sb node add hy2 --id hy2-gecko --domain edge.example.com --address 203.0.113.10 \
+  --port 443 --obfs gecko --obfs-min-packet-size 600 --obfs-max-packet-size 1100
+sb node add hy2 --id hy2-no-parrot --domain edge.example.com --address 203.0.113.10 \
+  --port 8443 --disable-chrome-parrot
+```
+
+Gecko 和 `--disable-chrome-parrot` 需要 sing-box `1.14.0-rc.1` 或更高版本；使用 1.13 核心时管理器会拒绝包含这些字段的启用配置。客户端导出会保留 Gecko 包长和 Chrome 指纹设置。也可以通过 `sb core schema [文件]` 导出当前 1.14 核心生成的 JSON Schema。
+
 ### AnyTLS 与 Hysteria2
 
 先准备一个直接解析到 VPS 的域名，例如 `edge.example.com`。使用 Cloudflare DNS 时，该记录应为 **DNS Only**，不要开启橙云代理。

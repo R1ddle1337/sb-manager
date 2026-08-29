@@ -97,7 +97,7 @@ sb-manager：状态驱动的 sing-box 多协议管理器
   sb firewall fail2ban|ufw [--yes] [--dry-run]
   sb probe NODE_ID                探测节点 DNS、监听和 TLS/UDP 可达性
 
-  sb core check|update [VERSION]|rollback|policy <manual|notify|patch|stable>|auto
+  sb core check|update [VERSION]|rollback|schema [文件]|policy <manual|notify|patch|stable>|auto
   sb cloudflared update
   sb acme update
   sb doctor [--repair|--network]
@@ -112,7 +112,8 @@ sb-manager：状态驱动的 sing-box 多协议管理器
   --id ID --name NAME --port PORT --domain DOMAIN --address HOST
   VMess: --path PATH
   SS:    --method 2022-blake3-aes-128-gcm|... --network tcp
-  HY2:   --obfs salamander --masquerade URL
+  HY2:   --obfs salamander|gecko --obfs-min-packet-size N --obfs-max-packet-size N
+         --disable-chrome-parrot --masquerade URL (Gecko/Chrome 选项需要 sing-box 1.14+)
   Snell: --obfs none|http [--obfs-host DOMAIN] (需要 sing-box 1.14+)
   通用:  --disabled --remark TEXT --region REGION --purpose PURPOSE --line LINE --tags a,b
 EOF_HELP
@@ -391,6 +392,7 @@ main() {
         check) local rc=0; core_check_update || rc=$?; [[ "$rc" == 0 || "$rc" == 10 ]] || return "$rc" ;;
         update) core_update "${3:-latest}" ;;
         rollback) core_rollback ;;
+        schema) (($# <= 3)) || usage_die '用法：sb core schema [文件]'; core_schema "${3:-}" ;;
         policy) core_set_policy "${3:?缺少策略}" ;;
         auto) core_auto_update ;;
         *) usage_die "未知 core 操作：$action" ;;

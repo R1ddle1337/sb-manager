@@ -45,8 +45,13 @@ validate_state_semantics() {
     validate_node_id "$id" || die "节点 ID 不规范：$id"
     validate_port "$port" || die "节点 $id 的端口无效：$port"
     case "$protocol" in vmess-ws-cf|shadowsocks|anytls|hysteria2|trojan|tuic|vless|naive|shadowtls|snell) ;; *) die "节点 $id 使用未知协议：$protocol" ;; esac
-    if [[ "$protocol" == snell && $(jq -r '.enabled' <<<"$node") == true ]]; then
-      version_ge "$(core_current_version)" 1.14.0-rc.1 || die 'Snell 需要 sing-box 1.14.0-rc.1 或更高版本核心。'
+    if [[ $(jq -r '.enabled' <<<"$node") == true ]]; then
+      if [[ "$protocol" == snell ]]; then
+        version_ge "$(core_current_version)" 1.14.0-rc.1 || die 'Snell 需要 sing-box 1.14.0-rc.1 或更高版本核心。'
+      fi
+      if [[ "$protocol" == hysteria2 ]] && { [[ $(jq -r '.obfs.type // ""' <<<"$node") == gecko ]] || [[ $(jq -r '.disable_chrome_parrot // false' <<<"$node") == true ]]; }; then
+        version_ge "$(core_current_version)" 1.14.0-rc.1 || die '当前 Hysteria2 配置包含 1.14+ 功能，需要 sing-box 1.14.0-rc.1 或更高版本核心。'
+      fi
     fi
     user_ids=$(jq -r '.users[].id' <<<"$node" | sort)
     count=$(printf '%s\n' "$user_ids" | sed '/^$/d' | uniq -d | wc -l)

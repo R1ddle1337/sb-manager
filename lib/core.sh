@@ -255,6 +255,22 @@ core_check_update() {
   [[ "$current" == "$latest" ]] || return 10
 }
 
+core_schema() {
+  local output=${1:-} version
+  version=$(core_current_version || true)
+  version_ge "$version" 1.14.0-beta.2 || die 'sing-box schema 命令需要 1.14.0-beta.2 或更高版本核心。'
+  [[ -x "$SBM_SING_BOX_BIN" ]] || die "sing-box 核心不存在：$SBM_SING_BOX_BIN"
+  if [[ -n "$output" ]]; then
+    mkdir -p "$(dirname "$output")"
+    "$SBM_SING_BOX_BIN" schema >"$output"
+    chmod 0644 "$output"
+    jq -e . "$output" >/dev/null || die 'sing-box schema 输出不是有效 JSON。'
+    log_ok "已导出 sing-box JSON Schema：$output"
+  else
+    "$SBM_SING_BOX_BIN" schema
+  fi
+}
+
 _core_set_policy() {
   local policy=$1 candidate
   case "$policy" in manual|notify|patch|stable) ;; *) die "策略必须是 manual、notify、patch 或 stable。";; esac
