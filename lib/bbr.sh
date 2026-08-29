@@ -7,8 +7,15 @@ SBM_BBR_BACKUP_META="${SBM_BBR_BACKUP_META:-$SBM_BBR_BACKUP_DIR/previous.json}"
 SBM_BBR_BACKUP_CONFIG="${SBM_BBR_BACKUP_CONFIG:-$SBM_BBR_BACKUP_DIR/previous.conf}"
 SBM_BBR_SYSCTL_CMD="${SBM_BBR_SYSCTL_CMD:-sysctl}"
 SBM_BBR_MODPROBE_CMD="${SBM_BBR_MODPROBE_CMD:-modprobe}"
+SBM_BBR_MARKER='# Managed by sb-manager; use sb bbr disable to restore previous values.'
 
 bbr_sysctl_get() { "$SBM_BBR_SYSCTL_CMD" -n "$1" 2>/dev/null; }
+bbr_config_managed() { grep -Fqx "$SBM_BBR_MARKER" "$SBM_BBR_SYSCTL_CONFIG" 2>/dev/null; }
+bbr_backup_valid() {
+  [[ -s "$SBM_BBR_BACKUP_META" ]] &&
+    jq -e '.schema_version==1 and (.config_existed|type=="boolean") and (.qdisc|type=="string") and (.congestion_control|type=="string")' \
+      "$SBM_BBR_BACKUP_META" >/dev/null 2>&1
+}
 
 bbr_available() {
   local available
@@ -40,7 +47,6 @@ bbr_save_previous() {
     existed=true
     config_tmp=$(mktemp "$SBM_BBR_BACKUP_DIR/.previous-conf.XXXXXX")
     cp -p "$SBM_BBR_SYSCTL_CONFIG" "$config_tmp"
-    chmod 0600 "$config_tmp"
     mv -f "$config_tmp" "$SBM_BBR_BACKUP_CONFIG"
   else
     rm -f "$SBM_BBR_BACKUP_CONFIG"
@@ -68,10 +74,13 @@ _bbr_enable() {
   }
   qdisc=$(bbr_sysctl_get net.core.default_qdisc || true)
   cc=$(bbr_sysctl_get net.ipv4.tcp_congestion_control || true)
+  if [[ -e "$SBM_BBR_BACKUP_META" ]] && ! bbr_backup_valid; then
+    die "BBR 备份元数据损坏：$SBM_BBR_BACKUP_META"
+  fi
   if [[ ! -s "$SBM_BBR_BACKUP_META" ]]; then bbr_save_previous "$qdisc" "$cc"; fi
   mkdir -p "$(dirname "$SBM_BBR_SYSCTL_CONFIG")" "$SBM_RUN"
   tmp=$(mktemp "$(dirname "$SBM_BBR_SYSCTL_CONFIG")/.sb-manager-bbr.XXXXXX")
-  printf '%s\n' '# Managed by sb-manager; use sb bbr disable to restore previous values.' \
+  printf '%s\n' "$SBM_BBR_MARKER" \
     'net.core.default_qdisc=fq' 'net.ipv4.tcp_congestion_control=bbr' >"$tmp"
   chmod 0644 "$tmp"
   mv -f "$tmp" "$SBM_BBR_SYSCTL_CONFIG"
@@ -84,11 +93,19 @@ bbr_enable() { with_lock _bbr_enable; }
 
 bbr_restore_previous() {
   local existed qdisc cc
-  [[ -s "$SBM_BBR_BACKUP_META" ]] || { rm -f "$SBM_BBR_SYSCTL_CONFIG"; return 0; }
-  existed=$(jq -r '.config_existed // false' "$SBM_BBR_BACKUP_META")
-  qdisc=$(jq -r '.qdisc // empty' "$SBM_BBR_BACKUP_META")
-  cc=$(jq -r '.congestion_control // empty' "$SBM_BBR_BACKUP_META")
+  [[ -s "$SBM_BBR_BACKUP_META" ]] || {
+    if bbr_config_managed; then
+      log_error "BBR 备份元数据缺失，拒绝删除托管配置：$SBM_BBR_BACKUP_META"
+      return 1
+    fi
+    return 0
+  }
+  bbr_backup_valid || { log_error "BBR 备份元数据损坏：$SBM_BBR_BACKUP_META"; return 1; }
+  existed=$(jq -r '.config_existed' "$SBM_BBR_BACKUP_META") || return 1
+  qdisc=$(jq -r '.qdisc' "$SBM_BBR_BACKUP_META") || return 1
+  cc=$(jq -r '.congestion_control' "$SBM_BBR_BACKUP_META") || return 1
   if [[ "$existed" == true ]]; then
+    [[ -f "$SBM_BBR_BACKUP_CONFIG" ]] || { log_error 'BBR 原配置备份缺失。'; return 1; }
     cp -p "$SBM_BBR_BACKUP_CONFIG" "$SBM_BBR_SYSCTL_CONFIG" || return 1
     bbr_apply_config || return 1
   else
@@ -100,7 +117,10 @@ bbr_restore_previous() {
 }
 
 _bbr_disable() {
-  [[ -e "$SBM_BBR_SYSCTL_CONFIG" || -s "$SBM_BBR_BACKUP_META" ]] || { log_warn 'BBR 未由 sb-manager 管理，无需停用。'; return 0; }
+  if [[ ! -s "$SBM_BBR_BACKUP_META" ]] && ! bbr_config_managed; then
+    log_warn 'BBR 未由 sb-manager 管理，无需停用。'
+    return 0
+  fi
   bbr_restore_previous || die '恢复 BBR 启用前配置失败；已保留备份，请检查 sysctl 日志后重试。'
   log_ok 'BBR 已停用并恢复启用前的 sysctl 配置。'
 }

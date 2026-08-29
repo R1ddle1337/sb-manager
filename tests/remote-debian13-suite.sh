@@ -15,6 +15,7 @@ run_stable() {
 
 for test in \
   tests/bbr-smoke.sh \
+  tests/hy2-udp-buffer-smoke.sh \
   tests/operations-smoke.sh \
   tests/ui-menu-smoke.sh \
   tests/firewall-smoke.sh \

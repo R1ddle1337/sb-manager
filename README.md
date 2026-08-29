@@ -16,6 +16,7 @@
 - acme.sh + Cloudflare DNS-01 证书申请、部署与续期
 - sing-box 核心检查、自动更新策略、版本切换与回滚
 - 默认安装和 `sb core update` 自动解析 GitHub 最新 sing-box Release；需要复现时仍可用 `--core-version VERSION` 固定版本
+- Hysteria2 官方 UDP 缓冲区优化的一键开启、状态查看和恢复
 - cloudflared 独立更新
 - 节点添加、编辑、启停、删除和凭据轮换
 - 节点级双向流量统计、月配额与独立上/下行速率控制
@@ -202,6 +203,18 @@ sb bbr disable       # 恢复启用前保存的 qdisc/拥塞控制和托管配�
 ```
 
 启用时管理器设置 `net.core.default_qdisc=fq` 和 `net.ipv4.tcp_congestion_control=bbr`，并保存原值到受保护的 `/var/lib/sb-manager/bbr/`。只删除和恢复管理器自己的 `/etc/sysctl.d/99-sb-manager-bbr.conf`，不会清理其他 sysctl 配置；如果内核未编译 BBR，命令会提示安装包含 `tcp_bbr` 的内核模块（`kmod` 仅提供 `modprobe` 工具）。卸载管理器时也会先尝试恢复原值。BBR 是否改善实际吞吐仍取决于线路、内核和对端，建议按业务流量自行验证。
+
+### Hysteria2 UDP 缓冲区优化
+
+高延迟或高速线路可以启用 Hysteria2 官方建议的 16 MiB Linux UDP 缓冲区上限：
+
+```bash
+sb hy2 buffer status --json
+sb hy2 buffer enable
+sb hy2 buffer disable
+```
+
+面板入口为“全局设置 → Hysteria2 UDP 缓冲区优化”。启用后管理器写入 `/etc/sysctl.d/99-hysteria.conf` 并立即应用 `net.core.rmem_max=16777216`、`net.core.wmem_max=16777216`；原有文件和运行时数值会备份到受保护的 `/var/lib/sb-manager/hysteria2-udp-buffer/`。此设置只调整 UDP socket 缓冲区上限，不会自动修改 `rmem_default/wmem_default` 或其它网络参数；是否改善吞吐取决于内核、线路和对端。
 
 出站 IP 策略可在“全局设置 → 出站 IP 优先级”中选择，也可使用 CLI：
 

@@ -48,6 +48,22 @@ export FAKE_SYSCTL_ROOT="$ROOT"
 
 source "$PROJECT/lib/common.sh"
 source "$PROJECT/lib/bbr.sh"
+
+# A file at the managed path without the manager marker is user-owned.
+mkdir -p "$(dirname "$SBM_BBR_SYSCTL_CONFIG")"
+printf '%s\n' 'net.ipv4.tcp_congestion_control=reno' >"$SBM_BBR_SYSCTL_CONFIG"
+bbr_disable
+grep -Fxq 'net.ipv4.tcp_congestion_control=reno' "$SBM_BBR_SYSCTL_CONFIG"
+rm -f "$SBM_BBR_SYSCTL_CONFIG"
+
+printf '%s\n' "$SBM_BBR_MARKER" >"$SBM_BBR_SYSCTL_CONFIG"
+if (bbr_disable); then
+  echo 'BBR disable unexpectedly removed a managed file without backup metadata' >&2
+  exit 1
+fi
+[[ -e "$SBM_BBR_SYSCTL_CONFIG" ]]
+rm -f "$SBM_BBR_SYSCTL_CONFIG"
+
 bbr_enable
 [[ $(cat "$ROOT/state/qdisc") == fq && $(cat "$ROOT/state/cc") == bbr ]]
 grep -Fq 'net.core.default_qdisc=fq' "$SBM_BBR_SYSCTL_CONFIG"

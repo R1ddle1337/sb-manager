@@ -40,6 +40,7 @@ source "$SBM_LIB/lib/subscription.sh"
 source "$SBM_LIB/lib/api.sh"
 source "$SBM_LIB/lib/realm.sh"
 source "$SBM_LIB/lib/bbr.sh"
+source "$SBM_LIB/lib/hysteria2_tuning.sh"
 source "$SBM_LIB/lib/backup.sh"
 source "$SBM_LIB/lib/doctor.sh"
 source "$SBM_LIB/lib/uninstall.sh"
@@ -76,6 +77,7 @@ sb-manager：状态驱动的 sing-box 多协议管理器
   sb realm enable PORT PUBLIC_URL [--listen ADDRESS] [--tls-domain DOMAIN] [--max-realms N]
   sb realm disable|status [--json]|show-token
   sb bbr enable|disable|status [--json]
+  sb hy2 buffer enable|disable|status [--json]
   sb mux status [--json]|enable [PORT]|disable|route list|route add NODE_ID SNI [BACKEND_PORT]|route remove NODE_ID
   sb traffic status [NODE_ID] [--json]
   sb traffic set NODE_ID [--quota 100G|unlimited] [--reset-day 1-28]
@@ -343,6 +345,16 @@ main() {
         disable) (($# == 2)) || usage_die '用法：sb bbr disable'; bbr_disable;;
         status) (($# <= 3)) || usage_die '用法：sb bbr status [--json]'; bbr_status "$([[ ${3:-} == --json || ${SBM_OUTPUT_JSON:-0} == 1 ]] && echo 1 || echo 0)";;
         *) usage_die '用法：sb bbr enable|disable|status [--json]';;
+      esac
+      ;;
+    hy2|hysteria2)
+      [[ ${2:-} == buffer || ${2:-} == udp-buffer ]] || usage_die '用法：sb hy2 buffer enable|disable|status [--json]'
+      local buffer_action=${3:-status}
+      case "$buffer_action" in
+        enable) (($# == 3)) || usage_die '用法：sb hy2 buffer enable'; hy2_udp_buffer_enable;;
+        disable) (($# == 3)) || usage_die '用法：sb hy2 buffer disable'; hy2_udp_buffer_disable;;
+        status) (($# <= 4)) || usage_die '用法：sb hy2 buffer status [--json]'; hy2_udp_buffer_status "$([[ ${4:-} == --json || ${SBM_OUTPUT_JSON:-0} == 1 ]] && echo 1 || echo 0)";;
+        *) usage_die '用法：sb hy2 buffer enable|disable|status [--json]';;
       esac
       ;;
     mux|nginx-stream)

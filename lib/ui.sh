@@ -478,7 +478,7 @@ ui_nginx_stream_menu() {
 
 ui_settings_menu() {
   local c v strategy_choice dns_choice dns_value
-  printf '1. 设置默认服务器地址\n2. 修改日志级别\n3. Nginx Stream 443/TCP 多协议复用\n4. 出站 IP 优先级\n5. 配置校验与差异预览\n6. sing-box 1.14 DNS 优化\n7. 一键开启/恢复 BBR\n0. 返回\n'; prompt_value c '选择操作' '0'
+  printf '1. 设置默认服务器地址\n2. 修改日志级别\n3. Nginx Stream 443/TCP 多协议复用\n4. 出站 IP 优先级\n5. 配置校验与差异预览\n6. sing-box 1.14 DNS 优化\n7. 一键开启/恢复 BBR\n8. Hysteria2 UDP 缓冲区优化\n0. 返回\n'; prompt_value c '选择操作' '0'
   case "$c" in
     1) prompt_value v '域名或 IP' ''; settings_set_default_address "$v";;
     2) prompt_value v '日志级别 (trace/debug/info/warn/error/fatal/panic)' 'info'; settings_set_log_level "$v";;
@@ -505,6 +505,11 @@ ui_settings_menu() {
       bbr_status
       printf '1. 开启 BBR（fq + tcp_congestion_control=bbr）\n2. 恢复开启前设置\n0. 返回\n'; prompt_value v '选择 BBR 操作' '0'
       case "$v" in 1) bbr_enable;; 2) confirm '确认恢复 BBR 启用前的 sysctl？' N && bbr_disable;; esac
+      ;;
+    8)
+      hy2_udp_buffer_status
+      printf '1. 开启官方建议值（rmem_max/wmem_max = 16 MiB）\n2. 恢复开启前设置\n0. 返回\n'; prompt_value v '选择 Hysteria2 UDP 缓冲区操作' '0'
+      case "$v" in 1) hy2_udp_buffer_enable;; 2) confirm '确认恢复 Hysteria2 UDP 缓冲区启用前的 sysctl？' N && hy2_udp_buffer_disable;; esac
       ;;
   esac
 }
