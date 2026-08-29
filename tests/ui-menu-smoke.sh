@@ -44,6 +44,11 @@ traffic_status() { printf 'traffic-status\n'; }
 traffic_menu=$(ui_traffic_menu)
 grep -Fq '配置/启用节点流量控制' <<<"$traffic_menu"
 grep -Fq '立即重置节点统计' <<<"$traffic_menu"
+notification_status() { printf 'notification-status\n'; }
+health_status() { printf 'health-status\n'; }
+notification_menu=$(ui_notification_health_menu)
+grep -Fq '配置 Telegram 通知' <<<"$notification_menu"
+grep -Fq '启用定时健康检查' <<<"$notification_menu"
 
 # A busy preferred port must fall back to the next documented alternate.
 node_port_in_state() { [[ "$2" == 443 ]]; }

@@ -11,27 +11,21 @@ check_line() {
   esac
 }
 
+# Kept as a compatibility shim for callers that source doctor.sh directly;
+# the full implementation is provided by lib/status.sh when the CLI starts.
 status_summary() {
-  local sb_ver cf_ver nodes enabled certs mode service_state backend mux_state mux_port traffic_count
-  sb_ver=$(core_current_version || true)
-  cf_ver=$(cloudflared_current_version || true)
-  nodes=$(jq '.nodes|length' "$SBM_STATE")
-  enabled=$(state_enabled_count)
-  certs=$(jq '.certificates|length' "$SBM_STATE")
-  mode=$(jq -r '.tunnel.mode' "$SBM_STATE")
-  mux_state=$(jq -r '.nginx_stream.enabled // false' "$SBM_STATE")
-  mux_port=$(jq -r '.nginx_stream.port // 443' "$SBM_STATE")
-  traffic_count=$(jq '[.nodes[]? | select(.traffic.enabled==true)] | length' "$SBM_STATE")
-  backend=$(init_system_label)
-  if [[ "$SBM_SKIP_INIT" == 1 ]]; then
-    service_state='测试模式'
-  elif (( enabled == 0 )) && [[ $(jq -r '.api.enabled // false' "$SBM_STATE") != true ]]; then
-    service_state='待机（无启用节点）'
-  elif service_active "$SBM_SERVICE"; then
-    service_state='运行中'
-  else
-    service_state='未运行'
+  if declare -F status_show >/dev/null 2>&1; then
+    status_show
+    return
   fi
+  local sb_ver cf_ver nodes enabled certs mode backend service_state mux_state mux_port traffic_count
+  sb_ver=$(core_current_version || true); cf_ver=$(cloudflared_current_version || true)
+  nodes=$(jq '.nodes|length' "$SBM_STATE"); enabled=$(state_enabled_count); certs=$(jq '.certificates|length' "$SBM_STATE")
+  mode=$(jq -r '.tunnel.mode' "$SBM_STATE"); mux_state=$(jq -r '.nginx_stream.enabled // false' "$SBM_STATE"); mux_port=$(jq -r '.nginx_stream.port // 443' "$SBM_STATE")
+  traffic_count=$(jq '[.nodes[]? | select(.traffic.enabled==true)] | length' "$SBM_STATE"); backend=$(init_system_label)
+  if [[ "$SBM_SKIP_INIT" == 1 ]]; then service_state='测试模式'
+  elif (( enabled == 0 )) && [[ $(jq -r '.api.enabled // false' "$SBM_STATE") != true ]]; then service_state='待机（无启用节点）'
+  elif service_active "$SBM_SERVICE"; then service_state='运行中'; else service_state='未运行'; fi
   printf '%sSB Manager %s%s\n' "$C_BOLD" "$SBM_VERSION" "$C_RESET"
   printf '服务管理      : %s\n' "$backend"
   printf 'sing-box     : %s (%s)\n' "${sb_ver:-未安装}" "$service_state"
@@ -40,11 +34,6 @@ status_summary() {
   printf '证书          : %s 个\n' "$certs"
   printf 'Nginx复用     : %s (%s/TCP)\n' "$([[ "$mux_state" == true ]] && echo '启用' || echo '停用')" "$mux_port"
   printf '流量控制      : %s 个节点\n' "$traffic_count"
-  if [[ -s "$SBM_VAR/updates/sing-box.json" ]]; then
-    local pending
-    pending=$(jq -r '.latest // ""' "$SBM_VAR/updates/sing-box.json" 2>/dev/null || true)
-    [[ -n "$pending" && "$pending" != "$sb_ver" ]] && printf '可用更新      : sing-box %s\n' "$pending"
-  fi
 }
 
 doctor_repair_runtime() {
@@ -479,6 +468,14 @@ doctor_run() {
       check_line PASS 'sing-box API 仅监听 loopback'
     else
       check_line FAIL 'sing-box API 未按预期监听 loopback'; failures=$((failures + 1))
+    fi
+  fi
+  if declare -F health_collect_json >/dev/null 2>&1; then
+    local health_issue_count
+    health_issue_count=$(health_collect_json | jq 'length')
+    if (( health_issue_count > 0 )); then
+      check_line WARN "统一健康检查发现 $health_issue_count 项待处理异常"
+      warnings=$((warnings + 1))
     fi
   fi
   printf '\n结果：%s 个失败，%s 个警告。\n' "$failures" "$warnings"

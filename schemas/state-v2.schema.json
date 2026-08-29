@@ -3,7 +3,7 @@
   "$id": "https://github.com/R1ddle1337/sb-manager/schemas/state-v2.schema.json",
   "title": "sb-manager state schema v2",
   "type": "object",
-  "required": ["schema_version", "manager_version", "created_at", "updated_at", "settings", "tunnel", "api", "nginx_stream", "certificates", "nodes"],
+  "required": ["schema_version", "manager_version", "created_at", "updated_at", "settings", "tunnel", "api", "nginx_stream", "notifications", "health", "certificates", "nodes"],
   "additionalProperties": true,
   "properties": {
     "schema_version": {"const": 2},
@@ -71,12 +71,34 @@
         }
       }
     },
+    "notifications": {
+      "type": "object",
+      "required": ["enabled", "provider", "traffic_thresholds"],
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "provider": {"enum": ["none", "telegram", "wecom", "webhook"]},
+        "traffic_thresholds": {
+          "type": "array", "minItems": 1, "maxItems": 10, "uniqueItems": true,
+          "items": {"type": "integer", "minimum": 1, "maximum": 100}
+        }
+      }
+    },
+    "health": {
+      "type": "object",
+      "required": ["enabled", "certificate_warn_days"],
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "certificate_warn_days": {"type": "integer", "minimum": 1, "maximum": 365}
+      }
+    },
     "certificates": {"type": "array"},
     "nodes": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "name", "protocol", "enabled", "listen", "port", "created_at", "traffic"],
+        "required": ["id", "name", "protocol", "enabled", "listen", "port", "created_at", "traffic", "metadata"],
         "additionalProperties": true,
         "properties": {
           "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,47}$"},
@@ -86,6 +108,18 @@
           "listen": {"type": "string", "minLength": 1},
           "port": {"type": "integer", "minimum": 1, "maximum": 65535},
           "created_at": {"type": "string", "minLength": 1},
+          "metadata": {
+            "type": "object",
+            "required": ["remark", "region", "purpose", "line", "tags"],
+            "additionalProperties": false,
+            "properties": {
+              "remark": {"type": "string", "maxLength": 512},
+              "region": {"type": "string", "maxLength": 128},
+              "purpose": {"type": "string", "maxLength": 128},
+              "line": {"type": "string", "maxLength": 128},
+              "tags": {"type": "array", "maxItems": 32, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 48}}
+            }
+          },
           "traffic": {
             "type": "object",
             "required": ["configured", "enabled", "quota_bytes", "quota_mode", "reset_day", "upload_rate_bps", "download_rate_bps"],

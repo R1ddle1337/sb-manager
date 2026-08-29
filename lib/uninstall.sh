@@ -57,7 +57,7 @@ uninstall_manager() {
     service_disable "$SBM_TRAFFIC_SERVICE" || true
     service_stop "$SBM_TRAFFIC_SERVICE" || true
     if [[ "$backend" == systemd ]]; then
-      systemctl disable --now sb-core-update.timer sb-acme-renew.timer sb-quick-tunnel-refresh.timer sb-traffic-sync.timer >/dev/null 2>&1 || true
+      systemctl disable --now sb-core-update.timer sb-acme-renew.timer sb-quick-tunnel-refresh.timer sb-traffic-sync.timer sb-health-check.timer >/dev/null 2>&1 || true
       systemctl reset-failed "$SBM_SERVICE" "$SBM_TUNNEL_SERVICE" "$SBM_NGINX_STREAM_SERVICE" "$SBM_TRAFFIC_SERVICE" >/dev/null 2>&1 || true
     fi
   fi
@@ -78,6 +78,8 @@ uninstall_manager() {
     "$SBM_SYSTEMD_DIR/$SBM_TRAFFIC_SERVICE" \
     "$SBM_SYSTEMD_DIR/sb-traffic-sync.service" \
     "$SBM_SYSTEMD_DIR/sb-traffic-sync.timer" \
+    "$SBM_SYSTEMD_DIR/$SBM_HEALTH_SERVICE" \
+    "$SBM_SYSTEMD_DIR/sb-health-check.timer" \
     "$SBM_OPENRC_DIR/sb-sing-box" \
     "$SBM_OPENRC_DIR/sb-cloudflared" \
     "$SBM_OPENRC_DIR/$(service_native_name "$SBM_NGINX_STREAM_SERVICE")" \
@@ -87,6 +89,7 @@ uninstall_manager() {
     "$SBM_PERIODIC_DIR/daily/sb-acme-renew" \
     "$SBM_PERIODIC_DIR/15min/sb-quick-tunnel-refresh" \
     "$SBM_PERIODIC_DIR/15min/sb-traffic-sync" \
+    "$SBM_PERIODIC_DIR/15min/sb-health-check" \
     "$SBM_LOGROTATE_FILE"
   service_reload_manager || true
 

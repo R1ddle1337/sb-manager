@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-alpha.26
+
+- Add a unified `sb status` dashboard and machine-readable `sb status --json` output covering services, nodes, traffic, certificates, firewall, notifications, and health issues.
+- Add protected Telegram, WeCom, and generic Webhook notifications with deduplicated traffic quota thresholds and periodic health-change alerts.
+- Add SSH listener discovery, UFW change preview/safe setup, and automatic allowance of detected SSH ports alongside web and protocol ports.
+- Add node metadata (remark, region, purpose, line, tags) with CLI/panel editing and tag/region filtering.
+- Add optional systemd/OpenRC periodic health checks with certificate expiry, listener, service, firewall, Fail2ban, and nftables diagnostics.
+
 ## 0.1.0-alpha.25
 
 - Add explicit firewall-panel and CLI setup for Fail2ban SSH protection (180-second window, five failures, permanent bans) and UFW installation/enablement with TCP 22, 80, 443, and active protocol ports allowed.

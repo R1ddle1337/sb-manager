@@ -14,6 +14,7 @@ export SBM_EXPORTS="$SBM_VAR/exports" SBM_CACHE="$SBM_VAR/cache" SBM_CORE_DIR="$
 export SBM_LOCK="$SBM_RUN/manager.lock" SBM_SING_BOX_BIN=/bin/true SBM_SKIP_INIT=1 SBM_TEST_MODE=1
 export SBM_SERVICE_USER=$(id -un) SBM_FAIL2BAN_CONFIG="$ROOT/etc/fail2ban/jail.d/sb-manager-sshd.local"
 export SBM_FIREWALL_PACKAGE_INSTALLER="$ROOT/package-install"
+export SBM_SSH_PORTS=2222
 
 mkdir -p "$ROOT/bin"
 cat >"$ROOT/package-install" <<'EOF_INSTALLER'
@@ -90,11 +91,12 @@ grep -Fq '[sshd]' "$SBM_FAIL2BAN_CONFIG"
 grep -Fq 'findtime = 180' "$SBM_FAIL2BAN_CONFIG"
 grep -Fq 'maxretry = 5' "$SBM_FAIL2BAN_CONFIG"
 grep -Fq 'bantime = -1' "$SBM_FAIL2BAN_CONFIG"
-grep -Fq 'port = 22' "$SBM_FAIL2BAN_CONFIG"
+grep -Fq 'port = 2222' "$SBM_FAIL2BAN_CONFIG"
 [[ "$(stat -c '%a' "$SBM_FAIL2BAN_CONFIG")" == 644 ]]
 
 firewall_setup_ufw 1 >/dev/null
 grep -Fq 'allow 22/tcp' "$FAKE_UFW_LOG"
+grep -Fq 'allow 2222/tcp' "$FAKE_UFW_LOG"
 grep -Fq 'allow 80/tcp' "$FAKE_UFW_LOG"
 grep -Fq 'allow 443/tcp' "$FAKE_UFW_LOG"
 grep -Fq 'allow 28388/tcp' "$FAKE_UFW_LOG"

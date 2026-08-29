@@ -41,6 +41,15 @@ state_default_json() {
         port: 443,
         routes: []
       },
+      notifications: {
+        enabled: false,
+        provider: "none",
+        traffic_thresholds: [80, 90, 100]
+      },
+      health: {
+        enabled: false,
+        certificate_warn_days: 21
+      },
       certificates: [],
       nodes: []
     }'
@@ -102,8 +111,21 @@ state_normalize_v2_file() {
     | .settings.outbound_ip_strategy //= "prefer_ipv4"
     | .api //= {enabled:false,listen:"127.0.0.1",port:9090,dashboard:false}
     | .nginx_stream //= {enabled:false,listen:"::",port:443,routes:[]}
+    | .notifications //= {enabled:false,provider:"none",traffic_thresholds:[80,90,100]}
+    | .notifications.enabled //= false
+    | .notifications.provider //= "none"
+    | .notifications.traffic_thresholds //= [80,90,100]
+    | .health //= {enabled:false,certificate_warn_days:21}
+    | .health.enabled //= false
+    | .health.certificate_warn_days //= 21
     | .nodes |= map(
-        .traffic //= {}
+        .metadata //= {remark:"",region:"",purpose:"",line:"",tags:[]}
+        | .metadata.remark //= ""
+        | .metadata.region //= ""
+        | .metadata.purpose //= ""
+        | .metadata.line //= ""
+        | .metadata.tags //= []
+        | .traffic //= {}
         | .traffic.configured //= false
         | .traffic.enabled //= false
         | .traffic.quota_bytes //= null
@@ -156,10 +178,13 @@ state_migrate_v1_to_v2() {
     | .settings.outbound_ip_strategy="prefer_ipv4"
     | .api={enabled:false,listen:"127.0.0.1",port:9090,dashboard:false}
     | .nginx_stream={enabled:false,listen:"::",port:443,routes:[]}
+    | .notifications={enabled:false,provider:"none",traffic_thresholds:[80,90,100]}
+    | .health={enabled:false,certificate_warn_days:21}
     | .nodes |= map(
         . as $node
         | .users=[{id:"default",name:$node.name,enabled:true,created_at:$node.created_at}]
         | .traffic={configured:false,enabled:false,quota_bytes:null,quota_mode:"total",reset_day:1,upload_rate_bps:null,download_rate_bps:null}
+        | .metadata={remark:"",region:"",purpose:"",line:"",tags:[]}
         | if .protocol=="shadowsocks" then .credential_mode="legacy" else . end
       )
   ' "$SBM_STATE" >"$candidate"
@@ -198,6 +223,14 @@ state_validate() {
       and (.listen | nonempty)
       and (.port | port)
       and (.created_at | timestamp);
+    def node_metadata:
+      type == "object"
+      and (.remark | string and length <= 512 and (explode | all(.[]; . >= 32 and . != 127)))
+      and (.region | string and length <= 128 and (explode | all(.[]; . >= 32 and . != 127)))
+      and (.purpose | string and length <= 128 and (explode | all(.[]; . >= 32 and . != 127)))
+      and (.line | string and length <= 128 and (explode | all(.[]; . >= 32 and . != 127)))
+      and (.tags | type == "array" and length <= 32)
+      and all(.tags[]; type == "string" and length > 0 and length <= 48 and test("^[^,[:cntrl:]]+$"));
     def node_protocol:
       if .protocol == "vmess-ws-cf" then
         (.listen == "127.0.0.1")
@@ -277,6 +310,16 @@ state_validate() {
         and (.node_id | string and test("^[a-z0-9][a-z0-9._-]{0,47}$"))
         and (.sni | nonempty)
         and (.backend_port | port)))
+    and (.notifications | type == "object"
+      and (.enabled | type == "boolean")
+      and (.provider | IN("none", "telegram", "wecom", "webhook"))
+      and (.traffic_thresholds | type == "array" and length > 0 and length <= 10)
+      and all(.traffic_thresholds[]; type == "number" and floor == . and . >= 1 and . <= 100)
+      and ((.traffic_thresholds | unique | length) == (.traffic_thresholds | length))
+      and (if .enabled then .provider != "none" else true end))
+    and (.health | type == "object"
+      and (.enabled | type == "boolean")
+      and (.certificate_warn_days | type == "number" and floor == . and . >= 1 and . <= 365))
     and (.certificates | type == "array")
     and all(.certificates[];
       type == "object"
@@ -289,6 +332,7 @@ state_validate() {
     and all(.nodes[];
       node_common and node_protocol
       and (.traffic | node_traffic)
+      and (.metadata | node_metadata)
       and (.users | type == "array" and length > 0)
       and all(.users[];
         type == "object"

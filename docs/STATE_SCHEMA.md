@@ -5,7 +5,7 @@ Simplified example:
 ```json
 {
   "schema_version": 2,
-  "manager_version": "0.1.0-alpha.24",
+  "manager_version": "0.1.0-alpha.26",
   "settings": {
     "log_level": "info",
     "default_server_address": "edge.example.com",
@@ -28,6 +28,15 @@ Simplified example:
       {"node_id": "any-main", "sni": "edge.example.com", "backend_port": 20000}
     ]
   },
+  "notifications": {
+    "enabled": true,
+    "provider": "telegram",
+    "traffic_thresholds": [80, 90, 100]
+  },
+  "health": {
+    "enabled": true,
+    "certificate_warn_days": 21
+  },
   "certificates": [
     {
       "domain": "edge.example.com",
@@ -41,6 +50,13 @@ Simplified example:
     {
       "id": "any-main",
       "protocol": "anytls",
+      "metadata": {
+        "remark": "primary edge",
+        "region": "hk",
+        "purpose": "production",
+        "line": "cn2",
+        "tags": ["primary", "tls"]
+      },
       "traffic": {
         "configured": true,
         "enabled": true,
@@ -60,6 +76,8 @@ Simplified example:
 
 Protocol credentials are excluded from the state file. User credentials live under `secrets/users/<node-id>/<user-id>.json`; protocol-level credentials live under `secrets/nodes/<node-id>.json`.
 
+Notification provider choice and thresholds are non-secret state. Telegram tokens/chat IDs and Webhook URLs live only in `secrets/notifications.json` with mode `0600`. Delivery deduplication and the last health report are runtime journals under `/var/lib/sb-manager/`.
+
 Snell nodes require a sing-box 1.14.0-rc.1 or newer core. Their protocol-level secret stores the server `psk`; each user secret stores a Snell `userkey`.
 
 Multiple TLS nodes may reference the same `certificates[].domain` and certificate files. Certificate identity is independent from listener binding; transport/port validation still prevents two direct TCP listeners from using the same port.
@@ -69,6 +87,8 @@ Every node has a normalized `traffic` object. `configured` distinguishes a never
 `nginx_stream.routes` separates the public frontend from sing-box's runtime listener. A node keeps its original direct `listen`/`port`; while the mux is enabled, rendering substitutes `127.0.0.1:<backend_port>` and exports substitute the shared public port. Node IDs, SNI values, and backend ports must each be unique. Older schema-v2 files without this section are normalized to a disabled empty configuration before validation.
 
 Existing v1 installations migrate once, before rendering, with a pre-migration snapshot. Future changes must use explicit, one-way migration steps. Generated config files must never be parsed back into state.
+
+`nodes[].metadata` contains operator-only `remark`, `region`, `purpose`, `line`, and unique `tags`. These values are for filtering and dashboards and are deliberately excluded from protocol renderers and client exports.
 
 Mutations hold the manager lock through candidate validation, rendering,
 installation, and service reconciliation. A failed operation restores the

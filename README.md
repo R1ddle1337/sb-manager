@@ -2,7 +2,7 @@
 
 `sb-manager` 是一个面向 systemd/OpenRC Linux 的、状态驱动的 sing-box 多协议管理脚本。安装后输入 `sb` 即可打开中文交互面板，也可以使用完整的非交互 CLI。
 
-> 当前版本：`0.1.0-alpha.25`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
+> 当前版本：`0.1.0-alpha.26`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
 
 ## 功能
 
@@ -25,6 +25,10 @@
 - 备份、恢复、日志、`sb doctor` 诊断与 `sb repair` 自动修复
 - 低权限 systemd/OpenRC 服务；不会关闭或清空系统防火墙
 - 防火墙面板可查看启用协议端口、显式执行 UFW allow，并在备份后清理 INPUT 链全局拦截
+- 统一状态面板与 `sb status --json`，可供监控脚本直接读取
+- 流量配额阈值通知（Telegram、企业微信和通用 Webhook）与可选定时健康检查
+- UFW 安全安装向导会探测实际 SSH 端口并在启用前展示规则预览
+- 节点备注、地区、用途、线路和标签，可按标签/地区筛选
 
 ### 节点流量控制
 
@@ -141,7 +145,7 @@ sudo bash install.sh
 bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/install.sh)
 ```
 
-`install.sh` 默认先解析 `main` 的最新 commit SHA，再按该不可变 commit 下载源码；也可设置 `SBM_INSTALL_REF=v0.1.0-alpha.25` 固定版本。显式指定 `main` 等可变分支仍需 `SBM_ALLOW_MUTABLE_REF=1`。离线发布包可使用 `build-release.sh` 生成，并核验 `SHA256SUMS`、`PROVENANCE-SHA256SUMS` 及可选的 GPG 签名文件。
+`install.sh` 默认先解析 `main` 的最新 commit SHA，再按该不可变 commit 下载源码；也可设置 `SBM_INSTALL_REF=v0.1.0-alpha.26` 固定版本。显式指定 `main` 等可变分支仍需 `SBM_ALLOW_MUTABLE_REF=1`。离线发布包可使用 `build-release.sh` 生成，并核验 `SHA256SUMS`、`PROVENANCE-SHA256SUMS` 及可选的 GPG 签名文件。
 
 安装完成后：
 
@@ -176,6 +180,9 @@ sb status
 sb doctor
 sb doctor --network
 sb probe NODE_ID
+sb status --json                 # 机器可读的统一状态
+sb health check --json           # 单次健康检查
+sb health enable 21              # 启用定时健康检查，证书提前 21 天预警
 ```
 
 出站 IP 策略可在“全局设置 → 出站 IP 优先级”中选择，也可使用 CLI：
@@ -196,6 +203,18 @@ sb share ss-main
 ```
 
 需要在云厂商安全组及本机防火墙开放对应的 `TCP 8388`。
+
+### 节点元数据与筛选
+
+节点元数据只保存在 `state.json`，不会进入 sing-box 生成配置：
+
+```bash
+sb node add ss --id hk-01 --port 8388 --address edge.example.com \
+  --region hk --purpose relay --line cn2 --tags backup,fast --remark '备用线路'
+sb node set hk-01 --region jp --tags production,ipv6
+sb node list --tag backup
+sb node list --region hk --json
+```
 
 ### Snell v5
 
@@ -317,11 +336,25 @@ sb firewall ports                 # 查看所有节点的 TCP/UDP 端口
 sb firewall ufw-allow --yes       # 为所有启用协议端口执行 ufw allow
 sb firewall fail2ban --yes        # 安装并启用 Fail2ban：SSH 180 秒内 5 次失败，永久封禁
 sb firewall ufw --yes              # 安装并启用 UFW，放行 22/80/443 及启用协议端口
+sb firewall ufw --dry-run          # 只预览 SSH、Web 和协议端口放行计划
 sb firewall status                 # 查看 UFW/Fail2ban 状态
 sb firewall clear-iptables --yes  # 先备份，再清理 INPUT 全局 DROP/REJECT
 ```
 
-`fail2ban` 只覆盖 SSH jail：`findtime=180`、`maxretry=5`、`bantime=-1`，不会替换其他 jail。`ufw` 操作会先保存 iptables/UFW 状态，再幂等放行 TCP 22、80、443 和当前启用的 sing-box 协议端口；UFW 未安装时会按当前发行版调用包管理器安装。UFW 启用后仍请确认 SSH 使用的是 22 端口，非标准 SSH 端口需另行放行。备份和状态快照保存在 `/var/lib/sb-manager/firewall/`。
+`fail2ban` 只覆盖 SSH jail：`findtime=180`、`maxretry=5`、`bantime=-1`，不会替换其他 jail；SSH 端口会从 `sshd -T`/监听套接字自动探测，无法探测时安全回退到 22。`ufw` 向导会先保存 iptables/UFW 状态并展示预览，再幂等放行探测到的 SSH 端口、兼容性的 TCP 22、80、443 和当前启用的 sing-box 协议端口；UFW 未安装时会按当前发行版调用包管理器安装。备份和状态快照保存在 `/var/lib/sb-manager/firewall/`。
+
+通知和健康检查：
+
+```bash
+sb notify configure telegram --token-file /root/telegram-token \
+  --chat-id 123456 --thresholds 80,90,100
+sb notify configure webhook --url-file /root/monitor-webhook
+sb notify status --json
+sb notify test
+sb notify disable
+```
+
+通知 Token、Webhook URL 和 Chat ID 保存在权限为 `0600` 的 `secrets/notifications.json`；定时任务只在达到新阈值或健康状态发生变化时发送，避免重复告警。`sb traffic tick` 会执行流量阈值检查，systemd/OpenRC 安装会额外创建 `sb-health-check.timer` 或 15 分钟 periodic 任务。
 
 完整帮助：
 

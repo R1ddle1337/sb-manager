@@ -30,6 +30,9 @@ source "$SBM_LIB/lib/core.sh"
 source "$SBM_LIB/lib/node.sh"
 source "$SBM_LIB/lib/traffic.sh"
 source "$SBM_LIB/lib/firewall.sh"
+source "$SBM_LIB/lib/notification.sh"
+source "$SBM_LIB/lib/health.sh"
+source "$SBM_LIB/lib/status.sh"
 source "$SBM_LIB/lib/export.sh"
 source "$SBM_LIB/lib/cert.sh"
 source "$SBM_LIB/lib/tunnel.sh"
@@ -46,12 +49,13 @@ sb-manager：状态驱动的 sing-box 多协议管理器
 
 用法：
   sb                              打开交互面板
-  sb status                       查看状态
-  sb node list [--json]           列出节点
+  sb status [--json]              查看统一状态
+  sb node list [--json] [--tag TAG] [--region REGION] 列出节点
   sb node add <vmess|ss|anytls|hy2|trojan|tuic|vless|naive|shadowtls|snell> [参数]
   sb node show <ID>
   sb node enable|disable|delete|rotate <ID>
   sb node set <ID> --port N|--address HOST|--domain DOMAIN|--name NAME|--path PATH
+                 [--remark TEXT] [--region REGION] [--purpose PURPOSE] [--line LINE] [--tags a,b]
   sb user list <NODE_ID>
   sb user add <NODE_ID> <USER_ID> [NAME]
   sb user enable|disable|delete|rotate <NODE_ID> <USER_ID>
@@ -69,6 +73,8 @@ sb-manager：状态驱动的 sing-box 多协议管理器
                  [--quota-mode total|download]
   sb traffic disable|remove NODE_ID
   sb traffic reset NODE_ID|all [--yes]
+  sb notify status|configure|disable|test|check
+  sb health status|check|enable|disable [WARN_DAYS]
 
   sb cert setup-cloudflare [TOKEN] [ZONE_ID] [EMAIL]
   sb cert issue <DOMAIN> [EMAIL]
@@ -81,7 +87,7 @@ sb-manager：状态驱动的 sing-box 多协议管理器
   sb settings show|detect-ip|address <auto|HOST>
   sb settings outbound-ip <prefer_ipv4|prefer_ipv6|ipv4_only>
   sb firewall status|ports|clear-iptables|ufw-allow [--yes]
-  sb firewall fail2ban|ufw [--yes]
+  sb firewall fail2ban|ufw [--yes] [--dry-run]
   sb probe NODE_ID                探测节点 DNS、监听和 TLS/UDP 可达性
 
   sb core check|update [VERSION]|rollback|policy <manual|notify|patch|stable>|auto
@@ -101,7 +107,7 @@ sb-manager：状态驱动的 sing-box 多协议管理器
   SS:    --method 2022-blake3-aes-128-gcm|... --network tcp
   HY2:   --obfs salamander --masquerade URL
   Snell: --obfs none|http [--obfs-host DOMAIN] (需要 sing-box 1.14+)
-  通用:  --disabled
+  通用:  --disabled --remark TEXT --region REGION --purpose PURPOSE --line LINE --tags a,b
 EOF_HELP
 }
 
@@ -130,11 +136,22 @@ main() {
 
   case "$cmd" in
     menu) ui_main ;;
-    status) status_summary; node_list ;;
+    status)
+      local json=0 arg
+      shift
+      while (($#)); do case "$1" in --json) json=1; shift;; *) die '用法：sb status [--json]';; esac; done
+      if (( json )); then status_json; else status_summary; fi
+      ;;
     node)
       local action=${2:-list}; shift 2 || true
       case "$action" in
-        list) [[ ${1:-} == --json ]] && node_list 1 || node_list 0 ;;
+        list)
+          local json=0 tag='' region='' arg
+          while (($#)); do
+            case "$1" in --json) json=1; shift;; --tag) tag=${2:?缺少标签}; shift 2;; --region) region=${2:?缺少地区}; shift 2;; *) die '用法：sb node list [--json] [--tag TAG] [--region REGION]';; esac
+          done
+          node_list "$json" "$tag" "$region"
+          ;;
         add) (($# >= 1)) || die '缺少协议'; node_add "$@" ;;
         show) (($# == 1)) || die '用法：sb node show ID'; node_show "$1" ;;
         enable) node_enable "${1:?缺少节点 ID}" ;;
@@ -146,18 +163,19 @@ main() {
       esac
       ;;
     firewall)
-      local action=${2:-ports} assume_yes=0 arg
+      local action=${2:-ports} assume_yes=0 dry_run=0 arg
       shift 2 || true
       while (($#)); do
-        case "$1" in --yes|-y) assume_yes=1; shift;; *) die '用法：sb firewall status|ports|clear-iptables|ufw-allow|fail2ban|ufw [--yes]';; esac
+        case "$1" in --yes|-y) assume_yes=1; shift;; --dry-run) dry_run=1; shift;; *) die '用法：sb firewall status|ports|clear-iptables|ufw-allow|fail2ban|ufw [--yes] [--dry-run]';; esac
       done
+      [[ "$dry_run" == 0 || "$action" == ufw || "$action" == setup-ufw ]] || die '--dry-run 仅适用于 sb firewall ufw。'
       case "$action" in
         status) firewall_status ;;
         ports|list) firewall_list_protocol_ports ;;
         clear-iptables) firewall_clear_iptables_input_deny "$assume_yes" ;;
         ufw-allow) firewall_ufw_allow_protocol_ports "$assume_yes" ;;
         fail2ban|setup-fail2ban) firewall_setup_fail2ban "$assume_yes" ;;
-        ufw|setup-ufw) firewall_setup_ufw "$assume_yes" ;;
+        ufw|setup-ufw) firewall_setup_ufw "$assume_yes" "$dry_run" ;;
         *) die '用法：sb firewall status|ports|clear-iptables|ufw-allow|fail2ban|ufw [--yes]' ;;
       esac
       ;;
@@ -287,6 +305,40 @@ main() {
         sync) (($# == 2)) || die '用法：sb traffic sync'; traffic_checkpoint ;;
         tick) (($# == 2)) || die '用法：sb traffic tick'; traffic_tick ;;
         *) die '用法：sb traffic status|set|disable|remove|reset' ;;
+      esac
+      ;;
+    notify)
+      local action=${2:-status}; shift 2 || true
+      case "$action" in
+        status)
+          (($# == 0)) || { (($# == 1)) && [[ ${1:-} == --json ]]; } || die '用法：sb notify status [--json]'
+          notification_status "$([[ ${1:-} == --json ]] && echo 1 || echo 0)"
+          ;;
+        configure)
+          local provider=${1:?缺少通知渠道}; shift
+          notification_configure_cli "$provider" "$@"
+          ;;
+        disable) (($# == 0)) || die '用法：sb notify disable'; notification_disable ;;
+        test) (($# == 0)) || die '用法：sb notify test'; notification_test ;;
+        check) (($# == 0)) || die '用法：sb notify check'; with_lock notification_traffic_check_unlocked ;;
+        *) die '用法：sb notify status|configure|disable|test|check';;
+      esac
+      ;;
+    health)
+      local action=${2:-status}; shift 2 || true
+      case "$action" in
+        status)
+          (($# == 0)) || { (($# == 1)) && [[ ${1:-} == --json ]]; } || die '用法：sb health status [--json]'
+          health_status "$([[ ${1:-} == --json ]] && echo 1 || echo 0)"
+          ;;
+        check)
+          (($# == 0)) || { (($# == 1)) && [[ ${1:-} == --json ]]; } || die '用法：sb health check [--json]'
+          health_check "$([[ ${1:-} == --json ]] && echo 1 || echo 0)"
+          ;;
+        enable) (($# <= 1)) || die '用法：sb health enable [证书预警天数]'; health_enable "${1:-}" ;;
+        disable) (($# == 0)) || die '用法：sb health disable'; health_disable ;;
+        tick) (($# == 0)) || die '用法：sb health tick'; health_tick ;;
+        *) die '用法：sb health status|check|enable|disable [WARN_DAYS]';;
       esac
       ;;
     core)

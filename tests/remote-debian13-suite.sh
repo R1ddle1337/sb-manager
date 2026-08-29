@@ -14,6 +14,7 @@ run_stable() {
 }
 
 for test in \
+  tests/operations-smoke.sh \
   tests/ui-menu-smoke.sh \
   tests/firewall-smoke.sh \
   tests/firewall-security-smoke.sh \

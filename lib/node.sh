@@ -72,22 +72,30 @@ singbox_port_in_use() {
   '
 }
 
+node_list_json() {
+  local tag=${1:-} region=${2:-}
+  jq --arg tag "$tag" --arg region "$region" '[.nodes[]
+    | select($tag=="" or (.metadata.tags | index($tag)) != null)
+    | select($region=="" or .metadata.region==$region)]' "$SBM_STATE"
+}
+
 node_list() {
-  local json=${1:-0}
-  if [[ "$json" == "1" ]]; then jq '.nodes' "$SBM_STATE"; return; fi
-  printf '%-18s %-18s %-8s %-10s %-24s %s\n' 'ID' '协议' '状态' '端口' '域名/地址' '名称'
-  printf '%-18s %-18s %-8s %-10s %-24s %s\n' '------------------' '------------------' '--------' '----------' '------------------------' '----'
-  local node id p enabled port endpoint name route public_port
+  local json=${1:-0} tag=${2:-} region=${3:-}
+  if [[ "$json" == "1" ]]; then node_list_json "$tag" "$region"; return; fi
+  printf '%-18s %-18s %-8s %-10s %-20s %-14s %s\n' 'ID' '协议' '状态' '端口' '域名/地址' '地区/标签' '名称'
+  printf '%-18s %-18s %-8s %-10s %-20s %-14s %s\n' '------------------' '------------------' '--------' '----------' '--------------------' '--------------' '----'
+  local node id p enabled port endpoint name route public_port metadata
   public_port=$(jq -r '.nginx_stream.port // 443' "$SBM_STATE")
   while IFS= read -r node; do
     id=$(jq -r '.id' <<<"$node"); p=$(jq -r '.protocol' <<<"$node"); enabled=$(jq -r 'if .enabled then "启用" else "停用" end' <<<"$node")
     port=$(jq -r '.port' <<<"$node"); endpoint=$(jq -r '(.domain // .server_address // "-")' <<<"$node"); name=$(jq -r '.name' <<<"$node")
+    metadata=$(jq -r '([.metadata.region] + .metadata.tags | map(select(length>0)) | join(",")) // ""' <<<"$node")
     if declare -F nginx_stream_route_for_node >/dev/null 2>&1 && nginx_stream_state_enabled "$SBM_STATE"; then
       route=$(nginx_stream_route_for_node "$SBM_STATE" "$id")
       [[ -z "$route" ]] || port="${public_port}→$(jq -r '.backend_port' <<<"$route")"
     fi
-    printf '%-18s %-18s %-8s %-10s %-24s %s\n' "$id" "$(node_protocol_label "$p")" "$enabled" "$port" "$endpoint" "$name"
-  done < <(state_list_nodes)
+    printf '%-18s %-18s %-8s %-10s %-20s %-14s %s\n' "$id" "$(node_protocol_label "$p")" "$enabled" "$port" "$endpoint" "${metadata:--}" "$name"
+  done < <(node_list_json "$tag" "$region" | jq -c '.[]')
 }
 
 node_show() {
@@ -95,6 +103,10 @@ node_show() {
   node=$(state_get_node "$id")
   [[ -n "$node" ]] || die "节点不存在：$id"
   printf '%s\n' "$node" | jq .
+  printf '元数据：备注=%s；地区=%s；用途=%s；线路=%s；标签=%s\n' \
+    "$(jq -r '.metadata.remark // "-"' <<<"$node")" "$(jq -r '.metadata.region // "-"' <<<"$node")" \
+    "$(jq -r '.metadata.purpose // "-"' <<<"$node")" "$(jq -r '.metadata.line // "-"' <<<"$node")" \
+    "$(jq -r 'if (.metadata.tags|length)>0 then (.metadata.tags|join(",")) else "-" end' <<<"$node")"
   if declare -F nginx_stream_route_for_node >/dev/null 2>&1; then
     local route
     route=$(nginx_stream_route_for_node "$SBM_STATE" "$id")
@@ -106,6 +118,7 @@ node_show() {
 _node_add() {
   local type=$1; shift
   local id='' name='' port='' domain='' address='' address_supplied=0 address_source=auto path='' method='2022-blake3-aes-256-gcm' network='tcp' mux=true enabled=true obfs='' obfs_host='' masquerade='' security='tls' flow='' handshake_server='' handshake_port=443 congestion_control='cubic' strict_mode=true wildcard_sni='off'
+  local remark='' region='' purpose='' line='' tags=''
   while (($#)); do
     case "$1" in
       --id) id=${2:?}; shift 2;; --name) name=${2:?}; shift 2;; --port) port=${2:?}; shift 2;;
@@ -116,6 +129,7 @@ _node_add() {
       --handshake-server) handshake_server=${2:?}; shift 2;; --handshake-port) handshake_port=${2:?}; shift 2;;
       --congestion-control) congestion_control=${2:?}; shift 2;;
       --strict-mode) strict_mode=${2:?}; shift 2;; --wildcard-sni) wildcard_sni=${2:?}; shift 2;; --quic) network=udp; shift;;
+      --remark) remark=${2:?缺少备注}; shift 2;; --region) region=${2:?缺少地区}; shift 2;; --purpose) purpose=${2:?缺少用途}; shift 2;; --line) line=${2:?缺少线路}; shift 2;; --tags) tags=${2:?缺少标签}; shift 2;;
       *) die "未知参数：$1";;
     esac
   done
@@ -246,7 +260,10 @@ _node_add() {
       node=$(jq -n --arg id "$id" --arg name "$name" --argjson port "$port" --arg address "$address" --arg obfs_mode "$snell_obfs_mode" --arg obfs_host "$snell_obfs_host" --arg now "$created_at" --argjson enabled "$enabled" '{id:$id,name:$name,protocol:"snell",enabled:$enabled,listen:"::",port:$port,server_address:$address,obfs_mode:$obfs_mode,obfs_host:$obfs_host,created_at:$now,users:[{id:"default",name:$name,enabled:true,created_at:$now}]}')
       ;;
   esac
-  node=$(jq '.traffic={configured:false,enabled:false,quota_bytes:null,quota_mode:"total",reset_day:1,upload_rate_bps:null,download_rate_bps:null}' <<<"$node")
+  node=$(jq --arg remark "$remark" --arg region "$region" --arg purpose "$purpose" --arg line "$line" --arg tags "$tags" '
+    .traffic={configured:false,enabled:false,quota_bytes:null,quota_mode:"total",reset_day:1,upload_rate_bps:null,download_rate_bps:null}
+    | .metadata={remark:$remark,region:$region,purpose:$purpose,line:$line,tags:($tags | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length>0)) | unique)}
+  ' <<<"$node")
   if [[ "$protocol" != vmess-ws-cf ]]; then
     node=$(jq --arg source "$address_source" '.server_address_source=$source' <<<"$node")
   fi
@@ -327,6 +344,14 @@ _node_set() {
       --address) validate_address "$value" || die "无效地址"; tmp=$(mktemp "$SBM_RUN/edit.XXXXXX"); jq --arg id "$id" --arg v "$value" '(.nodes[]|select(.id==$id)) |= if .protocol=="vmess-ws-cf" then .client_address=$v else .server_address=$v | .server_address_source="manual" end' "$candidate" >"$tmp"; mv "$tmp" "$candidate";;
       --domain) validate_domain "$value" || die "无效域名：$value"; tmp=$(mktemp "$SBM_RUN/edit.XXXXXX"); jq --arg id "$id" --arg v "$value" '(.nodes[]|select(.id==$id)|.domain)=$v' "$candidate" >"$tmp"; mv "$tmp" "$candidate";;
       --path) value=$(normalize_ws_path "$value"); tmp=$(mktemp "$SBM_RUN/edit.XXXXXX"); jq --arg id "$id" --arg v "$value" '(.nodes[]|select(.id==$id)|.ws_path)=$v' "$candidate" >"$tmp"; mv "$tmp" "$candidate";;
+      --remark|--region|--purpose|--line)
+        local field=${key#--}
+        [[ "$value" != *$'\n'* && "$value" != *$'\r'* && "$value" != *$'\t'* ]] || die "节点元数据不能包含控制字符。"
+        tmp=$(mktemp "$SBM_RUN/edit.XXXXXX"); jq --arg id "$id" --arg field "$field" --arg v "$value" '(.nodes[]|select(.id==$id)|.metadata[$field])=$v' "$candidate" >"$tmp"; mv "$tmp" "$candidate"
+        ;;
+      --tags)
+        tmp=$(mktemp "$SBM_RUN/edit.XXXXXX"); jq --arg id "$id" --arg v "$value" '(.nodes[]|select(.id==$id)|.metadata.tags)=($v | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length>0)) | unique)' "$candidate" >"$tmp"; mv "$tmp" "$candidate"
+        ;;
       *) rm -f "$candidate"; die "不支持的修改参数：$key";;
     esac
   done

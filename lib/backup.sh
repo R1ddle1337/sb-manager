@@ -35,7 +35,7 @@ _backup_create() {
   mv -f "$output_tmp" "$output"
   rm -rf "$stage"; rm -f "$plain"
   log_ok "备份已创建：$output"
-  log_warn "备份包含节点密码、Tunnel Token 和 DNS API Token，请妥善保管。"
+  log_warn "备份包含节点密码、通知/Webhook、Tunnel Token 和 DNS API Token，请妥善保管。"
 }
 backup_create() { with_lock _backup_create "$@"; }
 

@@ -81,6 +81,14 @@ Completion requires all checkboxes above, updated architecture/schema/security d
 - [x] Add panel/CLI setup for Fail2ban SSH protection with a 180-second window, five retries, and permanent bans.
 - [x] Add panel/CLI UFW installation, idempotent TCP 22/80/443 allows, and active protocol-port allows before enablement.
 - [x] Snapshot existing iptables/UFW status and Fail2ban jail configuration before these explicit host changes.
+- [x] Detect actual SSH listener ports and preview all UFW changes before enabling the firewall.
+
+## Unified Operations and Alerting
+
+- [x] Add a unified human status dashboard and stable `sb status --json` output.
+- [x] Add protected Telegram, WeCom, and generic Webhook delivery with per-cycle traffic threshold deduplication.
+- [x] Add node remarks, region, purpose, line, tags, and CLI filtering without affecting generated configuration.
+- [x] Add optional systemd/OpenRC health checks for services, listeners, certificates, firewall components, and traffic rules.
 
 ## Acceptance record (2026-08-28)
 

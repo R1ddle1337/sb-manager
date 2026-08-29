@@ -349,6 +349,9 @@ traffic_tick_unlocked() {
     || { (( active > 0 )) && ! traffic_runtime_complete; }; then
     traffic_apply_unlocked
   fi
+  if declare -F notification_traffic_check_unlocked >/dev/null 2>&1; then
+    notification_traffic_check_unlocked || true
+  fi
 }
 
 traffic_usage_rebase_node_unlocked() {

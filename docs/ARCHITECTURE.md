@@ -45,7 +45,15 @@ The implementation deliberately does not install `tc` qdiscs. Rate enforcement u
 
 ## Explicit host-firewall setup
 
-The firewall panel keeps host-security changes separate from proxy state. `sb firewall fail2ban` installs (when needed) and writes the manager-owned SSH jail at `SBM_FAIL2BAN_CONFIG`, with `findtime=180`, `maxretry=5`, and `bantime=-1`; it then validates and enables/restarts the native Fail2ban service. The action snapshots current iptables and the prior jail before replacement. `sb firewall ufw` similarly snapshots current iptables and UFW status, idempotently allows TCP `22`, `80`, `443`, and every enabled protocol listener, then enables UFW if it was inactive. Neither action runs during ordinary installation, and neither removes unrelated rules or packages. Package installation uses the detected apk/apt/dnf/yum/pacman/zypper backend.
+The firewall panel keeps host-security changes separate from proxy state. `sb firewall fail2ban` installs (when needed) and writes the manager-owned SSH jail at `SBM_FAIL2BAN_CONFIG`, with `findtime=180`, `maxretry=5`, and `bantime=-1`; it discovers effective SSH ports from the current connection, `sshd -T`, and listening sockets before validating and enabling/restarting Fail2ban. The action snapshots current iptables and the prior jail before replacement. `sb firewall ufw` first displays a dry-run plan, then snapshots current iptables and UFW status, idempotently allows detected SSH ports, TCP `22`, `80`, `443`, and every enabled protocol listener before enabling UFW. Neither action runs during ordinary installation, and neither removes unrelated rules or packages. Package installation uses the detected apk/apt/dnf/yum/pacman/zypper backend.
+
+## Status, notification, and health control plane
+
+`sb status --json` composes one machine-readable view from state, protected traffic usage, service-manager status, live listeners, certificate validity, firewall components, and health findings. It never parses generated sing-box configuration back into state. Human `sb status` renders the same object, keeping CLI and panel results consistent.
+
+Traffic checkpoints evaluate configured percentage thresholds and write successful-delivery keys to `notification-events.json`, so retries occur after failures but delivered alerts are not repeated within a billing cycle. The notification provider secret is isolated in `secrets/notifications.json`; state contains only the provider name, enabled bit, and thresholds. Telegram, WeCom, and generic JSON Webhooks share this delivery layer.
+
+The optional health timer runs every 15 minutes on systemd/OpenRC and no-ops while `health.enabled` is false. It checks expected service/listener state, certificate expiry, UFW, Fail2ban, and the owned nftables traffic table. `health-events.json` tracks active issue codes so only changes and recoveries trigger notifications; `health-report.json` stores the latest protected report.
 
 ## Service backends
 
@@ -94,6 +102,7 @@ The feature is off by default. On systemd it uses a hardened unit; on OpenRC it 
 - `certs/`: certificate key mode `0640`, readable by the service group.
 - `exports/` and backups: mode `0600`; both contain credentials.
 - `traffic-usage.json`: runtime billing-cycle counters, mode `0600`; included in snapshots and backups.
+- `notification-events.json`, `health-events.json`, and `health-report.json`: protected runtime alert/health journals, mode `0600`.
 - OpenRC service scripts contain only paths and arguments; Tunnel tokens remain in a protected file.
 
 ## Update model

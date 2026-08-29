@@ -4,7 +4,7 @@
 ui_pause() { [[ -t 0 ]] && { printf '\n按 Enter 返回…'; read -r _; }; }
 ui_clear() { [[ -t 1 ]] && clear || true; }
 ui_header() {
-  local service_state enabled mux_state traffic_count
+  local service_state enabled mux_state traffic_count notify_state health_state
   ui_clear
   enabled=$(state_enabled_count)
   if [[ "$SBM_SKIP_INIT" == 1 ]]; then
@@ -24,6 +24,9 @@ ui_header() {
   printf '  Nginx Stream %-36s\n' "$mux_state"
   traffic_count=$(jq '[.nodes[]? | select(.traffic.enabled==true)] | length' "$SBM_STATE")
   printf '  流量控制 %-36s\n' "${traffic_count} 个节点"
+  notify_state=$(jq -r 'if .notifications.enabled then .notifications.provider else "off" end' "$SBM_STATE")
+  health_state=$(jq -r 'if .health.enabled then "on" else "off" end' "$SBM_STATE")
+  printf '  通知 %-18s 健康检查 %-16s\n' "$notify_state" "$health_state"
   printf '%s╰─────────────────────────────────────────────────────╯%s\n\n' "$C_CYAN" "$C_RESET"
 }
 
@@ -233,18 +236,26 @@ ui_add_node() {
 }
 
 ui_manage_nodes() {
-  local id action value
+  local id action value remark region purpose line tags
   ui_select_node id || return
   node_show "$id"
-  printf '\n1. 显示分享链接\n2. 启用\n3. 停用\n4. 修改端口\n5. 修改客户端地址\n6. 修改名称\n7. 轮换凭据\n8. 删除\n0. 返回\n'
+  printf '\n1. 显示分享链接\n2. 启用\n3. 停用\n4. 修改端口\n5. 修改客户端地址\n6. 修改名称\n7. 修改备注、地区与标签\n8. 轮换凭据\n9. 删除\n0. 返回\n'
   prompt_value action '选择操作' '0'
   case "$action" in
     1) node_share "$id" 1;; 2) node_enable "$id";; 3) node_disable "$id";;
     4) prompt_value value '新端口' ''; node_set "$id" --port "$value";;
     5) prompt_value value '新地址' ''; node_set "$id" --address "$value";;
     6) prompt_value value '新名称' ''; node_set "$id" --name "$value";;
-    7) confirm '轮换后旧链接会立即失效，继续？' N && node_rotate "$id";;
-    8) confirm "确认删除 $id？" N && node_delete "$id";;
+    7)
+      remark=$(jq -r '.metadata.remark' <<<"$(state_get_node "$id")"); region=$(jq -r '.metadata.region' <<<"$(state_get_node "$id")")
+      purpose=$(jq -r '.metadata.purpose' <<<"$(state_get_node "$id")"); line=$(jq -r '.metadata.line' <<<"$(state_get_node "$id")")
+      tags=$(jq -r '.metadata.tags|join(",")' <<<"$(state_get_node "$id")")
+      prompt_value remark '备注' "$remark"; prompt_value region '地区' "$region"; prompt_value purpose '用途' "$purpose"
+      prompt_value line '线路/运营商' "$line"; prompt_value tags '标签（逗号分隔）' "$tags"
+      node_set "$id" --remark "$remark" --region "$region" --purpose "$purpose" --line "$line" --tags "$tags"
+      ;;
+    8) confirm '轮换后旧链接会立即失效，继续？' N && node_rotate "$id";;
+    9) confirm "确认删除 $id？" N && node_delete "$id";;
   esac
 }
 
@@ -378,7 +389,7 @@ ui_settings_menu() {
 
 ui_firewall_menu() {
   local c
-  printf '1. 查看防火墙组件状态\n2. 查看所有协议端口\n3. 备份并清理 iptables 入站全局禁止\n4. 按所有启用协议端口执行 UFW allow\n5. 安装并启用 Fail2ban（SSH 3分钟/5次/永久封禁）\n6. 安装并启用 UFW（放行 22/80/443 及协议端口）\n0. 返回\n'
+  printf '1. 查看防火墙组件状态\n2. 查看所有协议端口\n3. 备份并清理 iptables 入站全局禁止\n4. 按所有启用协议端口执行 UFW allow\n5. 安装并启用 Fail2ban（自动探测 SSH，3分钟/5次/永久封禁）\n6. 安装并启用 UFW（安全向导：实际 SSH、22/80/443 及协议端口）\n7. 仅预览 UFW 变更\n0. 返回\n'
   prompt_value c '选择操作' '0'
   case "$c" in
     1) firewall_status ;;
@@ -391,6 +402,32 @@ ui_firewall_menu() {
       ;;
     5) firewall_setup_fail2ban ;;
     6) firewall_setup_ufw ;;
+    7) firewall_setup_ufw 0 1 ;;
+  esac
+}
+
+ui_notification_health_menu() {
+  local c provider token destination thresholds warn_days
+  notification_status
+  health_status
+  printf '\n1. 配置 Telegram 通知\n2. 配置企业微信机器人\n3. 配置通用 Webhook\n4. 发送测试通知\n5. 停用通知\n6. 立即检查流量阈值\n7. 启用定时健康检查\n8. 停用定时健康检查\n9. 立即运行健康检查\n0. 返回\n'
+  prompt_value c '选择操作' '0'
+  case "$c" in
+    1)
+      provider=telegram; prompt_secret token 'Telegram Bot Token'; prompt_value destination 'Telegram Chat ID' ''
+      prompt_value thresholds '流量阈值（逗号分隔）' '80,90,100'; notification_configure "$provider" "$token" "$destination" "$thresholds"
+      ;;
+    2|3)
+      [[ "$c" == 2 ]] && provider=wecom || provider=webhook
+      prompt_secret token 'Webhook URL'; prompt_value thresholds '流量阈值（逗号分隔）' '80,90,100'
+      notification_configure "$provider" "$token" '' "$thresholds"
+      ;;
+    4) notification_test ;;
+    5) notification_disable ;;
+    6) with_lock notification_traffic_check_unlocked ;;
+    7) warn_days=$(jq -r '.health.certificate_warn_days' "$SBM_STATE"); prompt_value warn_days '证书提前预警天数' "$warn_days"; health_enable "$warn_days" ;;
+    8) health_disable ;;
+    9) health_check || true ;;
   esac
 }
 
@@ -429,13 +466,14 @@ ui_main() {
   local choice
   while true; do
     ui_header
-    printf '1. 查看运行状态\n2. 添加协议节点\n3. 管理现有节点\n4. 分享链接与客户端导出\n5. 域名与证书管理\n6. Cloudflare Tunnel 管理\n7. 核心与组件更新\n8. 日志\n9. 诊断与修复\n10. 备份与恢复\n11. 全局设置\n12. 防火墙与协议端口\n13. 流量统计、配额与限速\n14. 卸载与彻底清理\n0. 退出\n\n'
+    printf '1. 查看统一运行状态\n2. 添加协议节点\n3. 管理现有节点\n4. 分享链接与客户端导出\n5. 域名与证书管理\n6. Cloudflare Tunnel 管理\n7. 核心与组件更新\n8. 日志\n9. 诊断与修复\n10. 备份与恢复\n11. 全局设置\n12. 防火墙与协议端口\n13. 流量统计、配额与限速\n14. 通知与定时健康检查\n15. 卸载与彻底清理\n0. 退出\n\n'
     prompt_value choice '请选择' '0'
     case "$choice" in
-      1) status_summary; node_list;; 2) ui_add_node;; 3) ui_manage_nodes;;
+      1) status_summary;; 2) ui_add_node;; 3) ui_manage_nodes;;
       4) ui_share_export_menu || continue;;
       5) ui_cert_menu;; 6) ui_tunnel_menu;; 7) ui_update_menu;; 8) show_logs all 100;; 9) ui_doctor_menu;; 10) ui_backup_menu;; 11) ui_settings_menu;; 12) ui_firewall_menu;; 13) ui_traffic_menu;;
-      14) ui_uninstall_menu; [[ ${SBM_UNINSTALLED:-0} == 1 ]] && return;;
+      14) ui_notification_health_menu;;
+      15) ui_uninstall_menu; [[ ${SBM_UNINSTALLED:-0} == 1 ]] && return;;
       0) return;; *) log_error '选择无效';;
     esac
     ui_pause

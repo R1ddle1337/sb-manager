@@ -3,6 +3,43 @@
 
 firewall_snapshot_dir() { printf '%s/firewall\n' "$SBM_VAR"; }
 
+firewall_detect_ssh_ports() {
+  local value port
+  if [[ -n ${SBM_SSH_PORTS:-} ]]; then
+    tr ', ' '\n\n' <<<"$SBM_SSH_PORTS"
+  else
+    if [[ -n ${SSH_CONNECTION:-} ]]; then
+      awk '{print $4}' <<<"$SSH_CONNECTION"
+    fi
+    if command_exists sshd; then
+      sshd -T 2>/dev/null | awk '$1=="port" {print $2}' || true
+    fi
+    if command_exists ss; then
+      ss -H -ltnp 2>/dev/null | awk '/sshd/ {
+        address=$4
+        sub(/^.*:/, "", address)
+        if (address ~ /^[0-9]+$/) print address
+      }' || true
+    fi
+  fi | while IFS= read -r value; do
+    port=${value//[[:space:]]/}
+    validate_port "$port" && printf '%s\n' "$port"
+  done | sort -nu
+}
+
+firewall_ssh_ports_or_default() {
+  local ports
+  ports=$(firewall_detect_ssh_ports)
+  if [[ -z "$ports" ]]; then
+    log_warn '未能探测到 sshd 监听端口，将安全回退到 22/TCP。'
+    printf '22\n'
+  else
+    printf '%s\n' "$ports"
+  fi
+}
+
+firewall_ssh_ports_csv() { firewall_ssh_ports_or_default | paste -sd, -; }
+
 firewall_snapshot_iptables() {
   local dir=$1 stamp=$2 tool
   mkdir -p "$dir"
@@ -119,7 +156,7 @@ firewall_fail2ban_log_config() {
 }
 
 firewall_setup_fail2ban() {
-  local assume_yes=${1:-0} backend tmp stamp dir service_state
+  local assume_yes=${1:-0} backend tmp stamp dir service_state ssh_ports
   [[ ${EUID:-$(id -u)} -eq 0 ]] || die '安装和配置 Fail2ban 需要 root 权限。'
   if [[ "$assume_yes" != 1 ]]; then
     confirm '将安装并启用 Fail2ban，仅保护 SSH：3 分钟内失败 5 次后永久封禁 IP，继续？' N || return 0
@@ -135,9 +172,10 @@ firewall_setup_fail2ban() {
   backend=auto
   if [[ "$(effective_init_system 2>/dev/null || true)" == systemd && -x $(command -v journalctl 2>/dev/null || true) ]]; then backend=systemd; fi
   mkdir -p "$(dirname "$SBM_FAIL2BAN_CONFIG")"
+  ssh_ports=$(firewall_ssh_ports_csv)
   tmp=$(mktemp "$(dirname "$SBM_FAIL2BAN_CONFIG")/.sb-manager-sshd.XXXXXX")
   {
-    printf '%s\n' '[sshd]' 'enabled = true' 'port = 22' 'filter = sshd'
+    printf '%s\n' '[sshd]' 'enabled = true' "port = $ssh_ports" 'filter = sshd'
     firewall_fail2ban_log_config "$backend"
     local banaction=iptables-multiport
     [[ -f /etc/fail2ban/action.d/nftables-multiport.conf ]] && banaction=nftables-multiport
@@ -162,15 +200,31 @@ firewall_setup_fail2ban() {
   fi
   service_state='未启动（测试/跳过服务管理器）'
   [[ "$SBM_SKIP_INIT" != 1 ]] && service_state=$(service_status_text "$SBM_FAIL2BAN_SERVICE" 2>/dev/null || printf '已请求启动')
-  log_ok "Fail2ban 已配置：3 分钟内 SSH 失败 5 次，永久封禁（$SBM_FAIL2BAN_CONFIG）"
+  log_ok "Fail2ban 已配置：SSH ${ssh_ports//,/、}/TCP，3 分钟内失败 5 次永久封禁（$SBM_FAIL2BAN_CONFIG）"
   printf '服务状态：%s\n' "$service_state"
 }
 
 firewall_setup_ufw() {
-  local assume_yes=${1:-0} port kind count=0 stamp dir
+  local assume_yes=${1:-0} dry_run=${2:-0} port kind count=0 stamp dir ssh_ports protocol_ports
   [[ ${EUID:-$(id -u)} -eq 0 ]] || die '安装和配置 UFW 需要 root 权限。'
+  ssh_ports=$(firewall_ssh_ports_or_default)
+  protocol_ports=$(firewall_collect_protocol_ports | sort -u)
+  printf 'UFW 变更预览：\n'
+  printf '  SSH 探测端口：%s/TCP\n' "$(paste -sd',' <<<"$ssh_ports")"
+  printf '  基础 Web 端口：80/TCP、443/TCP\n'
+  printf '  兼容放行端口：22/TCP\n'
+  if [[ -n "$protocol_ports" ]]; then
+    while IFS=$'\t' read -r port kind; do printf '  协议端口：%s/%s\n' "$port" "${kind^^}"; done <<<"$protocol_ports"
+  else
+    printf '  协议端口：无\n'
+  fi
+  printf '  当前规则将保存到：%s/\n' "$(firewall_snapshot_dir)"
+  if [[ "$dry_run" == 1 ]]; then
+    command_exists ufw || printf '  UFW 尚未安装，正式执行时会安装。\n'
+    return 0
+  fi
   if [[ "$assume_yes" != 1 ]]; then
-    confirm '将安装并启用 UFW，放行 TCP 22、80、443 及当前启用的协议端口，继续？' N || return 0
+    confirm '确认按上述预览安装并启用 UFW？' N || return 0
   fi
   if ! command_exists ufw; then
     log_info '正在安装 UFW…'
@@ -180,23 +234,24 @@ firewall_setup_ufw() {
   stamp=$(now_stamp); dir=$(firewall_snapshot_dir)
   firewall_snapshot_iptables "$dir" "$stamp"
   firewall_snapshot_ufw "$dir" "$stamp"
-  for port in 22 80 443; do
+  while IFS= read -r port; do
+    [[ -n "$port" ]] || continue
     ufw allow "$port/tcp" >/dev/null
     log_ok "UFW 已允许 ${port}/TCP"
-  done
+  done < <(printf '%s\n' 22 80 443 "$ssh_ports" | sort -nu)
   while IFS=$'\t' read -r port kind; do
     [[ -n "$port" && -n "$kind" ]] || continue
     ufw allow "${port}/${kind}" >/dev/null
     count=$((count + 1))
-  done < <(firewall_collect_protocol_ports | sort -u)
+  done <<<"$protocol_ports"
   if ! ufw status 2>/dev/null | grep -qi '^status: active'; then
     ufw --force enable >/dev/null
     log_ok 'UFW 已启用。'
   else
     log_info 'UFW 已处于启用状态。'
   fi
-  log_ok "UFW 基础端口已放行：22/TCP、80/TCP、443/TCP；协议端口额外放行 ${count} 条。"
-  log_warn 'UFW 启用后仍请确认云安全组已放行所需端口；SSH 非标准端口需另行执行 ufw allow。'
+  log_ok "UFW 已放行 SSH 实际监听端口、22/TCP、80/TCP、443/TCP；协议端口额外放行 ${count} 条。"
+  log_warn '请确认云安全组也已放行 SSH 实际监听端口和所需协议端口。'
 }
 
 firewall_status() {

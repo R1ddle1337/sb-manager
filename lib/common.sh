@@ -6,7 +6,7 @@ SBM_LIB="${SBM_LIB:-${SBM_PREFIX}/lib/sb-manager}"
 SBM_BIN_DIR="${SBM_BIN_DIR:-${SBM_PREFIX}/bin}"
 if [[ -z ${SBM_VERSION:-} ]]; then
   if [[ -r "$SBM_LIB/VERSION" ]]; then SBM_VERSION=$(tr -d '[:space:]' <"$SBM_LIB/VERSION" 2>/dev/null || true); fi
-  SBM_VERSION=${SBM_VERSION:-0.1.0-alpha.25}
+SBM_VERSION=${SBM_VERSION:-0.1.0-alpha.26}
 fi
 SBM_ETC="${SBM_ETC:-/etc/sb-manager}"
 SBM_VAR="${SBM_VAR:-/var/lib/sb-manager}"
@@ -55,6 +55,11 @@ SBM_TRAFFIC_TABLE="${SBM_TRAFFIC_TABLE:-sb_manager_traffic}"
 SBM_TRAFFIC_SERVICE="${SBM_TRAFFIC_SERVICE:-sb-traffic.service}"
 SBM_FAIL2BAN_SERVICE="${SBM_FAIL2BAN_SERVICE:-fail2ban.service}"
 SBM_FAIL2BAN_CONFIG="${SBM_FAIL2BAN_CONFIG:-/etc/fail2ban/jail.d/sb-manager-sshd.local}"
+SBM_NOTIFICATION_SECRET="${SBM_NOTIFICATION_SECRET:-$SBM_SECRETS/notifications.json}"
+SBM_NOTIFICATION_EVENTS="${SBM_NOTIFICATION_EVENTS:-$SBM_VAR/notification-events.json}"
+SBM_HEALTH_REPORT="${SBM_HEALTH_REPORT:-$SBM_VAR/health-report.json}"
+SBM_HEALTH_EVENTS="${SBM_HEALTH_EVENTS:-$SBM_VAR/health-events.json}"
+SBM_HEALTH_SERVICE="${SBM_HEALTH_SERVICE:-sb-health-check.service}"
 
 if [[ -t 1 && "${NO_COLOR:-}" == "" ]]; then
   C_RESET=$'\033[0m'; C_BOLD=$'\033[1m'; C_RED=$'\033[31m'; C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'; C_BLUE=$'\033[34m'; C_CYAN=$'\033[36m'
@@ -190,7 +195,7 @@ base64url_nowrap() { base64 | tr -d '\n=' | tr '+/' '-_'; }
 
 format_hostport() {
   local host=$1 port=$2
-  if [[ "$host" == *:* && "$host" != \[*\] ]]; then printf '[%s]:%s' "$host" "$port"; else printf '%s:%s' "$host" "$port"; fi
+  if [[ "$host" == *:* && "$host" != "["*"]" ]]; then printf '[%s]:%s' "$host" "$port"; else printf '%s:%s' "$host" "$port"; fi
 }
 
 ensure_program_permissions() {
