@@ -388,8 +388,8 @@ ui_nginx_stream_menu() {
 }
 
 ui_settings_menu() {
-  local c v strategy_choice
-  printf '1. 设置默认服务器地址\n2. 修改日志级别\n3. Nginx Stream 443/TCP 多协议复用\n4. 出站 IP 优先级\n5. 配置校验与差异预览\n0. 返回\n'; prompt_value c '选择操作' '0'
+  local c v strategy_choice dns_choice dns_value
+  printf '1. 设置默认服务器地址\n2. 修改日志级别\n3. Nginx Stream 443/TCP 多协议复用\n4. 出站 IP 优先级\n5. 配置校验与差异预览\n6. sing-box 1.14 DNS 优化\n0. 返回\n'; prompt_value c '选择操作' '0'
   case "$c" in
     1) prompt_value v '域名或 IP' ''; settings_set_default_address "$v";;
     2) prompt_value v '日志级别 (trace/debug/info/warn/error/fatal/panic)' 'info'; settings_set_log_level "$v";;
@@ -401,6 +401,16 @@ ui_settings_menu() {
     5)
       printf '1. 校验当前配置\n2. 查看已安装配置与当前状态差异\n3. 查看 state.json（敏感字段已遮蔽）\n0. 返回\n'; prompt_value v '选择操作' '0'
       case "$v" in 1) config_validate || true;; 2) config_diff || true;; 3) config_redact <"$SBM_STATE";; esac
+      ;;
+    6)
+      printf '1. 查看 DNS 1.14 设置\n2. 开启 optimistic DNS\n3. 关闭 optimistic DNS\n4. 设置 optimistic 缓存窗口\n5. 设置 DNS 查询超时\n0. 返回\n'; prompt_value dns_choice '选择操作' '0'
+      case "$dns_choice" in
+        1) settings_show_addresses 1 | jq '{dns_optimistic,dns_optimistic_timeout,dns_timeout}';;
+        2) settings_set_dns optimistic true;;
+        3) settings_set_dns optimistic false;;
+        4) prompt_value dns_value '缓存窗口（如 3d）' '3d'; settings_set_dns optimistic-timeout "$dns_value";;
+        5) prompt_value dns_value 'DNS 超时（如 10s）' '10s'; settings_set_dns timeout "$dns_value";;
+      esac
       ;;
   esac
 }

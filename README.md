@@ -254,6 +254,17 @@ sb node add hy2 --id hy2-no-parrot --domain edge.example.com --address 203.0.113
 
 Gecko 和 `--disable-chrome-parrot` 需要 sing-box `1.14.0-rc.1` 或更高版本；使用 1.13 核心时管理器会拒绝包含这些字段的启用配置。客户端导出会保留 Gecko 包长和 Chrome 指纹设置。也可以通过 `sb core schema [文件]` 导出当前 1.14 核心生成的 JSON Schema。
 
+DNS 1.14 优化可以在面板“设置 → sing-box 1.14 DNS 优化”中开启，也可以使用 CLI：
+
+```bash
+sb settings dns optimistic true
+sb settings dns optimistic-timeout 3d
+sb settings dns timeout 10s
+sb settings dns show
+```
+
+这些字段仅在使用 1.14 核心时写入生成配置；继续使用 1.13 核心时会保持原有 DNS 配置格式。
+
 ### AnyTLS 与 Hysteria2
 
 先准备一个直接解析到 VPS 的域名，例如 `edge.example.com`。使用 Cloudflare DNS 时，该记录应为 **DNS Only**，不要开启橙云代理。

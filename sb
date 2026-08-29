@@ -91,7 +91,7 @@ sb-manager：状态驱动的 sing-box 多协议管理器
   sb tunnel quick <NODE_ID>
   sb tunnel refresh|set-token|status [--json]|stop
 
-  sb settings show|detect-ip|address <auto|HOST>
+  sb settings show|detect-ip|address <auto|HOST>|dns <optimistic|timeout> VALUE
   sb settings outbound-ip <prefer_ipv4|prefer_ipv6|ipv4_only>
   sb firewall status|ports|clear-iptables|ufw-allow [--yes]
   sb firewall fail2ban|ufw [--yes] [--dry-run]
@@ -466,7 +466,16 @@ main() {
         detect-ip) settings_detect_public_ip ;;
         address) settings_set_default_address "${3:?缺少地址}" ;;
         outbound-ip) settings_set_outbound_ip_strategy "${3:?缺少出站 IP 策略}" ;;
-        *) usage_die '用法：sb settings show|detect-ip|address <auto|HOST>|outbound-ip <prefer_ipv4|prefer_ipv6|ipv4_only>' ;;
+        dns)
+          case ${3:-show} in
+            show) settings_show_addresses 1 | jq '{dns_optimistic,dns_optimistic_timeout,dns_timeout}' ;;
+            optimistic) settings_set_dns optimistic "${4:?缺少 true/false}" ;;
+            optimistic-timeout) settings_set_dns optimistic-timeout "${4:?缺少超时时间}" ;;
+            timeout) settings_set_dns timeout "${4:?缺少超时时间}" ;;
+            *) usage_die '用法：sb settings dns show|optimistic <true|false>|optimistic-timeout DURATION|timeout DURATION' ;;
+          esac
+          ;;
+        *) usage_die '用法：sb settings show|detect-ip|address <auto|HOST>|outbound-ip <prefer_ipv4|prefer_ipv6|ipv4_only>|dns ...' ;;
       esac
       ;;
     *) usage_die "未知命令：$cmd；运行 sb help 查看帮助。" ;;

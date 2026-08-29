@@ -513,6 +513,30 @@ _settings_set_outbound_ip_strategy() {
 }
 settings_set_outbound_ip_strategy() { with_state_transaction settings-outbound-ip _settings_set_outbound_ip_strategy "$@"; }
 
+_settings_set_dns() {
+  local field=$1 value=$2 candidate
+  case "$field" in
+    optimistic)
+      case "$value" in true|false) ;; *) die 'DNS optimistic 必须是 true 或 false。';; esac
+      candidate=$(state_candidate)
+      jq --argjson value "$value" '.settings.dns_optimistic=$value' "$SBM_STATE" >"$candidate"
+      ;;
+    timeout|optimistic-timeout)
+      [[ "$value" =~ ^[0-9]+(ms|s|m|h|d)$ ]] || die 'DNS 超时必须使用如 10s、3d 的格式。'
+      candidate=$(state_candidate)
+      if [[ "$field" == timeout ]]; then
+        jq --arg value "$value" '.settings.dns_timeout=$value' "$SBM_STATE" >"$candidate"
+      else
+        jq --arg value "$value" '.settings.dns_optimistic_timeout=$value' "$SBM_STATE" >"$candidate"
+      fi
+      ;;
+    *) die '未知 DNS 设置。';;
+  esac
+  if ! apply_candidate_state "$candidate" "settings-dns-$field"; then rm -f "$candidate"; return 1; fi
+  rm -f "$candidate"
+}
+settings_set_dns() { with_state_transaction settings-dns _settings_set_dns "$@"; }
+
 _settings_detect_public_ip() {
   local ipv4='' ipv6='' chosen candidate
   ipv4=$(detect_public_ipv4 || true); ipv6=$(detect_public_ipv6 || true); chosen=${ipv4:-$ipv6}
@@ -543,6 +567,6 @@ settings_default_address() {
 }
 
 settings_show_addresses() {
-  if [[ ${1:-0} == 1 ]]; then jq '.settings | {default_server_address,default_server_address_source,public_ipv4,public_ipv6,outbound_ip_strategy,public_ip_detected_at}' "$SBM_STATE"; return; fi
-  jq -r '"默认入口：\(.settings.default_server_address // "-")\n来源：\(.settings.default_server_address_source // "-")\n公网 IPv4：\(.settings.public_ipv4 // "-")\n公网 IPv6：\(.settings.public_ipv6 // "-")\n出站 IP 策略：\(.settings.outbound_ip_strategy // "prefer_ipv4")\n探测时间：\(.settings.public_ip_detected_at // "-")"' "$SBM_STATE"
+  if [[ ${1:-0} == 1 ]]; then jq '.settings | {default_server_address,default_server_address_source,public_ipv4,public_ipv6,outbound_ip_strategy,dns_optimistic,dns_optimistic_timeout,dns_timeout,public_ip_detected_at}' "$SBM_STATE"; return; fi
+  jq -r '"默认入口：\(.settings.default_server_address // "-")\n来源：\(.settings.default_server_address_source // "-")\n公网 IPv4：\(.settings.public_ipv4 // "-")\n公网 IPv6：\(.settings.public_ipv6 // "-")\n出站 IP 策略：\(.settings.outbound_ip_strategy // "prefer_ipv4")\nDNS optimistic：\(.settings.dns_optimistic // false)（超时 \(.settings.dns_optimistic_timeout // "3d")）\nDNS 查询超时：\(.settings.dns_timeout // "10s")\n探测时间：\(.settings.public_ip_detected_at // "-")"' "$SBM_STATE"
 }

@@ -110,7 +110,7 @@ render_inbound_for_node() {
 }
 
 render_config_from_state() {
-  local state=$1 output=$2 node node_id credentials node_secret inbound inbounds='[]' log_level api_enabled api_secret api_port dashboard strategy
+  local state=$1 output=$2 node node_id credentials node_secret inbound inbounds='[]' log_level api_enabled api_secret api_port dashboard strategy dns_optimistic dns_optimistic_timeout dns_timeout dns_advanced core_version
   validate_state_semantics "$state"
   while IFS= read -r node; do
     [[ -n "$node" ]] || continue
@@ -128,9 +128,19 @@ render_config_from_state() {
   api_enabled=$(jq -r '.api.enabled // false' "$state")
   api_secret=''; api_port=$(jq -r '.api.port // 9090' "$state"); dashboard=$(jq -r '.api.dashboard // false' "$state")
   strategy=$(jq -r '.settings.outbound_ip_strategy // "prefer_ipv4"' "$state")
+  dns_optimistic=$(jq -r '.settings.dns_optimistic // false' "$state")
+  dns_optimistic_timeout=$(jq -r '.settings.dns_optimistic_timeout // "3d"' "$state")
+  dns_timeout=$(jq -r '.settings.dns_timeout // "10s"' "$state")
+  dns_advanced=false
+  if [[ "$dns_optimistic" == true || "$dns_timeout" != 10s ]]; then
+    core_version=$(core_current_version || true)
+    version_ge "$core_version" 1.14.0-rc.1 || die 'optimistic DNS 和 DNS 超时设置需要 sing-box 1.14.0-rc.1 或更高版本核心。'
+    dns_advanced=true
+  fi
   [[ "$api_enabled" != true ]] || api_secret=$(state_get_secret api | jq -r '.secret')
   jq -n --arg level "$log_level" --arg strategy "$strategy" --argjson inbounds "$inbounds" --argjson api_enabled "$api_enabled" \
-    --arg secret "$api_secret" --argjson api_port "$api_port" --argjson dashboard "$dashboard" --arg dashboard_path "$SBM_VAR/dashboard" '{
+    --arg secret "$api_secret" --argjson api_port "$api_port" --argjson dashboard "$dashboard" --arg dashboard_path "$SBM_VAR/dashboard" \
+    --argjson dns_advanced "$dns_advanced" --argjson dns_optimistic "$dns_optimistic" --arg dns_optimistic_timeout "$dns_optimistic_timeout" --arg dns_timeout "$dns_timeout" '{
     "$schema":"https://sing-box.sagernet.org/schema.json",
     log:{level:$level,timestamp:true},
     inbounds:$inbounds,
@@ -138,6 +148,10 @@ render_config_from_state() {
     outbounds:[{type:"direct",tag:"direct"}],
     route:{default_domain_resolver:"dns-local",final:"direct"}
   }
+  | if $dns_advanced then
+      .dns.timeout=$dns_timeout
+      | .dns.optimistic=(if $dns_optimistic then {enabled:true,timeout:$dns_optimistic_timeout} else false end)
+    else . end
   | if $api_enabled then
       .http_clients=[{tag:"http-direct",detour:"direct"}]
       | .route.default_http_client="http-direct"

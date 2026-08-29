@@ -35,6 +35,12 @@ jq -e '.inbounds[0].obfs.type=="gecko" and .inbounds[0].obfs.min_packet_size==60
 node_client_outbound gecko-test | jq -e '.obfs.type=="gecko" and .obfs.min_packet_size==600 and .obfs.max_packet_size==1100 and .disable_chrome_parrot==true' >/dev/null
 "$SBM_SING_BOX_BIN" check -c "$SBM_CONFIG"
 
+settings_set_dns optimistic true
+settings_set_dns optimistic-timeout 2d
+settings_set_dns timeout 5s
+jq -e '.dns.optimistic.enabled==true and .dns.optimistic.timeout=="2d" and .dns.timeout=="5s"' "$SBM_CONFIG" >/dev/null
+"$SBM_SING_BOX_BIN" check -c "$SBM_CONFIG"
+
 client_ob=$(node_client_outbound gecko-test)
 jq -n --argjson ob "$client_ob" \
   '{log:{level:"error"},inbounds:[{type:"mixed",listen:"127.0.0.1",listen_port:20880}],outbounds:[$ob],route:{final:$ob.tag}}' >"$ROOT/client.json"

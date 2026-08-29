@@ -18,6 +18,9 @@ state_default_json() {
         public_ipv6: "",
         public_ip_detected_at: null,
         outbound_ip_strategy: "prefer_ipv4",
+        dns_optimistic: false,
+        dns_optimistic_timeout: "3d",
+        dns_timeout: "10s",
         core_channel: "stable",
         core_update_policy: "notify",
         cloudflared_update_policy: "notify"
@@ -119,6 +122,9 @@ state_normalize_v2_file() {
     | .settings.public_ipv6 //= ""
     | .settings.public_ip_detected_at //= null
     | .settings.outbound_ip_strategy //= "prefer_ipv4"
+    | .settings.dns_optimistic //= false
+    | .settings.dns_optimistic_timeout //= "3d"
+    | .settings.dns_timeout //= "10s"
     | .api //= {enabled:false,listen:"127.0.0.1",port:9090,dashboard:false}
     | .nginx_stream //= {enabled:false,listen:"::",port:443,routes:[]}
     | .notifications //= {enabled:false,provider:"none",traffic_thresholds:[80,90,100]}
@@ -200,6 +206,9 @@ state_migrate_v1_to_v2() {
     | .settings.public_ipv6=""
     | .settings.public_ip_detected_at=null
     | .settings.outbound_ip_strategy="prefer_ipv4"
+    | .settings.dns_optimistic=false
+    | .settings.dns_optimistic_timeout="3d"
+    | .settings.dns_timeout="10s"
     | .api={enabled:false,listen:"127.0.0.1",port:9090,dashboard:false}
     | .nginx_stream={enabled:false,listen:"::",port:443,routes:[]}
     | .notifications={enabled:false,provider:"none",traffic_thresholds:[80,90,100]}
@@ -316,6 +325,9 @@ state_validate() {
       and (.public_ipv6 | string)
       and ((.public_ip_detected_at | type) == "string" or (.public_ip_detected_at | type) == "null")
       and (.outbound_ip_strategy | IN("prefer_ipv4", "prefer_ipv6", "ipv4_only"))
+      and (.dns_optimistic | type == "boolean")
+      and (.dns_optimistic_timeout | type == "string" and test("^[0-9]+(ms|s|m|h|d)$"))
+      and (.dns_timeout | type == "string" and test("^[0-9]+(ms|s|m|h|d)$"))
       and (.core_channel | nonempty)
       and (.core_update_policy | IN("manual", "notify", "patch", "stable"))
       and (.cloudflared_update_policy | nonempty))
