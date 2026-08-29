@@ -67,7 +67,7 @@ sb-manager：状态驱动的 sing-box 多协议管理器
   sb share <ID> [--user USER_ID] [--qr]
   sb share all
   sb export outbounds
-  sb export config [文件] [--mode mixed|tun]
+  sb export config [文件] [--mode mixed|tun] [--tun-dns-mode disabled|native|hijack] [--tun-dns-address IP]
   sb subscription create [7d|24h] [mixed|tun]
   sb subscription list|status|revoke <TOKEN>
   sb api enable [PORT] [--dashboard]|disable|status [--json]|show-token|cli <COMMAND> [ARGS]
@@ -246,12 +246,17 @@ main() {
       case ${2:-outbounds} in
         outbounds) export_all_outbounds ;;
         config)
-          local output="$SBM_EXPORTS/client-config.json" mode=mixed
+          local output="$SBM_EXPORTS/client-config.json" mode=mixed tun_dns_mode=hijack tun_dns_address=''
           shift 2
           while (($#)); do
-            case "$1" in --mode) mode=${2:?缺少模式}; shift 2;; -*) die "未知导出参数：$1";; *) output=$1; shift;; esac
+            case "$1" in
+              --mode) mode=${2:?缺少模式}; shift 2;;
+              --tun-dns-mode) tun_dns_mode=${2:?缺少 TUN DNS 模式}; shift 2;;
+              --tun-dns-address) tun_dns_address=${2:?缺少 TUN DNS 地址}; shift 2;;
+              -*) die "未知导出参数：$1";; *) output=$1; shift;;
+            esac
           done
-          export_client_config "$output" "$mode"
+          export_client_config "$output" "$mode" "$tun_dns_mode" "$tun_dns_address"
           ;;
         *) die '当前支持：sb export outbounds|config [文件]' ;;
       esac

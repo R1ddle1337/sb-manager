@@ -93,8 +93,12 @@ export_all_outbounds() {
 }
 
 export_client_config() {
-  local output=${1:-$SBM_EXPORTS/client-config.json} mode=${2:-mixed} node user_id ob outbounds='[]' final inbounds route dns strategy
+  local output=${1:-$SBM_EXPORTS/client-config.json} mode=${2:-mixed} tun_dns_mode=${3:-hijack} tun_dns_address=${4:-} node user_id ob outbounds='[]' final inbounds route dns strategy core_version
   [[ "$mode" == mixed || "$mode" == tun ]] || die '客户端模式必须是 mixed 或 tun。'
+  case "$tun_dns_mode" in disabled|native|hijack) ;; *) die 'TUN DNS 模式必须是 disabled、native 或 hijack。';; esac
+  if [[ -n "$tun_dns_address" ]]; then
+    validate_address "$tun_dns_address" || die "无效 TUN DNS 地址：$tun_dns_address"
+  fi
   mkdir -p "$(dirname "$output")"
   while IFS= read -r node; do
     while IFS= read -r user_id; do
@@ -107,6 +111,12 @@ export_client_config() {
   dns=$(jq -n --arg strategy "$strategy" '{servers:[{type:"local",tag:"dns-local"}],final:"dns-local",strategy:$strategy}')
   if [[ "$mode" == tun ]]; then
     inbounds=$(jq -n '[{type:"tun",tag:"tun-in",address:["172.19.0.1/30","fdfe:dcba:9876::1/126"],mtu:1500,auto_route:true,strict_route:true,stack:"system"}]')
+    core_version=$(core_current_version || true)
+    if version_ge "$core_version" 1.14.0-rc.1; then
+      inbounds=$(jq --arg mode "$tun_dns_mode" --arg address "$tun_dns_address" '.[0].dns_mode=$mode | if $address=="" then . else .[0].dns_address=[$address] end' <<<"$inbounds")
+    elif [[ "$tun_dns_mode" != hijack || -n "$tun_dns_address" ]]; then
+      die '自定义 TUN DNS 模式/地址需要 sing-box 1.14.0-rc.1 或更高版本核心。'
+    fi
     route=$(jq -n --arg final "$final" '{auto_detect_interface:true,default_domain_resolver:"dns-local",rules:[{action:"sniff"},{protocol:"dns",action:"hijack-dns"},{ip_is_private:true,action:"route",outbound:"direct"}],final:$final}')
   else
     inbounds=$(jq -n '[{type:"mixed",tag:"mixed-in",listen:"127.0.0.1",listen_port:2080}]')

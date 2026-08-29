@@ -292,6 +292,27 @@ ui_share_export_menu() {
   fi
 }
 
+ui_client_export_menu() {
+  local mode_choice mode output dns_mode dns_address
+  printf '1. 导出 mixed 客户端配置\n2. 导出 TUN 客户端配置\n0. 返回\n'
+  prompt_value mode_choice '选择客户端配置模式' '1'
+  case "$mode_choice" in
+    1) mode=mixed; output="$SBM_EXPORTS/client-mixed.json";;
+    2) mode=tun; output="$SBM_EXPORTS/client-tun.json";;
+    0) return;;
+    *) log_error '选择无效'; return;;
+  esac
+  prompt_value output '输出文件' "$output"
+  dns_mode=hijack; dns_address=''
+  if [[ "$mode" == tun ]] && version_ge "$(core_current_version)" 1.14.0-rc.1; then
+    printf '1. hijack（默认，设置系统 DNS 并劫持 53 端口）\n2. native（仅设置系统 DNS）\n3. disabled（不改系统 DNS）\n'
+    prompt_value dns_mode 'TUN DNS 模式' '1'
+    case "$dns_mode" in 1) dns_mode=hijack;; 2) dns_mode=native;; 3) dns_mode=disabled;; *) log_error '选择无效'; return;; esac
+    if [[ "$dns_mode" != disabled ]]; then prompt_value dns_address 'DNS 地址（留空使用自动地址）' ''; fi
+  fi
+  export_client_config "$output" "$mode" "$dns_mode" "$dns_address"
+}
+
 ui_cert_menu() {
   local c token zone email domain
   printf '1. 查看证书\n2. 配置 Cloudflare DNS API\n3. 签发/续发域名证书\n4. 立即执行全部续签检查\n5. 查看证书详情\n0. 返回\n'
@@ -543,15 +564,15 @@ ui_main() {
   local choice
   while true; do
     ui_header
-    printf '1. 查看统一运行状态\n2. 添加协议节点\n3. 管理现有节点\n4. 分享链接与客户端导出\n5. 域名与证书管理\n6. Cloudflare Tunnel 管理\n7. 核心与组件更新\n8. sing-box API/Dashboard\n9. 日志\n10. 诊断与修复\n11. 备份与恢复\n12. 全局设置\n13. 防火墙与协议端口\n14. 流量统计、配额与限速\n15. 通知与定时健康检查\n16. 节点模板与批量操作\n17. 卸载与彻底清理\n0. 退出\n\n'
+    printf '1. 查看统一运行状态\n2. 添加协议节点\n3. 管理现有节点\n4. 分享链接与客户端导出\n5. 完整客户端配置导出\n6. 域名与证书管理\n7. Cloudflare Tunnel 管理\n8. 核心与组件更新\n9. sing-box API/Dashboard\n10. 日志\n11. 诊断与修复\n12. 备份与恢复\n13. 全局设置\n14. 防火墙与协议端口\n15. 流量统计、配额与限速\n16. 通知与定时健康检查\n17. 节点模板与批量操作\n18. 卸载与彻底清理\n0. 退出\n\n'
     prompt_value choice '请选择' '0'
     case "$choice" in
       1) status_summary || true;; 2) ui_add_node;; 3) ui_manage_nodes;;
       4) ui_share_export_menu || continue;;
-      5) ui_cert_menu;; 6) ui_tunnel_menu;; 7) ui_update_menu;; 8) ui_api_menu;; 9) show_logs all 100;; 10) ui_doctor_menu;; 11) ui_backup_menu;; 12) ui_settings_menu;; 13) ui_firewall_menu;; 14) ui_traffic_menu;;
-      15) ui_notification_health_menu;;
-      16) ui_template_menu;;
-      17) ui_uninstall_menu; [[ ${SBM_UNINSTALLED:-0} == 1 ]] && return;;
+      5) ui_client_export_menu;; 6) ui_cert_menu;; 7) ui_tunnel_menu;; 8) ui_update_menu;; 9) ui_api_menu;; 10) show_logs all 100;; 11) ui_doctor_menu;; 12) ui_backup_menu;; 13) ui_settings_menu;; 14) ui_firewall_menu;; 15) ui_traffic_menu;;
+      16) ui_notification_health_menu;;
+      17) ui_template_menu;;
+      18) ui_uninstall_menu; [[ ${SBM_UNINSTALLED:-0} == 1 ]] && return;;
       0) return;; *) log_error '选择无效';;
     esac
     ui_pause
