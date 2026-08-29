@@ -340,12 +340,13 @@ ui_tunnel_menu() {
 
 ui_update_menu() {
   local c p v path
-  printf '1. 检查 sing-box 更新\n2. 更新 sing-box 最新版\n3. 指定 sing-box 版本\n4. 回滚 sing-box\n5. 设置自动更新策略\n6. 更新 cloudflared\n7. 更新 acme.sh\n8. 导出 sing-box 1.14 JSON Schema\n0. 返回\n'
+  printf '1. 检查 sing-box 更新\n2. 更新 sing-box 最新版\n3. 指定 sing-box 版本\n4. 回滚 sing-box\n5. 设置自动更新策略\n6. 更新 cloudflared\n7. 更新 acme.sh\n8. 导出 sing-box 1.14 JSON Schema\n9. 查看核心 build tags 与能力\n0. 返回\n'
   prompt_value c '选择操作' '0'
   case "$c" in
     1) core_check_update || true;; 2) core_update latest;; 3) prompt_value v '版本号，如 1.14.0-rc.1' ''; core_update "$v";; 4) core_rollback;;
     5) printf 'manual / notify / patch / stable\n'; prompt_value p '策略' 'notify'; core_set_policy "$p";; 6) cloudflared_update;; 7) acme_update;;
     8) prompt_value path 'Schema 输出文件' "$SBM_EXPORTS/sing-box-schema.json"; core_schema "$path";;
+    9) core_capabilities;;
   esac
 }
 

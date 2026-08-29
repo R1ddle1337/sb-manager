@@ -271,6 +271,27 @@ core_schema() {
   fi
 }
 
+core_capabilities() {
+  local json=${1:-0} output version tags tag_list
+  [[ -x "$SBM_SING_BOX_BIN" ]] || die "sing-box 核心不存在：$SBM_SING_BOX_BIN"
+  output=$("$SBM_SING_BOX_BIN" version 2>/dev/null) || die '无法读取 sing-box 核心版本信息。'
+  version=$(extract_semver "$output") || die '无法解析 sing-box 核心版本。'
+  tags=$(sed -n 's/^Tags:[[:space:]]*//p' <<<"$output" | head -n 1)
+  tag_list=$(tr ',' '\n' <<<"$tags" | sed '/^$/d' | jq -R -s 'split("\n") | map(select(length>0))')
+  if [[ "$json" == 1 ]]; then
+    jq -n --arg version "$version" --argjson tags "$tag_list" \
+      '{version:$version,tags:$tags,features:{quic:("with_quic"|IN($tags[])),utls:("with_utls"|IN($tags[])),naive_outbound:("with_naive_outbound"|IN($tags[])),acme:("with_acme"|IN($tags[])),cloudflared:("with_cloudflared"|IN($tags[])),tailscale:("with_tailscale"|IN($tags[])),openvpn:("with_openvpn"|IN($tags[])),openconnect:("with_openconnect"|IN($tags[])),usbip:("with_usbip"|IN($tags[])),clash_api:("with_clash_api"|IN($tags[]))}}'
+  else
+    printf 'sing-box：%s\nBuild tags：%s\n' "$version" "${tags:--}"
+    printf 'QUIC=%s  uTLS=%s  Naive=%s  ACME=%s  Cloudflared=%s\n' \
+      "$([[ "$tags" == *with_quic* ]] && echo yes || echo no)" "$([[ "$tags" == *with_utls* ]] && echo yes || echo no)" \
+      "$([[ "$tags" == *with_naive_outbound* ]] && echo yes || echo no)" "$([[ "$tags" == *with_acme* ]] && echo yes || echo no)" "$([[ "$tags" == *with_cloudflared* ]] && echo yes || echo no)"
+    printf 'Tailscale=%s  OpenVPN=%s  OpenConnect=%s  USB/IP=%s  Clash API=%s\n' \
+      "$([[ "$tags" == *with_tailscale* ]] && echo yes || echo no)" "$([[ "$tags" == *with_openvpn* ]] && echo yes || echo no)" \
+      "$([[ "$tags" == *with_openconnect* ]] && echo yes || echo no)" "$([[ "$tags" == *with_usbip* ]] && echo yes || echo no)" "$([[ "$tags" == *with_clash_api* ]] && echo yes || echo no)"
+  fi
+}
+
 _core_set_policy() {
   local policy=$1 candidate
   case "$policy" in manual|notify|patch|stable) ;; *) die "策略必须是 manual、notify、patch 或 stable。";; esac

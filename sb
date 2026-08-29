@@ -97,7 +97,7 @@ sb-manager：状态驱动的 sing-box 多协议管理器
   sb firewall fail2ban|ufw [--yes] [--dry-run]
   sb probe NODE_ID                探测节点 DNS、监听和 TLS/UDP 可达性
 
-  sb core check|update [VERSION]|rollback|schema [文件]|policy <manual|notify|patch|stable>|auto
+  sb core check|update [VERSION]|rollback|schema [文件]|capabilities [--json]|policy <manual|notify|patch|stable>|auto
   sb cloudflared update
   sb acme update
   sb doctor [--repair|--network]
@@ -399,6 +399,7 @@ main() {
         update) core_update "${3:-latest}" ;;
         rollback) core_rollback ;;
         schema) (($# <= 3)) || usage_die '用法：sb core schema [文件]'; core_schema "${3:-}" ;;
+        capabilities) (($# <= 3)) || usage_die '用法：sb core capabilities [--json]'; core_capabilities "$([[ ${3:-} == --json || ${SBM_OUTPUT_JSON:-0} == 1 ]] && echo 1 || echo 0)" ;;
         policy) core_set_policy "${3:?缺少策略}" ;;
         auto) core_auto_update ;;
         *) usage_die "未知 core 操作：$action" ;;

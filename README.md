@@ -271,6 +271,8 @@ sb settings dns show
 
 启用 API 后，面板的“sing-box API/Dashboard”菜单可查看服务状态、outbounds 和导出 Schema；脚本也可通过 `sb api cli status`、`sb api cli outbounds` 调用 1.14 API CLI。API 仍只监听 loopback，远程使用请通过 SSH 转发。
 
+“核心与组件更新”菜单中的“查看核心 build tags 与能力”以及 `sb core capabilities --json` 可检查当前二进制是否编译了 `with_quic`、`with_utls`、`with_openvpn`、`with_openconnect`、`with_usbip`、`with_tailscale` 等标签。未编译的能力不会被管理器伪装成可用。
+
 ### AnyTLS 与 Hysteria2
 
 先准备一个直接解析到 VPS 的域名，例如 `edge.example.com`。使用 Cloudflare DNS 时，该记录应为 **DNS Only**，不要开启橙云代理。

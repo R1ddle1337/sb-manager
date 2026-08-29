@@ -8,6 +8,7 @@
 - Expose Hysteria2 1.14 BBR profiles and Brutal debug logging in the node wizard, templates, and client exports.
 - Add a loopback-safe `sb api cli` wrapper and a corresponding API/Dashboard panel menu.
 - Add 1.14 TUN DNS mode/address controls to client exports and the interactive panel, while retaining 1.13-safe defaults.
+- Add `sb core capabilities [--json]` and a panel view of sing-box build tags and compiled 1.14 feature support.
 
 ## 0.1.0-alpha.27
 
