@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add the complete Go `sb-manager-web` project development specification, including repository boundaries, CLI integration, Web API, Agent enrollment, security, deployment, testing, and phased milestones.
 - Make the default installation and `sb core update` resolve the newest non-draft GitHub sing-box Release (including prereleases); retain `--core-version` for reproducible pinning.
 - Add one-click BBR enable/status/restore commands and panel controls with transactional sysctl backup and rollback.
 - Add one-click Hysteria2 UDP buffer tuning (`rmem_max`/`wmem_max` 16 MiB) with panel/CLI status, backup, restore, and rollback.
