@@ -128,6 +128,14 @@ optional sing-box 1.14 API/Dashboard is version-gated, loopback-only, and uses a
 separate secret file; stable 1.13 configurations never contain its `services`
 or `http_clients` fields.
 
+The optional sing-box 1.14 `hysteria-realm` service is rendered alongside the
+API service from the top-level `realm` state object. Its bearer token is kept in
+`secrets/realm.json`, never in `state.json` or generated client metadata. A
+Hysteria2 node references a Realm slot by `realm_id`; rendering resolves the
+current token at transaction time so rotating the Realm token cannot leave
+stale node credentials behind. Realm disable is refused while an enabled node
+still references it, preserving an atomic reachable configuration.
+
 ## Release provenance
 
 `build-release.sh` emits the offline installer, `SHA256SUMS`,
