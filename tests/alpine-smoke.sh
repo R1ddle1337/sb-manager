@@ -4,7 +4,7 @@ set -Eeuo pipefail
 if command -v apk >/dev/null 2>&1; then
   # The test intentionally runs setup in test mode, so provide the musl
   # compatibility/runtime tools that a clean Alpine image does not contain.
-  apk add --no-cache jq openssl tar gzip coreutils util-linux procps findutils \
+  apk add --no-cache curl ca-certificates jq openssl tar gzip coreutils util-linux procps findutils \
     python3 iproute2 nftables shadow openrc dcron libcap musl-utils gcompat >/dev/null
 fi
 ROOT=$(mktemp -d)
