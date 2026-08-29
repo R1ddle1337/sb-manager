@@ -36,6 +36,11 @@ uninstall_manager() {
   fi
   if [[ "$assume_yes" != 1 ]]; then confirm "$message" N || return 0; fi
 
+  if [[ -e "$SBM_BBR_SYSCTL_CONFIG" || -s "$SBM_BBR_BACKUP_META" ]]; then
+    bbr_restore_previous || die "无法恢复 BBR 启用前的 sysctl；卸载已取消，请检查 $SBM_BBR_BACKUP_DIR。"
+    log_info '已恢复 BBR 启用前的 sysctl 配置。'
+  fi
+
   backend=$(init_system 2>/dev/null || true)
   if [[ "$SBM_SKIP_INIT" != 1 ]] && declare -F traffic_delete_table_unlocked >/dev/null 2>&1; then
     if jq -e '.schema_version==2 and (.nodes|type=="array")' "$SBM_STATE" >/dev/null 2>&1; then

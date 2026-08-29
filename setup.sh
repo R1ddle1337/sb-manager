@@ -11,8 +11,7 @@ SETUP_PERIODIC_DIR=${SBM_PERIODIC_DIR:-/etc/periodic}
 PROGRAM_BACKUP_ROOT=${SBM_BACKUPS:-${SBM_VAR:-/var/lib/sb-manager}/backups}
 NO_MENU=0
 NO_START=0
-CORE_VERSION=$(tr -d '[:space:]' <"$SRC_DIR/TESTED_CORE_VERSION" 2>/dev/null || true)
-CORE_VERSION=${CORE_VERSION:-latest}
+CORE_VERSION=latest
 TEST_MODE=${SBM_TEST_MODE:-0}
 SETUP_MUTATED=0
 SETUP_ROLLBACK_DIR=''
@@ -74,7 +73,7 @@ done
 [[ "$TEST_MODE" == 1 || ${EUID:-$(id -u)} -eq 0 ]] || { echo '请使用 root/sudo 运行。' >&2; exit 1; }
 
 install_dependencies() {
-  local packages=(curl ca-certificates jq openssl tar gzip coreutils util-linux procps findutils logrotate python3)
+  local packages=(curl ca-certificates jq openssl tar gzip coreutils util-linux procps findutils logrotate python3 kmod)
   if command -v apk >/dev/null 2>&1; then
     apk add --no-cache bash "${packages[@]}" iproute2 nftables shadow openrc dcron libcap musl-utils gcompat
   elif command -v apt-get >/dev/null 2>&1; then
@@ -416,6 +415,7 @@ source "$TARGET_LIB/lib/tunnel.sh"
 source "$TARGET_LIB/lib/subscription.sh"
 source "$TARGET_LIB/lib/api.sh"
 source "$TARGET_LIB/lib/realm.sh"
+source "$TARGET_LIB/lib/bbr.sh"
 
 if [[ "$TEST_MODE" != 1 ]]; then require_init_system; fi
 BACKEND=$(init_system 2>/dev/null || true)
@@ -445,6 +445,9 @@ if [[ "$TEST_MODE" == 1 ]]; then
   fi
   sb_binary="$SBM_CORE_DIR/sing-box/$test_version/sing-box"
 else
+  if [[ "$CORE_VERSION" == latest ]]; then
+    CORE_VERSION=$(core_latest_version) || die '无法查询 sing-box 最新官方版本。'
+  fi
   sb_binary=$(core_download_version "$CORE_VERSION")
 fi
 validate_runtime_binary_path sing-box "$sb_binary"

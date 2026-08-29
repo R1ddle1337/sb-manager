@@ -15,6 +15,7 @@
 - 可选 Nginx Stream SNI 透传，让多个 TLS/TCP 协议共享一个公网端口
 - acme.sh + Cloudflare DNS-01 证书申请、部署与续期
 - sing-box 核心检查、自动更新策略、版本切换与回滚
+- 默认安装和 `sb core update` 自动解析 GitHub 最新 sing-box Release；需要复现时仍可用 `--core-version VERSION` 固定版本
 - cloudflared 独立更新
 - 节点添加、编辑、启停、删除和凭据轮换
 - 节点级双向流量统计、月配额与独立上/下行速率控制
@@ -189,6 +190,18 @@ sb health enable 21              # 启用定时健康检查，证书提前 21 �
 sb config validate --json        # 校验 state、渲染结果和 sing-box 配置
 sb config diff --json             # 查看脱敏后的已安装配置差异
 ```
+
+### 一键开启 BBR
+
+BBR 是服务器内核级 TCP 拥塞控制，不会在安装时自动修改系统参数。确认内核提供 BBR 后，可由面板“全局设置 → 一键开启/恢复 BBR”操作，或使用 CLI：
+
+```bash
+sb bbr status --json
+sb bbr enable
+sb bbr disable       # 恢复启用前保存的 qdisc/拥塞控制和托管配置文件
+```
+
+启用时管理器设置 `net.core.default_qdisc=fq` 和 `net.ipv4.tcp_congestion_control=bbr`，并保存原值到受保护的 `/var/lib/sb-manager/bbr/`。只删除和恢复管理器自己的 `/etc/sysctl.d/99-sb-manager-bbr.conf`，不会清理其他 sysctl 配置；如果内核未编译 BBR，命令会提示安装包含 `tcp_bbr` 的内核模块（`kmod` 仅提供 `modprobe` 工具）。卸载管理器时也会先尝试恢复原值。BBR 是否改善实际吞吐仍取决于线路、内核和对端，建议按业务流量自行验证。
 
 出站 IP 策略可在“全局设置 → 出站 IP 优先级”中选择，也可使用 CLI：
 
