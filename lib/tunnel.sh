@@ -367,6 +367,15 @@ tunnel_reconcile() {
 }
 
 tunnel_status() {
+  local json=${1:-0}
+  if [[ "$json" == 1 ]]; then
+    local state='off'
+    if [[ $(jq -r '.tunnel.mode' "$SBM_STATE") != none ]]; then
+      if [[ "$SBM_SKIP_INIT" == 1 ]]; then state=test; elif service_active "$SBM_TUNNEL_SERVICE"; then state=running; else state=stopped; fi
+    fi
+    jq --arg state "$state" '.tunnel + {service_state:$state}' "$SBM_STATE"
+    return
+  fi
   printf '模式：%s\n节点：%s\n域名：%s\n客户端地址：%s\n' \
     "$(jq -r '.tunnel.mode' "$SBM_STATE")" "$(jq -r '.tunnel.node_id // "-"' "$SBM_STATE")" \
     "$(jq -r '.tunnel.domain // "-"' "$SBM_STATE")" "$(jq -r '.tunnel.client_address // "-"' "$SBM_STATE")"

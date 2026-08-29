@@ -3,7 +3,7 @@
   "$id": "https://github.com/R1ddle1337/sb-manager/schemas/state-v2.schema.json",
   "title": "sb-manager state schema v2",
   "type": "object",
-  "required": ["schema_version", "manager_version", "created_at", "updated_at", "settings", "tunnel", "api", "nginx_stream", "notifications", "health", "certificates", "nodes"],
+  "required": ["schema_version", "manager_version", "created_at", "updated_at", "settings", "tunnel", "api", "nginx_stream", "notifications", "health", "node_templates", "certificates", "nodes"],
   "additionalProperties": true,
   "properties": {
     "schema_version": {"const": 2},
@@ -86,11 +86,36 @@
     },
     "health": {
       "type": "object",
-      "required": ["enabled", "certificate_warn_days"],
+      "required": ["enabled", "certificate_warn_days", "resources"],
       "additionalProperties": false,
       "properties": {
         "enabled": {"type": "boolean"},
-        "certificate_warn_days": {"type": "integer", "minimum": 1, "maximum": 365}
+        "certificate_warn_days": {"type": "integer", "minimum": 1, "maximum": 365},
+        "resources": {
+          "type": "object",
+          "required": ["disk_min_free_percent", "inode_max_percent", "memory_max_percent", "cpu_load_per_core_max", "file_descriptors_max_percent", "fail2ban_banned_warn", "service_restart_warn"],
+          "additionalProperties": false,
+          "properties": {
+            "disk_min_free_percent": {"type": "integer", "minimum": 1, "maximum": 99},
+            "inode_max_percent": {"type": "integer", "minimum": 1, "maximum": 100},
+            "memory_max_percent": {"type": "integer", "minimum": 1, "maximum": 100},
+            "cpu_load_per_core_max": {"type": "number", "minimum": 0.1, "maximum": 100},
+            "file_descriptors_max_percent": {"type": "integer", "minimum": 1, "maximum": 100},
+            "fail2ban_banned_warn": {"type": "integer", "minimum": 1, "maximum": 1000000},
+            "service_restart_warn": {"type": "integer", "minimum": 1, "maximum": 1000000}
+          }
+        }
+      }
+    },
+    "node_templates": {
+      "type": "array", "maxItems": 128,
+      "items": {
+        "type": "object", "required": ["name", "protocol", "defaults"], "additionalProperties": true,
+        "properties": {
+          "name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,47}$"},
+          "protocol": {"enum": ["vmess-ws-cf", "shadowsocks", "anytls", "hysteria2", "trojan", "tuic", "vless", "naive", "shadowtls", "snell"]},
+          "defaults": {"type": "object"}
+        }
       }
     },
     "certificates": {"type": "array"},

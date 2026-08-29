@@ -453,11 +453,19 @@ nginx_stream_route_list() {
 }
 
 nginx_stream_status() {
-  local enabled port routes backend
+  local json=${1:-0} enabled port routes backend service_state
   enabled=$(jq -r '.nginx_stream.enabled // false' "$SBM_STATE")
   port=$(jq -r '.nginx_stream.port // 443' "$SBM_STATE")
   routes=$(jq '.nginx_stream.routes|length' "$SBM_STATE")
   backend=$(init_system 2>/dev/null || true)
+  if [[ "$json" == 1 ]]; then
+    if [[ "$enabled" != true ]]; then service_state=off
+    elif [[ "$SBM_SKIP_INIT" == 1 ]]; then service_state=test
+    elif service_active "$SBM_NGINX_STREAM_SERVICE"; then service_state=running
+    else service_state=stopped; fi
+    jq --arg state "$service_state" '.nginx_stream + {service_state:$state}' "$SBM_STATE"
+    return
+  fi
   printf 'Nginx Stream 复用：%s，公网端口：%s/TCP，路由：%s 条\n' "$([[ "$enabled" == true ]] && echo '启用' || echo '停用')" "$port" "$routes"
   if [[ "$enabled" == true && "$SBM_SKIP_INIT" != 1 && ("$backend" == systemd || "$backend" == openrc) ]] && service_exists "$SBM_NGINX_STREAM_SERVICE"; then
     service_status_text "$SBM_NGINX_STREAM_SERVICE" || true

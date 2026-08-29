@@ -31,6 +31,7 @@ _api_disable() {
 api_disable() { with_state_transaction api-disable _api_disable; }
 
 api_status() {
+  if [[ ${1:-0} == 1 ]]; then jq '.api' "$SBM_STATE"; return; fi
   jq '.api' "$SBM_STATE"
   if [[ $(jq -r '.api.enabled' "$SBM_STATE") == true ]]; then
     printf 'SSH 转发示例：ssh -L %s:127.0.0.1:%s root@SERVER\n' "$(jq -r '.api.port' "$SBM_STATE")" "$(jq -r '.api.port' "$SBM_STATE")"

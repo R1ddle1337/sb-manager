@@ -55,6 +55,10 @@ Traffic checkpoints evaluate configured percentage thresholds and write successf
 
 The optional health timer runs every 15 minutes on systemd/OpenRC and no-ops while `health.enabled` is false. It checks expected service/listener state, certificate expiry, UFW, Fail2ban, and the owned nftables traffic table. `health-events.json` tracks active issue codes so only changes and recoveries trigger notifications; `health-report.json` stores the latest protected report.
 
+Resource health metrics use portable `/proc`, `df`, systemd, and Fail2ban interfaces. Thresholds live in `health.resources`; metrics are informational warnings and never trigger firewall, SSH, sysctl, or routing changes. `sb doctor --repair-safe` performs only permission/configuration/owned-rule recovery and a controlled restart of a service that is expected to be active but is stopped.
+
+Configuration previews render a candidate state and compare both state and generated config after redacting secret-shaped keys. Dry-run paths do not call `state_install_candidate`, do not write credentials or traffic journals, and do not reconcile services.
+
 ## Service backends
 
 ```text

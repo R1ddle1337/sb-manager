@@ -42,6 +42,8 @@ source "$SBM_LIB/lib/backup.sh"
 source "$SBM_LIB/lib/doctor.sh"
 source "$SBM_LIB/lib/uninstall.sh"
 source "$SBM_LIB/lib/ui.sh"
+source "$SBM_LIB/lib/config.sh"
+source "$SBM_LIB/lib/template.sh"
 
 sb_help() {
   cat <<'EOF_HELP'
@@ -49,11 +51,14 @@ sb-manager：状态驱动的 sing-box 多协议管理器
 
 用法：
   sb                              打开交互面板
+  sb [--json] [--yes] [--dry-run] [--quiet] <命令>  通用选项可放在命令前
   sb status [--json]              查看统一状态
   sb node list [--json] [--tag TAG] [--region REGION] 列出节点
   sb node add <vmess|ss|anytls|hy2|trojan|tuic|vless|naive|shadowtls|snell> [参数]
   sb node show <ID>
   sb node enable|disable|delete|rotate <ID>
+  sb node enable-all|disable-all --tag TAG|--region REGION
+  sb node template list|save NAME NODE_ID|delete NAME|add NAME ID [参数]
   sb node set <ID> --port N|--address HOST|--domain DOMAIN|--name NAME|--path PATH
                  [--remark TEXT] [--region REGION] [--purpose PURPOSE] [--line LINE] [--tags a,b]
   sb user list <NODE_ID>
@@ -65,8 +70,8 @@ sb-manager：状态驱动的 sing-box 多协议管理器
   sb export config [文件] [--mode mixed|tun]
   sb subscription create [7d|24h] [mixed|tun]
   sb subscription list|status|revoke <TOKEN>
-  sb api enable [PORT] [--dashboard]|disable|status|show-token
-  sb mux status|enable [PORT]|disable|route list|route add NODE_ID SNI [BACKEND_PORT]|route remove NODE_ID
+  sb api enable [PORT] [--dashboard]|disable|status [--json]|show-token
+  sb mux status [--json]|enable [PORT]|disable|route list|route add NODE_ID SNI [BACKEND_PORT]|route remove NODE_ID
   sb traffic status [NODE_ID] [--json]
   sb traffic set NODE_ID [--quota 100G|unlimited] [--reset-day 1-28]
                  [--rate 50M|unlimited] [--upload-rate RATE] [--download-rate RATE]
@@ -75,14 +80,16 @@ sb-manager：状态驱动的 sing-box 多协议管理器
   sb traffic reset NODE_ID|all [--yes]
   sb notify status|configure|disable|test|check
   sb health status|check|enable|disable [WARN_DAYS]
+  sb health configure --disk-free N --memory-max N [...]
+  sb config validate|diff [--json]
 
   sb cert setup-cloudflare [TOKEN] [ZONE_ID] [EMAIL]
   sb cert issue <DOMAIN> [EMAIL]
-  sb cert list|renew|inspect <DOMAIN>
+  sb cert list [--json]|renew|inspect <DOMAIN>
 
   sb tunnel fixed <NODE_ID> <DOMAIN> [TOKEN] [CLIENT_ADDRESS]
   sb tunnel quick <NODE_ID>
-  sb tunnel refresh|set-token|status|stop
+  sb tunnel refresh|set-token|status [--json]|stop
 
   sb settings show|detect-ip|address <auto|HOST>
   sb settings outbound-ip <prefer_ipv4|prefer_ipv6|ipv4_only>
@@ -112,13 +119,21 @@ EOF_HELP
 }
 
 main() {
+  local cli_json=0 cli_yes=0 cli_dry_run=0 cli_quiet=0
+  while (($#)); do
+    case "$1" in
+      --json) cli_json=1; shift;; --yes|-y) cli_yes=1; shift;; --dry-run) cli_dry_run=1; shift;; --quiet|-q) cli_quiet=1; shift;; --no-color) NO_COLOR=1; shift;; *) break;;
+    esac
+  done
+  export SBM_OUTPUT_JSON=$cli_json SBM_ASSUME_YES=$cli_yes SBM_DRY_RUN=$cli_dry_run SBM_QUIET=$cli_quiet
+  if [[ ${NO_COLOR:-} != "" ]]; then C_RESET=''; C_BOLD=''; C_RED=''; C_GREEN=''; C_YELLOW=''; C_BLUE=''; C_CYAN=''; fi
   local cmd=${1:-menu}
   case "$cmd" in
     -h|--help|help) sb_help; return 0;;
     -V|--version|version) printf 'sb-manager %s\n' "$SBM_VERSION"; return 0;;
     uninstall)
       [[ ${SBM_TEST_MODE:-0} == 1 ]] || require_root
-      local purge=0 assume_yes=0 arg
+      local purge=0 assume_yes=${SBM_ASSUME_YES:-0} arg
       shift
       for arg in "$@"; do
         case "$arg" in --purge) purge=1;; --yes|-y) assume_yes=1;; *) die "未知卸载参数：$arg";; esac
@@ -137,46 +152,73 @@ main() {
   case "$cmd" in
     menu) ui_main ;;
     status)
-      local json=0 arg
+      local json=${SBM_OUTPUT_JSON:-0} arg
       shift
-      while (($#)); do case "$1" in --json) json=1; shift;; *) die '用法：sb status [--json]';; esac; done
-      if (( json )); then status_json; else status_summary; fi
+      while (($#)); do case "$1" in --json) json=1; shift;; *) usage_die '用法：sb status [--json]';; esac; done
+      if (( json )); then
+        local status_data
+        status_data=$(status_json); printf '%s\n' "$status_data"; status_exit_code "$status_data"
+      else
+        status_summary
+      fi
       ;;
     node)
       local action=${2:-list}; shift 2 || true
       case "$action" in
         list)
-          local json=0 tag='' region='' arg
+          local json=${SBM_OUTPUT_JSON:-0} tag='' region='' arg
           while (($#)); do
-            case "$1" in --json) json=1; shift;; --tag) tag=${2:?缺少标签}; shift 2;; --region) region=${2:?缺少地区}; shift 2;; *) die '用法：sb node list [--json] [--tag TAG] [--region REGION]';; esac
+            case "$1" in --json) json=1; shift;; --tag) tag=${2:?缺少标签}; shift 2;; --region) region=${2:?缺少地区}; shift 2;; *) usage_die '用法：sb node list [--json] [--tag TAG] [--region REGION]';; esac
           done
           node_list "$json" "$tag" "$region"
           ;;
         add) (($# >= 1)) || die '缺少协议'; node_add "$@" ;;
-        show) (($# == 1)) || die '用法：sb node show ID'; node_show "$1" ;;
+        show) [[ $# == 1 || ( $# == 2 && $2 == --json ) ]] || usage_die '用法：sb node show ID [--json]'; node_show "$1" "$([[ ${2:-} == --json || ${SBM_OUTPUT_JSON:-0} == 1 ]] && echo 1 || echo 0)" ;;
         enable) node_enable "${1:?缺少节点 ID}" ;;
         disable) node_disable "${1:?缺少节点 ID}" ;;
         delete) node_delete "${1:?缺少节点 ID}" ;;
         rotate) node_rotate "${1:?缺少节点 ID}" ;;
-        set) local id=${1:?缺少节点 ID}; shift; (($# >= 2)) || die '缺少修改参数'; node_set "$id" "$@" ;;
-        *) die "未知 node 操作：$action" ;;
+        set)
+          local id=${1:?缺少节点 ID}; shift; local -a set_args=() set_arg
+          while (($#)); do if [[ "$1" == --dry-run ]]; then export SBM_DRY_RUN=1; shift; else set_args+=("$1"); shift; fi; done
+          (( ${#set_args[@]} >= 2 )) || usage_die '缺少修改参数'; node_set "$id" "${set_args[@]}"
+          ;;
+        enable-all|disable-all)
+          local tag='' region=''
+          while (($#)); do case "$1" in --tag) tag=${2:?缺少标签}; shift 2;; --region) region=${2:?缺少地区}; shift 2;; *) usage_die '用法：sb node enable-all|disable-all --tag TAG|--region REGION';; esac; done
+          [[ "$action" == enable-all ]] && node_batch_enable "$tag" "$region" || node_batch_disable "$tag" "$region"
+          ;;
+        template)
+          local template_action=${1:-list}; shift || true
+          case "$template_action" in
+            list)
+              if ! [[ $# == 0 || ( $# == 1 && $1 == --json ) ]]; then usage_die '用法：sb node template list [--json]'; fi
+              node_template_list "$([[ ${1:-} == --json || ${SBM_OUTPUT_JSON:-0} == 1 ]] && echo 1 || echo 0)"
+              ;;
+            save) (($# == 2)) || usage_die '用法：sb node template save NAME NODE_ID'; node_template_save "$1" "$2" ;;
+            delete) (($# == 1)) || usage_die '用法：sb node template delete NAME'; node_template_delete "$1" ;;
+            add) (($# >= 2)) || usage_die '用法：sb node template add NAME ID [参数]'; node_template_add "$@" ;;
+            *) usage_die '用法：sb node template list|save NAME NODE_ID|delete NAME|add NAME ID [参数]' ;;
+          esac
+          ;;
+        *) usage_die "未知 node 操作：$action" ;;
       esac
       ;;
     firewall)
-      local action=${2:-ports} assume_yes=0 dry_run=0 arg
+      local action=${2:-ports} assume_yes=${SBM_ASSUME_YES:-0} dry_run=${SBM_DRY_RUN:-0} json=${SBM_OUTPUT_JSON:-0} arg
       shift 2 || true
       while (($#)); do
-        case "$1" in --yes|-y) assume_yes=1; shift;; --dry-run) dry_run=1; shift;; *) die '用法：sb firewall status|ports|clear-iptables|ufw-allow|fail2ban|ufw [--yes] [--dry-run]';; esac
+        case "$1" in --yes|-y) assume_yes=1; shift;; --dry-run) dry_run=1; shift;; --json) json=1; shift;; *) usage_die '用法：sb firewall status|ports|clear-iptables|ufw-allow|fail2ban|ufw [--yes] [--dry-run] [--json]';; esac
       done
       [[ "$dry_run" == 0 || "$action" == ufw || "$action" == setup-ufw ]] || die '--dry-run 仅适用于 sb firewall ufw。'
       case "$action" in
-        status) firewall_status ;;
-        ports|list) firewall_list_protocol_ports ;;
+        status) firewall_status "$json" ;;
+        ports|list) firewall_list_protocol_ports "$json" ;;
         clear-iptables) firewall_clear_iptables_input_deny "$assume_yes" ;;
         ufw-allow) firewall_ufw_allow_protocol_ports "$assume_yes" ;;
         fail2ban|setup-fail2ban) firewall_setup_fail2ban "$assume_yes" ;;
         ufw|setup-ufw) firewall_setup_ufw "$assume_yes" "$dry_run" ;;
-        *) die '用法：sb firewall status|ports|clear-iptables|ufw-allow|fail2ban|ufw [--yes]' ;;
+        *) usage_die '用法：sb firewall status|ports|clear-iptables|ufw-allow|fail2ban|ufw [--yes]' ;;
       esac
       ;;
     user)
@@ -188,7 +230,7 @@ main() {
         disable) (($# == 2)) || die '用法：sb user disable NODE_ID USER_ID'; node_user_disable "$1" "$2" ;;
         delete) (($# == 2)) || die '用法：sb user delete NODE_ID USER_ID'; node_user_delete "$1" "$2" ;;
         rotate) (($# == 2)) || die '用法：sb user rotate NODE_ID USER_ID'; node_rotate "$1" "$2" ;;
-        *) die "未知 user 操作：$action" ;;
+        *) usage_die "未知 user 操作：$action" ;;
       esac
       ;;
     share)
@@ -218,11 +260,11 @@ main() {
       case "$action" in
         setup-cloudflare) cert_setup_cloudflare "${3:-}" "${4:-}" "${5:-}" ;;
         issue) cert_issue "${3:?缺少域名}" "${4:-}" ;;
-        list) cert_list ;;
+        list) [[ ${3:-} == --json || ${SBM_OUTPUT_JSON:-0} == 1 ]] && cert_list_json || cert_list ;;
         renew) cert_renew "$([[ ${3:-} == --quiet ]] && echo 1 || echo 0)" ;;
         inspect) cert_inspect "${3:?缺少域名}" ;;
         hook) cert_hook "${3:?缺少域名}" ;;
-        *) die "未知 cert 操作：$action" ;;
+        *) usage_die "未知 cert 操作：$action" ;;
       esac
       ;;
     tunnel)
@@ -233,19 +275,19 @@ main() {
         refresh) tunnel_refresh_quick ;;
         refresh-auto) tunnel_refresh_auto ;;
         set-token) tunnel_set_token "${3:-}" ;;
-        status) tunnel_status ;;
+        status) tunnel_status "$([[ ${3:-} == --json || ${SBM_OUTPUT_JSON:-0} == 1 ]] && echo 1 || echo 0)" ;;
         stop) tunnel_stop ;;
-        *) die "未知 tunnel 操作：$action" ;;
+        *) usage_die "未知 tunnel 操作：$action" ;;
       esac
       ;;
     subscription)
       local action=${2:-status}
       case "$action" in
         create) subscription_create "${3:-7d}" "${4:-mixed}" ;;
-        list) subscription_list ;;
-        status) subscription_status ;;
+        list) subscription_list "$([[ ${3:-} == --json || ${SBM_OUTPUT_JSON:-0} == 1 ]] && echo 1 || echo 0)" ;;
+        status) subscription_status "$([[ ${3:-} == --json || ${SBM_OUTPUT_JSON:-0} == 1 ]] && echo 1 || echo 0)" ;;
         revoke) subscription_revoke "${3:?缺少完整订阅令牌}" ;;
-        *) die '用法：sb subscription create [7d|24h] [mixed|tun] | list | status | revoke TOKEN' ;;
+        *) usage_die '用法：sb subscription create [7d|24h] [mixed|tun] | list | status | revoke TOKEN' ;;
       esac
       ;;
     api)
@@ -253,15 +295,15 @@ main() {
       case "$action" in
         enable) api_enable "${3:-9090}" "$([[ ${4:-} == --dashboard ]] && echo true || echo false)" ;;
         disable) api_disable ;;
-        status) api_status ;;
+        status) api_status "$([[ ${3:-} == --json || ${SBM_OUTPUT_JSON:-0} == 1 ]] && echo 1 || echo 0)" ;;
         show-token) api_show_token ;;
-        *) die '用法：sb api enable [PORT] [--dashboard] | disable | status | show-token' ;;
+        *) usage_die '用法：sb api enable [PORT] [--dashboard] | disable | status | show-token' ;;
       esac
       ;;
     mux|nginx-stream)
       local action=${2:-status}
       case "$action" in
-        status) nginx_stream_status ;;
+        status) nginx_stream_status "$([[ ${3:-} == --json || ${SBM_OUTPUT_JSON:-0} == 1 ]] && echo 1 || echo 0)" ;;
         enable) nginx_stream_enable "${3:-}" ;;
         disable) nginx_stream_disable ;;
         route)
@@ -270,75 +312,77 @@ main() {
             list) nginx_stream_route_list ;;
             add) nginx_stream_route_add "${4:?缺少节点 ID}" "${5:?缺少 SNI}" "${6:-}" ;;
             remove|del) nginx_stream_route_remove "${4:?缺少节点 ID}" ;;
-            *) die '用法：sb mux route list|add NODE_ID SNI [BACKEND_PORT]|remove NODE_ID' ;;
+            *) usage_die '用法：sb mux route list|add NODE_ID SNI [BACKEND_PORT]|remove NODE_ID' ;;
           esac
           ;;
-        *) die '用法：sb mux status|enable [PORT]|disable|route list|route add NODE_ID SNI [BACKEND_PORT]|route remove NODE_ID' ;;
+        *) usage_die '用法：sb mux status|enable [PORT]|disable|route list|route add NODE_ID SNI [BACKEND_PORT]|route remove NODE_ID' ;;
       esac
       ;;
     traffic)
       local action=${2:-status}
       case "$action" in
         status)
-          local target=all json=0 arg
+          local target=all json=${SBM_OUTPUT_JSON:-0} arg
           shift 2 || true
           for arg in "$@"; do
-            case "$arg" in --json) json=1;; *) [[ "$target" == all ]] || die '用法：sb traffic status [NODE_ID] [--json]'; target=$arg;; esac
+            case "$arg" in --json) json=1;; *) [[ "$target" == all ]] || usage_die '用法：sb traffic status [NODE_ID] [--json]'; target=$arg;; esac
           done
           traffic_status "$target" "$json"
           ;;
         set)
-          local id=${3:?缺少节点 ID}; shift 3
-          traffic_set "$id" "$@"
+          local id=${3:?缺少节点 ID}; shift 3; local -a traffic_args=()
+          while (($#)); do if [[ "$1" == --dry-run ]]; then export SBM_DRY_RUN=1; shift; else traffic_args+=("$1"); shift; fi; done
+          traffic_set "$id" "${traffic_args[@]}"
           ;;
         disable) (($# == 3)) || die '用法：sb traffic disable NODE_ID'; traffic_disable "$3" ;;
         remove) (($# == 3)) || die '用法：sb traffic remove NODE_ID'; traffic_remove "$3" ;;
         reset)
-          local target=${3:?缺少节点 ID} assume_yes=0
+          local target=${3:?缺少节点 ID} assume_yes=${SBM_ASSUME_YES:-0}
           if (($# != 3)) && ! { (($# == 4)) && [[ ${4:-} == --yes || ${4:-} == -y ]]; }; then
-            die '用法：sb traffic reset NODE_ID|all [--yes]'
+            usage_die '用法：sb traffic reset NODE_ID|all [--yes]'
           fi
-          (($# == 3)) || assume_yes=1
+          (($# == 3 && ${SBM_ASSUME_YES:-0} != 1)) || assume_yes=1
           if [[ "$assume_yes" == 1 ]] || confirm "确认清零 $target 的本周期流量统计？" N; then traffic_reset "$target"; fi
           ;;
         reconcile) (($# == 2)) || die '用法：sb traffic reconcile'; traffic_reconcile ;;
         sync) (($# == 2)) || die '用法：sb traffic sync'; traffic_checkpoint ;;
         tick) (($# == 2)) || die '用法：sb traffic tick'; traffic_tick ;;
-        *) die '用法：sb traffic status|set|disable|remove|reset' ;;
+        *) usage_die '用法：sb traffic status|set|disable|remove|reset' ;;
       esac
       ;;
     notify)
       local action=${2:-status}; shift 2 || true
       case "$action" in
         status)
-          (($# == 0)) || { (($# == 1)) && [[ ${1:-} == --json ]]; } || die '用法：sb notify status [--json]'
-          notification_status "$([[ ${1:-} == --json ]] && echo 1 || echo 0)"
+          (($# == 0)) || { (($# == 1)) && [[ ${1:-} == --json ]]; } || usage_die '用法：sb notify status [--json]'
+          notification_status "$([[ ${1:-} == --json || ${SBM_OUTPUT_JSON:-0} == 1 ]] && echo 1 || echo 0)"
           ;;
         configure)
           local provider=${1:?缺少通知渠道}; shift
           notification_configure_cli "$provider" "$@"
           ;;
-        disable) (($# == 0)) || die '用法：sb notify disable'; notification_disable ;;
-        test) (($# == 0)) || die '用法：sb notify test'; notification_test ;;
-        check) (($# == 0)) || die '用法：sb notify check'; with_lock notification_traffic_check_unlocked ;;
-        *) die '用法：sb notify status|configure|disable|test|check';;
+        disable) (($# == 0)) || usage_die '用法：sb notify disable'; notification_disable ;;
+        test) (($# == 0)) || usage_die '用法：sb notify test'; notification_test ;;
+        check) (($# == 0)) || usage_die '用法：sb notify check'; with_lock notification_traffic_check_unlocked ;;
+        *) usage_die '用法：sb notify status|configure|disable|test|check';;
       esac
       ;;
     health)
       local action=${2:-status}; shift 2 || true
       case "$action" in
         status)
-          (($# == 0)) || { (($# == 1)) && [[ ${1:-} == --json ]]; } || die '用法：sb health status [--json]'
-          health_status "$([[ ${1:-} == --json ]] && echo 1 || echo 0)"
+          (($# == 0)) || { (($# == 1)) && [[ ${1:-} == --json ]]; } || usage_die '用法：sb health status [--json]'
+          health_status "$([[ ${1:-} == --json || ${SBM_OUTPUT_JSON:-0} == 1 ]] && echo 1 || echo 0)"
           ;;
         check)
-          (($# == 0)) || { (($# == 1)) && [[ ${1:-} == --json ]]; } || die '用法：sb health check [--json]'
-          health_check "$([[ ${1:-} == --json ]] && echo 1 || echo 0)"
+          (($# == 0)) || { (($# == 1)) && [[ ${1:-} == --json ]]; } || usage_die '用法：sb health check [--json]'
+          health_check "$([[ ${1:-} == --json || ${SBM_OUTPUT_JSON:-0} == 1 ]] && echo 1 || echo 0)"
           ;;
-        enable) (($# <= 1)) || die '用法：sb health enable [证书预警天数]'; health_enable "${1:-}" ;;
-        disable) (($# == 0)) || die '用法：sb health disable'; health_disable ;;
-        tick) (($# == 0)) || die '用法：sb health tick'; health_tick ;;
-        *) die '用法：sb health status|check|enable|disable [WARN_DAYS]';;
+        enable) (($# <= 1)) || usage_die '用法：sb health enable [证书预警天数]'; health_enable "${1:-}" ;;
+        disable) (($# == 0)) || usage_die '用法：sb health disable'; health_disable ;;
+        configure) (($# >= 2)) || usage_die '用法：sb health configure --disk-free N --memory-max N [...]'; health_configure_resources "$@" ;;
+        tick) (($# == 0)) || usage_die '用法：sb health tick'; health_tick ;;
+        *) usage_die '用法：sb health status|check|enable|disable [WARN_DAYS]';;
       esac
       ;;
     core)
@@ -349,21 +393,44 @@ main() {
         rollback) core_rollback ;;
         policy) core_set_policy "${3:?缺少策略}" ;;
         auto) core_auto_update ;;
-        *) die "未知 core 操作：$action" ;;
+        *) usage_die "未知 core 操作：$action" ;;
       esac
       ;;
-    cloudflared) [[ ${2:-} == update ]] || die '用法：sb cloudflared update'; cloudflared_update ;;
-    acme) [[ ${2:-} == update ]] || die '用法：sb acme update'; acme_update ;;
+    cloudflared) [[ ${2:-} == update ]] || usage_die '用法：sb cloudflared update'; cloudflared_update ;;
+    acme) [[ ${2:-} == update ]] || usage_die '用法：sb acme update'; acme_update ;;
     doctor)
       case ${2:-} in
         --repair) doctor_run 1 ;;
+        --repair-safe) doctor_run 0 0 1 ;;
         --network) doctor_run 0 1 ;;
         '') doctor_run ;;
-        *) die '用法：sb doctor [--repair|--network]' ;;
+        *) usage_die '用法：sb doctor [--repair|--repair-safe|--network]' ;;
       esac
       ;;
     probe) doctor_probe "${2:?缺少节点 ID}" ;;
-    repair) doctor_run 1 ;;
+    repair)
+      if [[ ${2:-} == --safe ]]; then
+        (($# == 2)) || usage_die '用法：sb repair [--safe]'
+        doctor_run 0 0 1
+      else
+        (($# == 1)) || usage_die '用法：sb repair [--safe]'
+        doctor_run 1
+      fi
+      ;;
+    config)
+      local action=${2:-validate}; shift 2 || true
+      case "$action" in
+        validate)
+          [[ $# == 0 || ( $# == 1 && $1 == --json ) ]] || usage_die '用法：sb config validate [--json]'
+          config_validate "$([[ ${1:-} == --json || ${SBM_OUTPUT_JSON:-0} == 1 ]] && echo 1 || echo 0)"
+          ;;
+        diff)
+          [[ $# == 0 || ( $# == 1 && $1 == --json ) ]] || usage_die '用法：sb config diff [--json]'
+          config_diff "$([[ ${1:-} == --json || ${SBM_OUTPUT_JSON:-0} == 1 ]] && echo 1 || echo 0)"
+          ;;
+        *) usage_die '用法：sb config validate|diff [--json]' ;;
+      esac
+      ;;
     logs) show_logs "${2:-all}" "${3:-100}" ;;
     backup)
       local output="$SBM_BACKUPS/sb-manager-$(now_stamp).tar.gz" recipient='' arg
@@ -393,14 +460,14 @@ main() {
     restart) singbox_service_reconcile; nginx_stream_reconcile; traffic_reconcile; [[ $(jq -r '.tunnel.mode' "$SBM_STATE") != none ]] && service_try_restart "$SBM_TUNNEL_SERVICE"; status_summary ;;
     settings)
       case ${2:-show} in
-        show) settings_show_addresses ;;
+        show) settings_show_addresses "$([[ ${3:-} == --json || ${SBM_OUTPUT_JSON:-0} == 1 ]] && echo 1 || echo 0)" ;;
         detect-ip) settings_detect_public_ip ;;
         address) settings_set_default_address "${3:?缺少地址}" ;;
         outbound-ip) settings_set_outbound_ip_strategy "${3:?缺少出站 IP 策略}" ;;
-        *) die '用法：sb settings show|detect-ip|address <auto|HOST>|outbound-ip <prefer_ipv4|prefer_ipv6|ipv4_only>' ;;
+        *) usage_die '用法：sb settings show|detect-ip|address <auto|HOST>|outbound-ip <prefer_ipv4|prefer_ipv6|ipv4_only>' ;;
       esac
       ;;
-    *) die "未知命令：$cmd；运行 sb help 查看帮助。" ;;
+    *) usage_die "未知命令：$cmd；运行 sb help 查看帮助。" ;;
   esac
 }
 

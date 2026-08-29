@@ -46,10 +46,14 @@ source "$PROJECT/lib/firewall.sh"
 source "$PROJECT/lib/notification.sh"
 source "$PROJECT/lib/health.sh"
 source "$PROJECT/lib/status.sh"
+source "$PROJECT/lib/config.sh"
+source "$PROJECT/lib/template.sh"
+export SBM_ASSUME_YES=1
 
 state_init
 jq -e '.notifications=={enabled:false,provider:"none",traffic_thresholds:[80,90,100]}
-  and .health=={enabled:false,certificate_warn_days:21}' "$SBM_STATE" >/dev/null
+  and .health.enabled==false and .health.certificate_warn_days==21
+  and .health.resources.disk_min_free_percent==10 and .node_templates==[]' "$SBM_STATE" >/dev/null
 
 node_add ss --id metadata-test --port 28388 --address 192.0.2.1 --region hk --purpose relay \
   --line cn2 --tags backup,fast --remark 'secondary' >/dev/null
@@ -58,6 +62,21 @@ jq -e '.nodes[0].metadata.region=="hk" and (.nodes[0].metadata.tags|index("backu
 [[ $(node_list_json '' jp | jq 'length') == 0 ]]
 node_set metadata-test --region jp --tags production,ipv6 --remark 'primary' >/dev/null
 jq -e '.nodes[0].metadata.region=="jp" and .nodes[0].metadata.remark=="primary" and (.nodes[0].metadata.tags|length)==2' "$SBM_STATE" >/dev/null
+
+node_template_save ss-base metadata-test >/dev/null
+[[ $(node_template_list 1 | jq 'length') == 1 ]]
+node_template_add ss-base metadata-clone --port 28389 --address 192.0.2.2 >/dev/null
+node_batch_disable production '' >/dev/null
+jq -e '[.nodes[]|select(.metadata.tags|index("production"))|.enabled] | all(.==false)' "$SBM_STATE" >/dev/null
+node_batch_enable production '' >/dev/null
+export SBM_DRY_RUN=1
+node_set metadata-clone --name preview-only >/dev/null
+jq -e '.nodes[]|select(.id=="metadata-clone")|.name!="preview-only"' "$SBM_STATE" >/dev/null
+export SBM_DRY_RUN=0
+config_validate 1 | jq -e '.valid==true' >/dev/null
+config_diff 1 | jq -e '.valid==true and (.secrets_redacted==true)' >/dev/null
+health_configure_resources --disk-free 12 --memory-max 88 --load-per-core 3 >/dev/null
+jq -e '.health.resources.disk_min_free_percent==12 and .health.resources.memory_max_percent==88 and .health.resources.cpu_load_per_core_max==3' "$SBM_STATE" >/dev/null
 
 notification_configure telegram '123456:test-token' 10001 '80,90,100' >/dev/null
 [[ $(stat -c '%a' "$SBM_NOTIFICATION_SECRET") == 600 ]]
@@ -80,7 +99,7 @@ jq -e '.monitoring_enabled==true and .healthy==false and (.issues|map(.code)|ind
 health_status 1 | jq -e '.enabled==true and .certificate_warn_days==30' >/dev/null
 
 data=$(status_collect_json_unlocked)
-jq -e '.manager.version and .summary.nodes==1 and .nodes[0].metadata.region=="jp"
+jq -e '.manager.version and .summary.nodes==2 and .nodes[0].metadata.region=="jp"
   and .nodes[0].traffic.percent_used==85 and .components.notifications.credentials_ready==true' <<<"$data" >/dev/null
 
 export SBM_SSH_PORTS='2222,2200'

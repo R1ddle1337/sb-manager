@@ -6,7 +6,7 @@ SBM_LIB="${SBM_LIB:-${SBM_PREFIX}/lib/sb-manager}"
 SBM_BIN_DIR="${SBM_BIN_DIR:-${SBM_PREFIX}/bin}"
 if [[ -z ${SBM_VERSION:-} ]]; then
   if [[ -r "$SBM_LIB/VERSION" ]]; then SBM_VERSION=$(tr -d '[:space:]' <"$SBM_LIB/VERSION" 2>/dev/null || true); fi
-SBM_VERSION=${SBM_VERSION:-0.1.0-alpha.26}
+SBM_VERSION=${SBM_VERSION:-0.1.0-alpha.27}
 fi
 SBM_ETC="${SBM_ETC:-/etc/sb-manager}"
 SBM_VAR="${SBM_VAR:-/var/lib/sb-manager}"
@@ -67,11 +67,12 @@ else
   C_RESET=''; C_BOLD=''; C_RED=''; C_GREEN=''; C_YELLOW=''; C_BLUE=''; C_CYAN=''
 fi
 
-log_info() { printf '%s[INFO]%s %s\n' "$C_BLUE" "$C_RESET" "$*" >&2; }
-log_ok() { printf '%s[ OK ]%s %s\n' "$C_GREEN" "$C_RESET" "$*"; }
-log_warn() { printf '%s[WARN]%s %s\n' "$C_YELLOW" "$C_RESET" "$*" >&2; }
+log_info() { [[ ${SBM_QUIET:-0} == 1 ]] || printf '%s[INFO]%s %s\n' "$C_BLUE" "$C_RESET" "$*" >&2; }
+log_ok() { [[ ${SBM_QUIET:-0} == 1 ]] || printf '%s[ OK ]%s %s\n' "$C_GREEN" "$C_RESET" "$*"; }
+log_warn() { [[ ${SBM_QUIET:-0} == 1 ]] || printf '%s[WARN]%s %s\n' "$C_YELLOW" "$C_RESET" "$*" >&2; }
 log_error() { printf '%s[FAIL]%s %s\n' "$C_RED" "$C_RESET" "$*" >&2; }
 die() { log_error "$*"; exit 1; }
+usage_die() { log_error "$*"; exit 2; }
 
 command_exists() { command -v "$1" >/dev/null 2>&1; }
 require_command() { command_exists "$1" || die "缺少命令：$1"; }
@@ -289,6 +290,7 @@ version_ge() { ! version_lt "$1" "$2"; }
 
 confirm() {
   local prompt=$1 default=${2:-N} reply
+  [[ ${SBM_ASSUME_YES:-0} != 1 ]] || return 0
   if [[ ! -t 0 ]]; then [[ "$default" =~ ^[Yy]$ ]]; return; fi
   if [[ "$default" =~ ^[Yy]$ ]]; then read -r -p "$prompt [Y/n] " reply; reply=${reply:-Y}; else read -r -p "$prompt [y/N] " reply; reply=${reply:-N}; fi
   [[ "$reply" =~ ^[Yy]$ ]]

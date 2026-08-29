@@ -100,8 +100,18 @@ _subscription_create() {
 subscription_create() { with_lock _subscription_create "$@"; }
 
 subscription_list() {
-  local meta now id mode expires status
-  now=$(date +%s); printf '%-14s %-8s %-14s %s\n' ID MODE EXPIRES_EPOCH STATUS
+  local json=${1:-0} meta now id mode expires status
+  now=$(date +%s)
+  if [[ "$json" == 1 ]]; then
+    for meta in "$SBM_SUBSCRIPTIONS"/*.meta.json; do
+      [[ -f "$meta" ]] || continue
+      id=$(jq -r '.id' "$meta"); mode=$(jq -r '.mode' "$meta"); expires=$(jq -r '.expires_at_epoch' "$meta")
+      (( expires > now )) && status=active || status=expired
+      jq -n --arg id "$id" --arg mode "$mode" --argjson expires "$expires" --arg status "$status" '{id:$id,mode:$mode,expires_at_epoch:$expires,status:$status}'
+    done | jq -s .
+    return
+  fi
+  printf '%-14s %-8s %-14s %s\n' ID MODE EXPIRES_EPOCH STATUS
   for meta in "$SBM_SUBSCRIPTIONS"/*.meta.json; do
     [[ -f "$meta" ]] || continue
     id=$(jq -r '.id' "$meta"); mode=$(jq -r '.mode' "$meta"); expires=$(jq -r '.expires_at_epoch' "$meta")
@@ -120,6 +130,7 @@ _subscription_revoke() {
 subscription_revoke() { with_lock _subscription_revoke "$@"; }
 
 subscription_status() {
-  subscription_list
+  subscription_list "${1:-0}"
+  [[ ${1:-0} == 1 ]] && return 0
   if [[ "$SBM_SKIP_INIT" != 1 ]] && service_exists "$SBM_SUBSCRIPTION_SERVICE"; then service_status_text "$SBM_SUBSCRIPTION_SERVICE" || true; fi
 }

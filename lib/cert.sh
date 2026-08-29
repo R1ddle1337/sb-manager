@@ -193,7 +193,14 @@ _cert_renew() {
   local d
   while IFS= read -r d; do cert_hook "$d" || return 1; done < <(jq -r '.certificates[].domain' "$SBM_STATE")
 }
-cert_renew() { with_state_transaction cert-renew _cert_renew "$@"; }
+cert_renew() {
+  local rc=0
+  with_state_transaction cert-renew _cert_renew "$@" || rc=$?
+  if (( rc != 0 )) && declare -F notification_send >/dev/null 2>&1; then
+    notification_send certificate_renewal_failed "sb-manager 证书续期失败：$(hostname 2>/dev/null || printf unknown)，请运行 sb cert renew 和 sb logs 检查。" || true
+  fi
+  return "$rc"
+}
 
 acme_update() {
   [[ -x "$SBM_ACME_BIN" ]] || die "acme.sh 尚未安装。"
@@ -214,6 +221,24 @@ cert_list() {
     subject='正常'; (( days < 20 )) && subject='即将过期'; (( days < 7 )) && subject='危险'
     printf '%-30s %-12s %-24s %s\n' "$domain" "$days" "$end" "$subject"
   done < <(jq -c '.certificates[]?' "$SBM_STATE")
+}
+
+cert_list_json() {
+  local cert domain path end days status
+  {
+    while IFS= read -r cert; do
+      domain=$(jq -r '.domain' <<<"$cert"); path=$(jq -r '.certificate_path' <<<"$cert"); end=''; days=null; status='missing'
+      if [[ -s "$path" ]]; then
+        end=$(openssl x509 -in "$path" -noout -enddate 2>/dev/null | cut -d= -f2- || true)
+        days=$(x509_days_remaining "$path" 2>/dev/null || printf 'null')
+        if [[ "$days" != null ]]; then
+          if (( days < 0 )); then status=expired; elif (( days < 7 )); then status=critical; elif (( days < 20 )); then status=expiring; else status=valid; fi
+        else status=invalid; fi
+      fi
+      jq -cn --arg domain "$domain" --arg path "$path" --arg end "$end" --argjson days "$days" --arg status "$status" \
+        '{domain:$domain,path:$path,expires_at:(if $end=="" then null else $end end),days_remaining:$days,status:$status}'
+    done < <(jq -c '.certificates[]?' "$SBM_STATE")
+  } | jq -s .
 }
 
 cert_inspect() {

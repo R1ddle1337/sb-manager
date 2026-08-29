@@ -5,7 +5,7 @@ Simplified example:
 ```json
 {
   "schema_version": 2,
-  "manager_version": "0.1.0-alpha.26",
+  "manager_version": "0.1.0-alpha.27",
   "settings": {
     "log_level": "info",
     "default_server_address": "edge.example.com",
@@ -35,7 +35,16 @@ Simplified example:
   },
   "health": {
     "enabled": true,
-    "certificate_warn_days": 21
+    "certificate_warn_days": 21,
+    "resources": {
+      "disk_min_free_percent": 10,
+      "inode_max_percent": 90,
+      "memory_max_percent": 90,
+      "cpu_load_per_core_max": 2,
+      "file_descriptors_max_percent": 80,
+      "fail2ban_banned_warn": 10,
+      "service_restart_warn": 3
+    }
   },
   "certificates": [
     {
@@ -89,6 +98,8 @@ Every node has a normalized `traffic` object. `configured` distinguishes a never
 Existing v1 installations migrate once, before rendering, with a pre-migration snapshot. Future changes must use explicit, one-way migration steps. Generated config files must never be parsed back into state.
 
 `nodes[].metadata` contains operator-only `remark`, `region`, `purpose`, `line`, and unique `tags`. These values are for filtering and dashboards and are deliberately excluded from protocol renderers and client exports.
+
+`node_templates` stores non-secret protocol defaults captured from existing nodes. Templates never include user or node credentials; creating a node from a template generates fresh credentials through the normal node-add transaction.
 
 Mutations hold the manager lock through candidate validation, rendering,
 installation, and service reconciliation. A failed operation restores the

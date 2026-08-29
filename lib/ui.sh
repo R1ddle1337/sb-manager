@@ -307,13 +307,14 @@ ui_update_menu() {
 
 ui_doctor_menu() {
   local c
-  printf '1. 运行完整诊断\n2. 自动修复权限、配置与服务\n3. 协调/重启 sing-box 服务\n4. 查看 sing-box 最近日志\n0. 返回\n'
+  printf '1. 运行完整诊断\n2. 自动修复权限、配置与服务\n3. 低风险自动修复（不改防火墙/SSH/内核）\n4. 协调/重启 sing-box 服务\n5. 查看 sing-box 最近日志\n0. 返回\n'
   prompt_value c '选择操作' '0'
   case "$c" in
     1) doctor_run || true;;
     2) doctor_run 1 || true;;
-    3) singbox_service_reconcile && status_summary;;
-    4) show_logs singbox 100;;
+    3) doctor_run 0 0 1 || true;;
+    4) singbox_service_reconcile && status_summary || true;;
+    5) show_logs singbox 100;;
   esac
 }
 
@@ -375,7 +376,7 @@ ui_nginx_stream_menu() {
 
 ui_settings_menu() {
   local c v strategy_choice
-  printf '1. 设置默认服务器地址\n2. 修改日志级别\n3. Nginx Stream 443/TCP 多协议复用\n4. 出站 IP 优先级\n0. 返回\n'; prompt_value c '选择操作' '0'
+  printf '1. 设置默认服务器地址\n2. 修改日志级别\n3. Nginx Stream 443/TCP 多协议复用\n4. 出站 IP 优先级\n5. 配置校验与差异预览\n0. 返回\n'; prompt_value c '选择操作' '0'
   case "$c" in
     1) prompt_value v '域名或 IP' ''; settings_set_default_address "$v";;
     2) prompt_value v '日志级别 (trace/debug/info/warn/error/fatal/panic)' 'info'; settings_set_log_level "$v";;
@@ -384,6 +385,24 @@ ui_settings_menu() {
       printf '1. IPv4 优先（默认）\n2. IPv6 优先\n3. 仅 IPv4\n'; prompt_value strategy_choice '选择出站 IP 策略' '1'
       case "$strategy_choice" in 1) settings_set_outbound_ip_strategy prefer_ipv4;; 2) settings_set_outbound_ip_strategy prefer_ipv6;; 3) settings_set_outbound_ip_strategy ipv4_only;; *) log_error '选择无效';; esac
       ;;
+    5)
+      printf '1. 校验当前配置\n2. 查看已安装配置与当前状态差异\n3. 查看 state.json（敏感字段已遮蔽）\n0. 返回\n'; prompt_value v '选择操作' '0'
+      case "$v" in 1) config_validate || true;; 2) config_diff || true;; 3) config_redact <"$SBM_STATE";; esac
+      ;;
+  esac
+}
+
+ui_template_menu() {
+  local c name id tag region
+  node_template_list
+  printf '\n1. 从节点保存模板\n2. 使用模板创建节点\n3. 删除模板\n4. 按标签启用节点\n5. 按标签停用节点\n0. 返回\n'
+  prompt_value c '选择操作' '0'
+  case "$c" in
+    1) prompt_value name '模板名称' ''; ui_select_node id || return; node_template_save "$name" "$id" ;;
+    2) prompt_value name '模板名称' ''; prompt_value id '新节点 ID' ''; node_template_add "$name" "$id" ;;
+    3) prompt_value name '模板名称' ''; confirm "确认删除模板 $name？" N && node_template_delete "$name" ;;
+    4) prompt_value tag '标签' ''; node_batch_enable "$tag" '' ;;
+    5) prompt_value tag '标签' ''; node_batch_disable "$tag" '' ;;
   esac
 }
 
@@ -410,7 +429,7 @@ ui_notification_health_menu() {
   local c provider token destination thresholds warn_days
   notification_status
   health_status
-  printf '\n1. 配置 Telegram 通知\n2. 配置企业微信机器人\n3. 配置通用 Webhook\n4. 发送测试通知\n5. 停用通知\n6. 立即检查流量阈值\n7. 启用定时健康检查\n8. 停用定时健康检查\n9. 立即运行健康检查\n0. 返回\n'
+  printf '\n1. 配置 Telegram 通知\n2. 配置企业微信机器人\n3. 配置通用 Webhook\n4. 发送测试通知\n5. 停用通知\n6. 立即检查流量阈值\n7. 启用定时健康检查\n8. 停用定时健康检查\n9. 立即运行健康检查\n10. 配置资源/安全告警阈值\n0. 返回\n'
   prompt_value c '选择操作' '0'
   case "$c" in
     1)
@@ -428,6 +447,12 @@ ui_notification_health_menu() {
     7) warn_days=$(jq -r '.health.certificate_warn_days' "$SBM_STATE"); prompt_value warn_days '证书提前预警天数' "$warn_days"; health_enable "$warn_days" ;;
     8) health_disable ;;
     9) health_check || true ;;
+    10)
+      local disk_free memory_max load_max
+      disk_free=$(jq -r '.health.resources.disk_min_free_percent' "$SBM_STATE"); memory_max=$(jq -r '.health.resources.memory_max_percent' "$SBM_STATE"); load_max=$(jq -r '.health.resources.cpu_load_per_core_max' "$SBM_STATE")
+      prompt_value disk_free '磁盘剩余最小百分比' "$disk_free"; prompt_value memory_max '内存最大百分比' "$memory_max"; prompt_value load_max '每核负载最大值' "$load_max"
+      health_configure_resources --disk-free "$disk_free" --memory-max "$memory_max" --load-per-core "$load_max"
+      ;;
   esac
 }
 
@@ -466,14 +491,15 @@ ui_main() {
   local choice
   while true; do
     ui_header
-    printf '1. 查看统一运行状态\n2. 添加协议节点\n3. 管理现有节点\n4. 分享链接与客户端导出\n5. 域名与证书管理\n6. Cloudflare Tunnel 管理\n7. 核心与组件更新\n8. 日志\n9. 诊断与修复\n10. 备份与恢复\n11. 全局设置\n12. 防火墙与协议端口\n13. 流量统计、配额与限速\n14. 通知与定时健康检查\n15. 卸载与彻底清理\n0. 退出\n\n'
+    printf '1. 查看统一运行状态\n2. 添加协议节点\n3. 管理现有节点\n4. 分享链接与客户端导出\n5. 域名与证书管理\n6. Cloudflare Tunnel 管理\n7. 核心与组件更新\n8. 日志\n9. 诊断与修复\n10. 备份与恢复\n11. 全局设置\n12. 防火墙与协议端口\n13. 流量统计、配额与限速\n14. 通知与定时健康检查\n15. 节点模板与批量操作\n16. 卸载与彻底清理\n0. 退出\n\n'
     prompt_value choice '请选择' '0'
     case "$choice" in
-      1) status_summary;; 2) ui_add_node;; 3) ui_manage_nodes;;
+      1) status_summary || true;; 2) ui_add_node;; 3) ui_manage_nodes;;
       4) ui_share_export_menu || continue;;
       5) ui_cert_menu;; 6) ui_tunnel_menu;; 7) ui_update_menu;; 8) show_logs all 100;; 9) ui_doctor_menu;; 10) ui_backup_menu;; 11) ui_settings_menu;; 12) ui_firewall_menu;; 13) ui_traffic_menu;;
       14) ui_notification_health_menu;;
-      15) ui_uninstall_menu; [[ ${SBM_UNINSTALLED:-0} == 1 ]] && return;;
+      15) ui_template_menu;;
+      16) ui_uninstall_menu; [[ ${SBM_UNINSTALLED:-0} == 1 ]] && return;;
       0) return;; *) log_error '选择无效';;
     esac
     ui_pause

@@ -102,6 +102,40 @@ doctor_repair_runtime() {
   log_ok '自动修复流程完成。'
 }
 
+doctor_repair_safe() {
+  require_root
+  local rc=0
+  log_info '执行低风险自动修复：权限、配置渲染、流量规则和已确认失败的服务。不会修改 SSH、防火墙默认策略、内核参数或路由。'
+  ensure_program_permissions || rc=1
+  if ! render_current_config; then
+    log_error '重新渲染 sing-box 配置失败。'
+    rc=1
+  fi
+  if declare -F traffic_reconcile >/dev/null 2>&1; then
+    traffic_reconcile || { log_error '重建流量 nftables 规则失败。'; rc=1; }
+  fi
+  if declare -F nginx_stream_reconcile >/dev/null 2>&1; then
+    nginx_stream_reconcile || { log_error '协调 Nginx Stream 服务失败。'; rc=1; }
+  fi
+  if [[ "$SBM_SKIP_INIT" != 1 ]] && service_exists "$SBM_SERVICE" && state_runtime_required && ! service_active "$SBM_SERVICE"; then
+    log_warn '检测到 sing-box 应运行但当前未运行，尝试一次受控重启。'
+    service_reset_failed "$SBM_SERVICE" || true
+    if ! service_restart "$SBM_SERVICE"; then
+      log_error '受控重启 sing-box 失败。'
+      rc=1
+    elif ! service_wait_active "$SBM_SERVICE" 20; then
+      log_error 'sing-box 重启后仍未进入运行状态。'
+      rc=1
+    fi
+  fi
+  if [[ -f "$SBM_CONFIG" ]]; then chmod 0640 "$SBM_CONFIG" 2>/dev/null || rc=1; fi
+  for path in "$SBM_TRAFFIC_USAGE" "$SBM_NOTIFICATION_EVENTS" "$SBM_HEALTH_EVENTS" "$SBM_HEALTH_REPORT"; do
+    [[ ! -e "$path" ]] || chmod 0600 "$path" 2>/dev/null || rc=1
+  done
+  (( rc == 0 )) && log_ok '低风险自动修复完成。'
+  return "$rc"
+}
+
 doctor_service_failure_detail() {
   local unit=$1 backend
   backend=$(init_system 2>/dev/null || true)
@@ -217,10 +251,12 @@ doctor_network_summary() {
 }
 
 doctor_run() {
-  local repair=${1:-0} network=${2:-0} failures=0 warnings=0 tmp node runtime_node id protocol port kind domain path days
+  local repair=${1:-0} network=${2:-0} safe=${3:-0} failures=0 warnings=0 tmp node runtime_node id protocol port kind domain path days
   local enabled endpoint core_target backend low_port_required=0 caps preflight_rc
 
-  if [[ "$repair" == 1 ]]; then
+  if [[ "$safe" == 1 ]]; then
+    if ! doctor_repair_safe; then log_error '低风险自动修复未完全成功，继续输出诊断结果。'; fi
+  elif [[ "$repair" == 1 ]]; then
     if ! (doctor_repair_runtime); then log_error '自动修复未完成，继续输出诊断结果。'; fi
   fi
 

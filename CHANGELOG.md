@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-alpha.27
+
+- Standardize script-facing global CLI options (`--json`, `--yes`, `--dry-run`, `--quiet`, `--no-color`) and usage-error exit code 2.
+- Add `sb config validate|diff` with redacted candidate previews and dry-run support for node and traffic policy edits.
+- Add non-secret node templates plus atomic tag/region batch enable/disable operations.
+- Add resource metrics (disk, inode, memory, load, file descriptors, Fail2ban bans, service restarts) and feed threshold/security changes into the existing notification channel.
+- Add certificate-renewal failure notifications and `sb doctor --repair-safe` / `sb repair --safe` low-risk recovery.
+
 ## 0.1.0-alpha.26
 
 - Add a unified `sb status` dashboard and machine-readable `sb status --json` output covering services, nodes, traffic, certificates, firewall, notifications, and health issues.

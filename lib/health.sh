@@ -6,6 +6,60 @@ health_issue() {
     '{severity:$severity,code:$code,component:$component,message:$message}'
 }
 
+health_resource_metrics_json() {
+  local disk_used disk_avail disk_pct inode_pct mem_total mem_available mem_pct load cores fd_used fd_max fd_pct banned restarts
+  disk_used=0; disk_avail=0; disk_pct=0; inode_pct=0
+  disk_pct=$(df -Pk "$SBM_VAR" 2>/dev/null | awk 'NR==2 {print $5}')
+  disk_pct=${disk_pct%%%}; [[ "$disk_pct" =~ ^[0-9]+$ ]] || disk_pct=0
+  inode_pct=$(df -Pi "$SBM_VAR" 2>/dev/null | awk 'NR==2 {print $5}')
+  inode_pct=${inode_pct%%%}; [[ "$inode_pct" =~ ^[0-9]+$ ]] || inode_pct=0
+  mem_total=0; mem_available=0
+  if [[ -r /proc/meminfo ]]; then
+    mem_total=$(awk '/^MemTotal:/ {print $2; exit}' /proc/meminfo)
+    mem_available=$(awk '/^MemAvailable:/ {print $2; found=1; exit} /^MemFree:/ && !fallback {fallback=$2} END {if (!found) print fallback+0}' /proc/meminfo)
+  fi
+  if [[ "$mem_total" =~ ^[0-9]+$ && "$mem_total" -gt 0 ]]; then mem_pct=$(( (mem_total-mem_available)*100/mem_total )); else mem_pct=0; fi
+  load=$(awk '{print $1}' /proc/loadavg 2>/dev/null || printf '0')
+  cores=$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || printf 1)
+  [[ "$cores" =~ ^[0-9]+$ && "$cores" -gt 0 ]] || cores=1
+  fd_used=0; fd_max=0; fd_pct=0
+  if [[ -r /proc/sys/fs/file-nr ]]; then read -r fd_used _ fd_max < /proc/sys/fs/file-nr; fi
+  if [[ "$fd_max" =~ ^[0-9]+$ && "$fd_max" -gt 0 ]]; then fd_pct=$((fd_used*100/fd_max)); fi
+  banned=0
+  if command_exists fail2ban-client; then banned=$(fail2ban-client status sshd 2>/dev/null | awk -F: '/Currently banned/ {gsub(/ /,"",$2); print $2; exit}'); fi
+  [[ "$banned" =~ ^[0-9]+$ ]] || banned=0
+  restarts=0
+  if [[ "$SBM_SKIP_INIT" != 1 ]] && command_exists systemctl; then restarts=$(systemctl show "$SBM_SERVICE" -p NRestarts --value 2>/dev/null || printf 0); fi
+  [[ "$restarts" =~ ^[0-9]+$ ]] || restarts=0
+  jq -n --argjson disk_used_percent "$disk_pct" --argjson inode_used_percent "$inode_pct" --argjson memory_used_percent "$mem_pct" \
+    --arg load "$load" --argjson cpu_cores "$cores" --argjson fd_used "$fd_used" --argjson fd_max "$fd_max" \
+    --argjson fd_used_percent "$fd_pct" --argjson fail2ban_banned "$banned" --argjson service_restarts "$restarts" \
+    '{disk_used_percent:$disk_used_percent,inode_used_percent:$inode_used_percent,memory_used_percent:$memory_used_percent,
+      load_1m:($load|tonumber),cpu_cores:$cpu_cores,file_descriptors:{used:$fd_used,max:$fd_max,used_percent:$fd_used_percent},
+      fail2ban_banned:$fail2ban_banned,service_restarts:$service_restarts}'
+}
+
+health_resource_issues() {
+  local metrics disk_min inode_max mem_max load_max fd_max banned_max restart_max load cores
+  metrics=$(health_resource_metrics_json)
+  disk_min=$(jq -r '.health.resources.disk_min_free_percent' "$SBM_STATE")
+  inode_max=$(jq -r '.health.resources.inode_max_percent' "$SBM_STATE")
+  mem_max=$(jq -r '.health.resources.memory_max_percent' "$SBM_STATE")
+  load_max=$(jq -r '.health.resources.cpu_load_per_core_max' "$SBM_STATE")
+  fd_max=$(jq -r '.health.resources.file_descriptors_max_percent' "$SBM_STATE")
+  banned_max=$(jq -r '.health.resources.fail2ban_banned_warn' "$SBM_STATE")
+  restart_max=$(jq -r '.health.resources.service_restart_warn' "$SBM_STATE")
+  load=$(jq -r '.load_1m' <<<"$metrics"); cores=$(jq -r '.cpu_cores' <<<"$metrics")
+  awk -v value="$(jq -r '.disk_used_percent' <<<"$metrics")" -v max="$((100-disk_min))" 'BEGIN {exit !(value > max)}' && health_issue warning resource_disk_low resource "数据目录剩余磁盘空间低于 ${disk_min}%。"
+  (( $(jq -r '.inode_used_percent' <<<"$metrics") > inode_max )) && health_issue warning resource_inode_high resource "数据目录 inode 使用率超过 ${inode_max}%。"
+  (( $(jq -r '.memory_used_percent' <<<"$metrics") > mem_max )) && health_issue warning resource_memory_high resource "内存使用率超过 ${mem_max}%。"
+  awk -v value="$load" -v max="$load_max" -v cores="$cores" 'BEGIN {exit !(value > max*cores)}' && health_issue warning resource_load_high resource "系统 1 分钟负载超过每核 ${load_max}。"
+  (( $(jq -r '.file_descriptors.used_percent' <<<"$metrics") > fd_max )) && health_issue warning resource_fd_high resource "系统文件描述符使用率超过 ${fd_max}%。"
+  (( $(jq -r '.fail2ban_banned' <<<"$metrics") >= banned_max )) && health_issue warning security_banned_high fail2ban "Fail2ban 当前封禁 IP 数达到 $(jq -r '.fail2ban_banned' <<<"$metrics")。"
+  (( $(jq -r '.service_restarts' <<<"$metrics") >= restart_max )) && health_issue warning service_restart_high sing-box "sing-box 累计自动重启次数达到 $(jq -r '.service_restarts' <<<"$metrics")。"
+  return 0
+}
+
 health_node_runtime() {
   local node=$1 runtime_node kind
   runtime_node=$node
@@ -69,13 +123,15 @@ health_collect_json() {
         health_issue error traffic_rules_missing traffic '流量控制规则不完整，请运行 sb traffic reconcile。'
       fi
     fi
+    health_resource_issues "$SBM_STATE"
   } | jq -s 'sort_by(.severity,.code)'
 }
 
 health_result_json() {
-  local issues=$1
-  jq -n --arg now "$(now_iso)" --argjson enabled "$(jq -r '.health.enabled // false' "$SBM_STATE")" --argjson issues "$issues" '
-    {checked_at:$now,monitoring_enabled:$enabled,healthy:([ $issues[] | select(.severity=="error") ] | length == 0),issues:$issues,
+  local issues=$1 metrics=${2:-}
+  [[ -n "$metrics" ]] || metrics=$(health_resource_metrics_json)
+  jq -n --arg now "$(now_iso)" --argjson enabled "$(jq -r '.health.enabled // false' "$SBM_STATE")" --argjson issues "$issues" --argjson metrics "$metrics" '
+    {checked_at:$now,monitoring_enabled:$enabled,healthy:([ $issues[] | select(.severity=="error") ] | length == 0),resources:$metrics,issues:$issues,
      summary:{errors:([$issues[]|select(.severity=="error")]|length),warnings:([$issues[]|select(.severity=="warning")]|length)}}
   '
 }
@@ -115,6 +171,27 @@ _health_set_enabled() {
 }
 health_enable() { with_state_transaction health-enable _health_set_enabled true "${1:-}"; }
 health_disable() { with_state_transaction health-disable _health_set_enabled false; }
+
+_health_configure_resources() {
+  local candidate key value jq_filter='.'
+  while (($#)); do
+    key=$1; value=${2:?缺少阈值}; shift 2
+    case "$key" in
+      --disk-free) [[ "$value" =~ ^[0-9]+$ ]] && (( value >= 1 && value <= 99 )) || die '磁盘剩余阈值必须是 1-99。'; jq_filter+=" | .health.resources.disk_min_free_percent=$value" ;;
+      --inode-max) [[ "$value" =~ ^[0-9]+$ ]] && (( value >= 1 && value <= 100 )) || die 'inode 阈值必须是 1-100。'; jq_filter+=" | .health.resources.inode_max_percent=$value" ;;
+      --memory-max) [[ "$value" =~ ^[0-9]+$ ]] && (( value >= 1 && value <= 100 )) || die '内存阈值必须是 1-100。'; jq_filter+=" | .health.resources.memory_max_percent=$value" ;;
+      --load-per-core) [[ "$value" =~ ^[0-9]+([.][0-9]+)?$ ]] || die '负载阈值必须是数字。'; jq_filter+=" | .health.resources.cpu_load_per_core_max=$value" ;;
+      --fd-max) [[ "$value" =~ ^[0-9]+$ ]] && (( value >= 1 && value <= 100 )) || die '文件描述符阈值必须是 1-100。'; jq_filter+=" | .health.resources.file_descriptors_max_percent=$value" ;;
+      --banned-warn) [[ "$value" =~ ^[0-9]+$ ]] && (( value >= 1 )) || die '封禁数量阈值必须大于 0。'; jq_filter+=" | .health.resources.fail2ban_banned_warn=$value" ;;
+      --restart-warn) [[ "$value" =~ ^[0-9]+$ ]] && (( value >= 1 )) || die '重启次数阈值必须大于 0。'; jq_filter+=" | .health.resources.service_restart_warn=$value" ;;
+      *) die "未知健康阈值参数：$key" ;;
+    esac
+  done
+  candidate=$(state_candidate); jq "$jq_filter" "$SBM_STATE" >"$candidate"
+  if ! apply_candidate_state "$candidate" health-resources; then rm -f "$candidate"; return 1; fi
+  rm -f "$candidate"; log_ok '资源与安全告警阈值已更新。'
+}
+health_configure_resources() { with_state_transaction health-resources _health_configure_resources "$@"; }
 
 health_events_init_unlocked() {
   local tmp
@@ -159,13 +236,18 @@ health_tick_unlocked() {
 health_tick() { with_lock health_tick_unlocked; }
 
 health_status() {
-  local json=${1:-0} last='null'
+  local json=${1:-0} last='null' metrics
   [[ -s "$SBM_HEALTH_REPORT" ]] && last=$(jq -c . "$SBM_HEALTH_REPORT" 2>/dev/null || printf null)
   if [[ "$json" == 1 ]]; then
-    jq --argjson last "$last" '.health + {last_report:$last}' "$SBM_STATE"
+    jq --argjson last "$last" --argjson metrics "$(health_resource_metrics_json)" '.health + {resources_current:$metrics,last_report:$last}' "$SBM_STATE"
   else
+    metrics=$(health_resource_metrics_json)
     printf '定时健康检查：%s\n' "$([[ $(jq -r '.health.enabled' "$SBM_STATE") == true ]] && printf '启用' || printf '停用')"
     printf '证书预警天数：%s\n' "$(jq -r '.health.certificate_warn_days' "$SBM_STATE")"
+    printf '资源：磁盘 %s%%，内存 %s%%，负载 %s/%s 核，文件描述符 %s%%，Fail2ban 封禁 %s\n' \
+      "$(jq -r '.disk_used_percent' <<<"$metrics")" "$(jq -r '.memory_used_percent' <<<"$metrics")" \
+      "$(jq -r '.load_1m' <<<"$metrics")" "$(jq -r '.cpu_cores' <<<"$metrics")" \
+      "$(jq -r '.file_descriptors.used_percent' <<<"$metrics")" "$(jq -r '.fail2ban_banned' <<<"$metrics")"
     if [[ "$last" != null ]]; then jq -r '"上次检查：\(.checked_at)，错误 \(.summary.errors)，警告 \(.summary.warnings)"' <<<"$last"; else printf '上次检查：尚未执行\n'; fi
   fi
 }

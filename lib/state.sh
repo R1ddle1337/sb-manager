@@ -48,8 +48,18 @@ state_default_json() {
       },
       health: {
         enabled: false,
-        certificate_warn_days: 21
+        certificate_warn_days: 21,
+        resources: {
+          disk_min_free_percent: 10,
+          inode_max_percent: 90,
+          memory_max_percent: 90,
+          cpu_load_per_core_max: 2,
+          file_descriptors_max_percent: 80,
+          fail2ban_banned_warn: 10,
+          service_restart_warn: 3
+        }
       },
+      node_templates: [],
       certificates: [],
       nodes: []
     }'
@@ -115,9 +125,18 @@ state_normalize_v2_file() {
     | .notifications.enabled //= false
     | .notifications.provider //= "none"
     | .notifications.traffic_thresholds //= [80,90,100]
-    | .health //= {enabled:false,certificate_warn_days:21}
+    | .health //= {enabled:false,certificate_warn_days:21,resources:{}}
     | .health.enabled //= false
     | .health.certificate_warn_days //= 21
+    | .health.resources //= {}
+    | .health.resources.disk_min_free_percent //= 10
+    | .health.resources.inode_max_percent //= 90
+    | .health.resources.memory_max_percent //= 90
+    | .health.resources.cpu_load_per_core_max //= 2
+    | .health.resources.file_descriptors_max_percent //= 80
+    | .health.resources.fail2ban_banned_warn //= 10
+    | .health.resources.service_restart_warn //= 3
+    | .node_templates //= []
     | .nodes |= map(
         .metadata //= {remark:"",region:"",purpose:"",line:"",tags:[]}
         | .metadata.remark //= ""
@@ -179,7 +198,8 @@ state_migrate_v1_to_v2() {
     | .api={enabled:false,listen:"127.0.0.1",port:9090,dashboard:false}
     | .nginx_stream={enabled:false,listen:"::",port:443,routes:[]}
     | .notifications={enabled:false,provider:"none",traffic_thresholds:[80,90,100]}
-    | .health={enabled:false,certificate_warn_days:21}
+    | .health={enabled:false,certificate_warn_days:21,resources:{disk_min_free_percent:10,inode_max_percent:90,memory_max_percent:90,cpu_load_per_core_max:2,file_descriptors_max_percent:80,fail2ban_banned_warn:10,service_restart_warn:3}}
+    | .node_templates=[]
     | .nodes |= map(
         . as $node
         | .users=[{id:"default",name:$node.name,enabled:true,created_at:$node.created_at}]
@@ -319,7 +339,21 @@ state_validate() {
       and (if .enabled then .provider != "none" else true end))
     and (.health | type == "object"
       and (.enabled | type == "boolean")
-      and (.certificate_warn_days | type == "number" and floor == . and . >= 1 and . <= 365))
+      and (.certificate_warn_days | type == "number" and floor == . and . >= 1 and . <= 365)
+      and (.resources | type == "object")
+      and (.resources.disk_min_free_percent | type == "number" and floor == . and . >= 1 and . <= 99)
+      and (.resources.inode_max_percent | type == "number" and floor == . and . >= 1 and . <= 100)
+      and (.resources.memory_max_percent | type == "number" and floor == . and . >= 1 and . <= 100)
+      and (.resources.cpu_load_per_core_max | type == "number" and . >= 0.1 and . <= 100)
+      and (.resources.file_descriptors_max_percent | type == "number" and floor == . and . >= 1 and . <= 100)
+      and (.resources.fail2ban_banned_warn | type == "number" and floor == . and . >= 1 and . <= 1000000)
+      and (.resources.service_restart_warn | type == "number" and floor == . and . >= 1 and . <= 1000000))
+    and (.node_templates | type == "array" and length <= 128)
+    and all(.node_templates[];
+      type == "object"
+      and (.name | string and test("^[a-z0-9][a-z0-9._-]{0,47}$"))
+      and (.protocol | IN("vmess-ws-cf", "shadowsocks", "anytls", "hysteria2", "trojan", "tuic", "vless", "naive", "shadowtls", "snell"))
+      and (.defaults | type == "object"))
     and (.certificates | type == "array")
     and all(.certificates[];
       type == "object"

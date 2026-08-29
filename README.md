@@ -2,7 +2,7 @@
 
 `sb-manager` 是一个面向 systemd/OpenRC Linux 的、状态驱动的 sing-box 多协议管理脚本。安装后输入 `sb` 即可打开中文交互面板，也可以使用完整的非交互 CLI。
 
-> 当前版本：`0.1.0-alpha.26`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
+> 当前版本：`0.1.0-alpha.27`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
 
 ## 功能
 
@@ -29,6 +29,8 @@
 - 流量配额阈值通知（Telegram、企业微信和通用 Webhook）与可选定时健康检查
 - UFW 安全安装向导会探测实际 SSH 端口并在启用前展示规则预览
 - 节点备注、地区、用途、线路和标签，可按标签/地区筛选
+- 节点模板、按标签/地区批量启停，以及配置差异和 dry-run 预览
+- 磁盘、内存、负载、文件描述符、Fail2ban 封禁数和服务重启次数监控
 
 ### 节点流量控制
 
@@ -145,7 +147,7 @@ sudo bash install.sh
 bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/install.sh)
 ```
 
-`install.sh` 默认先解析 `main` 的最新 commit SHA，再按该不可变 commit 下载源码；也可设置 `SBM_INSTALL_REF=v0.1.0-alpha.26` 固定版本。显式指定 `main` 等可变分支仍需 `SBM_ALLOW_MUTABLE_REF=1`。离线发布包可使用 `build-release.sh` 生成，并核验 `SHA256SUMS`、`PROVENANCE-SHA256SUMS` 及可选的 GPG 签名文件。
+`install.sh` 默认先解析 `main` 的最新 commit SHA，再按该不可变 commit 下载源码；也可设置 `SBM_INSTALL_REF=v0.1.0-alpha.27` 固定版本。显式指定 `main` 等可变分支仍需 `SBM_ALLOW_MUTABLE_REF=1`。离线发布包可使用 `build-release.sh` 生成，并核验 `SHA256SUMS`、`PROVENANCE-SHA256SUMS` 及可选的 GPG 签名文件。
 
 安装完成后：
 
@@ -183,6 +185,8 @@ sb probe NODE_ID
 sb status --json                 # 机器可读的统一状态
 sb health check --json           # 单次健康检查
 sb health enable 21              # 启用定时健康检查，证书提前 21 天预警
+sb config validate --json        # 校验 state、渲染结果和 sing-box 配置
+sb config diff --json             # 查看脱敏后的已安装配置差异
 ```
 
 出站 IP 策略可在“全局设置 → 出站 IP 优先级”中选择，也可使用 CLI：
@@ -214,6 +218,17 @@ sb node add ss --id hk-01 --port 8388 --address edge.example.com \
 sb node set hk-01 --region jp --tags production,ipv6
 sb node list --tag backup
 sb node list --region hk --json
+sb node template save ss-standard hk-01
+sb node template add ss-standard hk-02 --address edge.example.com --port 8389
+sb node enable-all --tag production
+sb node disable-all --region hk
+```
+
+节点和流量修改支持 `--dry-run`，只显示 state/config 差异，不会写入状态、重启服务或改变流量账本：
+
+```bash
+sb node set hk-01 --name '预览名称' --dry-run
+sb traffic set hk-01 --quota 100G --dry-run
 ```
 
 ### Snell v5
@@ -355,6 +370,21 @@ sb notify disable
 ```
 
 通知 Token、Webhook URL 和 Chat ID 保存在权限为 `0600` 的 `secrets/notifications.json`；定时任务只在达到新阈值或健康状态发生变化时发送，避免重复告警。`sb traffic tick` 会执行流量阈值检查，systemd/OpenRC 安装会额外创建 `sb-health-check.timer` 或 15 分钟 periodic 任务。
+
+所有命令也支持在命令前使用统一选项，例如 `sb --json status`、`sb --quiet health check`、`sb --yes firewall ufw`。参数/用法错误返回退出码 `2`，健康检查或状态发现错误返回 `1`，便于脚本编排。
+
+资源监控阈值可调整：
+
+```bash
+sb health configure --disk-free 10 --memory-max 90 --load-per-core 2
+```
+
+低风险修复只处理权限、配置渲染、流量规则和已确认失败的服务，不会修改 SSH、防火墙默认策略、内核参数或路由：
+
+```bash
+sb doctor --repair-safe
+sb repair --safe
+```
 
 完整帮助：
 

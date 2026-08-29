@@ -99,9 +99,13 @@ node_list() {
 }
 
 node_show() {
-  local id=$1 node
+  local id=$1 json=${2:-0} node
   node=$(state_get_node "$id")
   [[ -n "$node" ]] || die "节点不存在：$id"
+  if [[ "$json" == 1 ]]; then
+    jq . <<<"$node"
+    return
+  fi
   printf '%s\n' "$node" | jq .
   printf '元数据：备注=%s；地区=%s；用途=%s；线路=%s；标签=%s\n' \
     "$(jq -r '.metadata.remark // "-"' <<<"$node")" "$(jq -r '.metadata.region // "-"' <<<"$node")" \
@@ -129,7 +133,7 @@ _node_add() {
       --handshake-server) handshake_server=${2:?}; shift 2;; --handshake-port) handshake_port=${2:?}; shift 2;;
       --congestion-control) congestion_control=${2:?}; shift 2;;
       --strict-mode) strict_mode=${2:?}; shift 2;; --wildcard-sni) wildcard_sni=${2:?}; shift 2;; --quic) network=udp; shift;;
-      --remark) remark=${2:?缺少备注}; shift 2;; --region) region=${2:?缺少地区}; shift 2;; --purpose) purpose=${2:?缺少用途}; shift 2;; --line) line=${2:?缺少线路}; shift 2;; --tags) tags=${2:?缺少标签}; shift 2;;
+      --remark) [[ $# -ge 2 ]] || die '缺少备注'; remark=$2; shift 2;; --region) [[ $# -ge 2 ]] || die '缺少地区'; region=$2; shift 2;; --purpose) [[ $# -ge 2 ]] || die '缺少用途'; purpose=$2; shift 2;; --line) [[ $# -ge 2 ]] || die '缺少线路'; line=$2; shift 2;; --tags) [[ $# -ge 2 ]] || die '缺少标签'; tags=$2; shift 2;;
       *) die "未知参数：$1";;
     esac
   done
@@ -290,6 +294,29 @@ _node_set_enabled() {
 node_enable() { with_state_transaction node-enable _node_set_enabled "$1" true; }
 node_disable() { with_state_transaction node-disable _node_set_enabled "$1" false; }
 
+_node_batch_set_enabled() {
+  local action=$1 value=$2 tag=${3:-} region=${4:-} candidate count
+  [[ -n "$tag" || -n "$region" ]] || die '批量操作至少需要 --tag 或 --region。'
+  candidate=$(state_candidate)
+  count=$(jq --arg tag "$tag" --arg region "$region" '[.nodes[] | select(($tag=="" or (.metadata.tags|index($tag))!=null) and ($region=="" or .metadata.region==$region))] | length' "$SBM_STATE")
+  (( count > 0 )) || die '没有匹配的节点。'
+  jq --arg tag "$tag" --arg region "$region" --argjson value "$value" '.nodes |= map(if ($tag=="" or (.metadata.tags|index($tag))!=null) and ($region=="" or .metadata.region==$region) then .enabled=$value else . end)' "$SBM_STATE" >"$candidate"
+  if [[ ${SBM_DRY_RUN:-0} == 1 ]]; then config_preview_candidate "$candidate"; rm -f "$candidate"; return 0; fi
+  if ! apply_candidate_state "$candidate" "node-batch-$action"; then rm -f "$candidate"; return 1; fi
+  rm -f "$candidate"
+  log_ok "已批量${action} $count 个节点。"
+}
+node_batch_enable() {
+  [[ -n ${1:-} || -n ${2:-} ]] || usage_die '批量操作至少需要 --tag 或 --region。'
+  [[ ${SBM_DRY_RUN:-0} == 1 ]] || { confirm '确认批量启用匹配节点？' N || return 0; }
+  if [[ ${SBM_DRY_RUN:-0} == 1 ]]; then with_lock _node_batch_set_enabled enable true "${1:-}" "${2:-}"; else with_state_transaction node-batch-enable _node_batch_set_enabled enable true "${1:-}" "${2:-}"; fi
+}
+node_batch_disable() {
+  [[ -n ${1:-} || -n ${2:-} ]] || usage_die '批量操作至少需要 --tag 或 --region。'
+  [[ ${SBM_DRY_RUN:-0} == 1 ]] || { confirm '确认批量停用匹配节点？' N || return 0; }
+  if [[ ${SBM_DRY_RUN:-0} == 1 ]]; then with_lock _node_batch_set_enabled disable false "${1:-}" "${2:-}"; else with_state_transaction node-batch-disable _node_batch_set_enabled disable false "${1:-}" "${2:-}"; fi
+}
+
 _node_delete() {
   local id=$1 candidate
   state_node_exists "$id" || die "节点不存在：$id"
@@ -357,10 +384,18 @@ _node_set() {
   done
   protocol=$(jq -r --arg id "$id" '.nodes[]|select(.id==$id)|.protocol' "$candidate")
   [[ "$protocol" == vmess-ws-cf || -n $(jq -r --arg id "$id" '.nodes[]|select(.id==$id)|.server_address // ""' "$candidate") ]] || log_warn "节点尚未设置客户端服务器地址。"
+  if [[ ${SBM_DRY_RUN:-0} == 1 ]]; then
+    config_preview_candidate "$candidate"
+    rm -f "$candidate"
+    return 0
+  fi
   if ! apply_candidate_state "$candidate" "edit-$id"; then rm -f "$candidate"; return 1; fi
   rm -f "$candidate"
 }
-node_set() { local id=$1; shift; with_state_transaction node-edit _node_set "$id" "$@"; }
+node_set() {
+  local id=$1; shift
+  if [[ ${SBM_DRY_RUN:-0} == 1 ]]; then with_lock _node_set "$id" "$@"; else with_state_transaction node-edit _node_set "$id" "$@"; fi
+}
 
 node_user_generate_secret() {
   local node=$1 user_id=${2:-default} protocol
@@ -499,5 +534,6 @@ settings_default_address() {
 }
 
 settings_show_addresses() {
+  if [[ ${1:-0} == 1 ]]; then jq '.settings | {default_server_address,default_server_address_source,public_ipv4,public_ipv6,outbound_ip_strategy,public_ip_detected_at}' "$SBM_STATE"; return; fi
   jq -r '"默认入口：\(.settings.default_server_address // "-")\n来源：\(.settings.default_server_address_source // "-")\n公网 IPv4：\(.settings.public_ipv4 // "-")\n公网 IPv6：\(.settings.public_ipv6 // "-")\n出站 IP 策略：\(.settings.outbound_ip_strategy // "prefer_ipv4")\n探测时间：\(.settings.public_ip_detected_at // "-")"' "$SBM_STATE"
 }

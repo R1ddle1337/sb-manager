@@ -90,6 +90,13 @@ Completion requires all checkboxes above, updated architecture/schema/security d
 - [x] Add node remarks, region, purpose, line, tags, and CLI filtering without affecting generated configuration.
 - [x] Add optional systemd/OpenRC health checks for services, listeners, certificates, firewall components, and traffic rules.
 
+## Scriptability and Batch Operations
+
+- [x] Standardize global JSON, confirmation, dry-run, quiet, and no-color CLI options with stable exit codes.
+- [x] Add redacted config validation/diff previews and mutation dry-run paths.
+- [x] Add non-secret node templates and atomic tag/region batch enable/disable operations.
+- [x] Add resource/security threshold metrics and low-risk-only automatic repair.
+
 ## Acceptance record (2026-08-28)
 
 The complete smoke suite passed on Debian 13.6 using official sing-box

@@ -53,7 +53,11 @@ firewall_snapshot_iptables() {
 }
 
 firewall_list_protocol_ports() {
-  local node id protocol name enabled port kind route public_port
+  local json=${1:-0} node id protocol name enabled port kind route public_port
+  if [[ "$json" == 1 ]]; then
+    firewall_collect_protocol_ports | sort -u | awk -F '\t' '{printf "{\"port\":%s,\"transport\":\"%s\"}\n",$1,$2}' | jq -s .
+    return
+  fi
   printf '%-18s %-18s %-8s %-6s %-8s %s\n' 'ID' '协议' '状态' '协议' '端口' '客户端地址'
   printf '%-18s %-18s %-8s %-6s %-8s %s\n' '------------------' '------------------' '--------' '------' '--------' '------------'
   while IFS= read -r node; do
@@ -255,19 +259,25 @@ firewall_setup_ufw() {
 }
 
 firewall_status() {
-  local ufw_state fail2ban_state
+  local json=${1:-0} ufw_state fail2ban_state ufw_enabled=false fail2ban_enabled=false
   if command_exists ufw; then
     ufw_state=$(ufw status 2>/dev/null | sed -n '1p' || true)
-    printf 'UFW       : %s\n' "${ufw_state:-已安装}"
+    [[ "$ufw_state" =~ [Aa]ctive ]] && ufw_enabled=true
+    [[ "$json" == 1 ]] || printf 'UFW       : %s\n' "${ufw_state:-已安装}"
   else
-    printf 'UFW       : 未安装\n'
+    [[ "$json" == 1 ]] || printf 'UFW       : 未安装\n'
   fi
   if command_exists fail2ban-client; then
     fail2ban_state=$(fail2ban-client status sshd 2>/dev/null | sed -n '1p' || true)
-    printf 'Fail2ban  : %s\n' "${fail2ban_state:-已安装}"
-    printf '配置文件  : %s\n' "$SBM_FAIL2BAN_CONFIG"
+    fail2ban_enabled=$(fail2ban-client status sshd >/dev/null 2>&1 && echo true || echo false)
+    [[ "$json" == 1 ]] || printf 'Fail2ban  : %s\n配置文件  : %s\n' "${fail2ban_state:-已安装}" "$SBM_FAIL2BAN_CONFIG"
   else
-    printf 'Fail2ban  : 未安装\n'
+    [[ "$json" == 1 ]] || printf 'Fail2ban  : 未安装\n'
+  fi
+  if [[ "$json" == 1 ]]; then
+    jq -n --argjson ufw_installed "$(command_exists ufw && echo true || echo false)" --argjson ufw_active "$ufw_enabled" \
+      --argjson fail2ban_installed "$(command_exists fail2ban-client && echo true || echo false)" --argjson fail2ban_active "$fail2ban_enabled" \
+      --arg config "$SBM_FAIL2BAN_CONFIG" '{ufw:{installed:$ufw_installed,active:$ufw_active},fail2ban:{installed:$fail2ban_installed,active:$fail2ban_active,config:$config}}'
   fi
 }
 

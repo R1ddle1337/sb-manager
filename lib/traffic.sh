@@ -398,23 +398,25 @@ _traffic_set() {
         quota_mode=${2:?缺少配额统计模式}; [[ "$quota_mode" == total || "$quota_mode" == download ]] || die '配额统计模式必须是 total 或 download。'
         shift 2
         ;;
+      --dry-run) export SBM_DRY_RUN=1; shift ;;
       *) die "未知流量控制参数：$1" ;;
     esac
   done
   [[ "$SBM_SKIP_INIT" == 1 ]] || { require_command nft; require_command sha256sum; }
-  traffic_usage_init_unlocked
-  if [[ "$SBM_SKIP_INIT" != 1 ]]; then
+  if [[ ${SBM_DRY_RUN:-0} != 1 ]]; then
+    traffic_usage_init_unlocked
+  fi
+  if [[ ${SBM_DRY_RUN:-0} != 1 && "$SBM_SKIP_INIT" != 1 ]]; then
     traffic_checkpoint_unlocked
     traffic_reset_due_unlocked
   fi
-  if [[ "$quota" != null ]]; then
+  if [[ "$quota" != null && -s "$SBM_TRAFFIC_USAGE" ]]; then
     local used_upload used_download used_billable
     used_upload=$(jq -r --arg id "$id" '.nodes[$id].upload_bytes // 0' "$SBM_TRAFFIC_USAGE")
     used_download=$(jq -r --arg id "$id" '.nodes[$id].download_bytes // 0' "$SBM_TRAFFIC_USAGE")
     if [[ "$quota_mode" == download ]]; then used_billable=$used_download; else used_billable=$((used_upload + used_download)); fi
     (( quota >= used_billable )) || log_warn "新配额不高于 $id 当前已用量（$(traffic_format_bytes "$used_billable")）；该节点会立即进入配额耗尽状态。"
   fi
-  traffic_usage_rebase_node_unlocked "$id" "$reset_day"
   candidate=$(state_candidate)
   jq --arg id "$id" --argjson quota "$quota" --argjson reset "$reset_day" \
     --argjson upload "$upload_rate" --argjson download "$download_rate" --arg mode "$quota_mode" '
@@ -423,12 +425,21 @@ _traffic_set() {
       upload_rate_bps:$upload,download_rate_bps:$download
     }
   ' "$SBM_STATE" >"$candidate"
+  if [[ ${SBM_DRY_RUN:-0} == 1 ]]; then
+    config_preview_candidate "$candidate"
+    rm -f "$candidate"
+    return 0
+  fi
+  traffic_usage_rebase_node_unlocked "$id" "$reset_day"
   if ! apply_candidate_state "$candidate" "traffic-set-$id"; then rm -f "$candidate"; return 1; fi
   rm -f "$candidate"
   log_ok "已应用节点流量控制：$id"
 }
 
-traffic_set() { local id=$1; shift; with_state_transaction traffic-set _traffic_set "$id" "$@"; }
+traffic_set() {
+  local id=$1; shift
+  if [[ ${SBM_DRY_RUN:-0} == 1 ]]; then with_lock _traffic_set "$id" "$@"; else with_state_transaction traffic-set _traffic_set "$id" "$@"; fi
+}
 
 _traffic_disable() {
   local id=$1 candidate

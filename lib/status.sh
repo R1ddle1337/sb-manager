@@ -91,7 +91,7 @@ status_collect_json_unlocked() {
     --argjson nginx_port "$(jq -r '.nginx_stream.port // 443' "$SBM_STATE")" --arg traffic_state "$traffic_state" \
     --argjson traffic_count "$traffic_count" --arg ufw_state "$ufw_state" --arg fail2ban_state "$fail2ban_state" \
     --arg pending "$pending" --argjson enabled_count "$enabled_count" --argjson nodes "$nodes" --argjson certs "$certs" \
-    --argjson issues "$issues" --argjson notify "$(notification_status_json)" --argjson health "$(jq -c '.health' "$SBM_STATE")" '
+    --argjson issues "$issues" --argjson notify "$(notification_status_json)" --argjson health "$(jq -c '.health' "$SBM_STATE")" --argjson resources "$(health_resource_metrics_json)" '
     {manager:{version:$version,checked_at:$now,init_system:$init},
      summary:{nodes:($nodes|length),enabled_nodes:$enabled_count,certificates:($certs|length),issues:($issues|length),
        errors:([$issues[]|select(.severity=="error")]|length),warnings:([$issues[]|select(.severity=="warning")]|length)},
@@ -99,12 +99,17 @@ status_collect_json_unlocked() {
        sing_box:{version:(if $sb_ver=="" then null else $sb_ver end),state:$service_state,pending_version:(if $pending=="" then null else $pending end)},
        cloudflared:{version:(if $cf_ver=="" then null else $cf_ver end),mode:$tunnel_mode,state:$tunnel_state},
        nginx_stream:{state:$nginx_state,port:$nginx_port},traffic:{state:$traffic_state,configured_nodes:$traffic_count},
-       ufw:{state:$ufw_state},fail2ban:{state:$fail2ban_state},notifications:$notify,health:$health},
+       ufw:{state:$ufw_state},fail2ban:{state:$fail2ban_state},notifications:$notify,health:($health + {resources_current:$resources})},
      nodes:$nodes,certificates:$certs,issues:$issues}
   '
 }
 
 status_json() { with_lock status_collect_json_unlocked; }
+
+status_exit_code() {
+  local data=$1
+  [[ $(jq -r '.summary.errors // 0' <<<"$data") == 0 ]]
+}
 
 status_show() {
   local data row usage quota
@@ -129,6 +134,7 @@ status_show() {
     printf '\n待处理异常：\n'
     jq -r '.issues[] | "- [\(.severity)] \(.message)"' <<<"$data"
   fi
+  status_exit_code "$data"
 }
 
 status_summary() { status_show; }
