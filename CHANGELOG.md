@@ -11,6 +11,7 @@
 - Add `sb core capabilities [--json]` and a panel view of sing-box build tags and compiled 1.14 feature support.
 - Document the complete 1.14 feature coverage matrix and the separate-model boundary for Realm/VPN/desktop-only features.
 - Add Snell v6 traffic-shaping mode with v5 compatibility selection, version-aware exports, migration defaults, and panel/CLI controls.
+- Add Hysteria Realm rendezvous service with protected token storage, TLS/loopback configuration, Hysteria2 node linkage, NAT traversal options, panel controls, and preview-core coverage.
 
 ## 0.1.0-alpha.27
 

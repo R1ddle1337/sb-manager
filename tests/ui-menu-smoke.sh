@@ -28,7 +28,7 @@ for label in \
   'VLESS' \
   'NaiveProxy' \
   'ShadowTLS v3' \
-  'Snell v5（需要 sing-box 1.14+）'; do
+  'Snell v5/v6（需要 sing-box 1.14+）'; do
   grep -Fq "$label" <<<"$menu"
 done
 [[ $(grep -Ec '^[1-9][0-9]*\. ' <<<"$menu") == 10 ]]

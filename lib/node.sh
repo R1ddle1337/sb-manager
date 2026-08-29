@@ -121,7 +121,7 @@ node_show() {
 
 _node_add() {
   local type=$1; shift
-  local id='' name='' port='' domain='' address='' address_supplied=0 address_source=auto path='' method='2022-blake3-aes-256-gcm' network='tcp' mux=true enabled=true obfs='' obfs_host='' obfs_min_packet_size=512 obfs_max_packet_size=1200 disable_chrome_parrot=false bbr_profile='' brutal_debug=false masquerade='' security='tls' flow='' handshake_server='' handshake_port=443 congestion_control='cubic' strict_mode=true wildcard_sni='off' snell_version=6 snell_mode=default
+  local id='' name='' port='' domain='' address='' address_supplied=0 address_source=auto path='' method='2022-blake3-aes-256-gcm' network='tcp' mux=true enabled=true obfs='' obfs_host='' obfs_min_packet_size=512 obfs_max_packet_size=1200 disable_chrome_parrot=false bbr_profile='' brutal_debug=false masquerade='' security='tls' flow='' handshake_server='' handshake_port=443 congestion_control='cubic' strict_mode=true wildcard_sni='off' snell_version=6 snell_mode=default realm_id='' realm_ip_version=0 realm_port_mapping=false
   local remark='' region='' purpose='' line='' tags=''
   while (($#)); do
     case "$1" in
@@ -134,6 +134,7 @@ _node_add() {
       --congestion-control) congestion_control=${2:?}; shift 2;;
       --strict-mode) strict_mode=${2:?}; shift 2;; --wildcard-sni) wildcard_sni=${2:?}; shift 2;; --quic) network=udp; shift;;
       --snell-version) snell_version=${2:?}; shift 2;; --snell-mode) snell_mode=${2:?}; shift 2;;
+      --realm-id) realm_id=${2:?}; shift 2;; --realm-ip-version) realm_ip_version=${2:?}; shift 2;; --realm-port-mapping) realm_port_mapping=true; shift;;
       --remark) [[ $# -ge 2 ]] || die '缺少备注'; remark=$2; shift 2;; --region) [[ $# -ge 2 ]] || die '缺少地区'; region=$2; shift 2;; --purpose) [[ $# -ge 2 ]] || die '缺少用途'; purpose=$2; shift 2;; --line) [[ $# -ge 2 ]] || die '缺少线路'; line=$2; shift 2;; --tags) [[ $# -ge 2 ]] || die '缺少标签'; tags=$2; shift 2;;
       *) die "未知参数：$1";;
     esac
@@ -188,6 +189,12 @@ _node_add() {
       case "$bbr_profile" in ''|conservative|standard|aggressive) ;; *) die 'Hysteria2 BBR profile 必须是 conservative、standard 或 aggressive。';; esac
       if [[ -n "$bbr_profile" || "$brutal_debug" == true ]]; then
         version_ge "$(core_current_version)" 1.14.0-rc.1 || die 'Hysteria2 BBR profile/debug 需要 sing-box 1.14+ 核心。'
+      fi
+      case "$realm_ip_version" in 0|4|6) ;; *) die 'Realm IP 版本必须是 0、4 或 6。';; esac
+      if [[ -n "$realm_id" ]]; then
+        [[ "$realm_id" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$ ]] || die "无效 Realm ID：$realm_id"
+        [[ $(jq -r '.realm.enabled // false' "$SBM_STATE") == true ]] || die '请先启用全局 Hysteria Realm，再为节点指定 --realm-id。'
+        version_ge "$(core_current_version)" 1.14.0-rc.1 || die 'Hysteria Realm 需要 sing-box 1.14+ 核心。'
       fi
       secret=$(jq -n --arg password "$(random_password 24)" --arg obfs_password "$([[ -n "$obfs" ]] && random_password 18 || true)" '{password:$password,obfs_password:$obfs_password}')
       ;;
@@ -264,8 +271,8 @@ _node_add() {
         '{id:$id,name:$name,protocol:"anytls",enabled:$enabled,listen:"::",port:$port,domain:$domain,server_address:$address,created_at:$now,users:[{id:"default",name:$name,enabled:true,created_at:$now}]}')
       ;;
     hysteria2)
-      node=$(jq -n --arg id "$id" --arg name "$name" --argjson port "$port" --arg domain "$domain" --arg address "$address" --arg obfs "$obfs" --argjson obfs_min "$obfs_min_packet_size" --argjson obfs_max "$obfs_max_packet_size" --argjson disable_chrome "$disable_chrome_parrot" --arg bbr "$bbr_profile" --argjson brutal "$brutal_debug" --arg masquerade "$masquerade" --arg now "$created_at" --argjson enabled "$enabled" \
-        '{id:$id,name:$name,protocol:"hysteria2",enabled:$enabled,listen:"::",port:$port,domain:$domain,server_address:$address,obfs:(if $obfs=="" then {} elif $obfs=="gecko" then {type:$obfs,min_packet_size:$obfs_min,max_packet_size:$obfs_max} else {type:$obfs} end),disable_chrome_parrot:$disable_chrome,bbr_profile:$bbr,brutal_debug:$brutal,masquerade:$masquerade,created_at:$now,users:[{id:"default",name:$name,enabled:true,created_at:$now}]}')
+      node=$(jq -n --arg id "$id" --arg name "$name" --argjson port "$port" --arg domain "$domain" --arg address "$address" --arg obfs "$obfs" --argjson obfs_min "$obfs_min_packet_size" --argjson obfs_max "$obfs_max_packet_size" --argjson disable_chrome "$disable_chrome_parrot" --arg bbr "$bbr_profile" --argjson brutal "$brutal_debug" --argjson realm_enabled "$([[ -n "$realm_id" ]] && echo true || echo false)" --arg realm_id "$realm_id" --argjson realm_ip "$realm_ip_version" --argjson realm_map "$realm_port_mapping" --arg masquerade "$masquerade" --arg now "$created_at" --argjson enabled "$enabled" \
+        '{id:$id,name:$name,protocol:"hysteria2",enabled:$enabled,listen:"::",port:$port,domain:$domain,server_address:$address,obfs:(if $obfs=="" then {} elif $obfs=="gecko" then {type:$obfs,min_packet_size:$obfs_min,max_packet_size:$obfs_max} else {type:$obfs} end),disable_chrome_parrot:$disable_chrome,bbr_profile:$bbr,brutal_debug:$brutal,realm_enabled:$realm_enabled,realm_id:$realm_id,realm_ip_version:$realm_ip,realm_port_mapping:$realm_map,masquerade:$masquerade,created_at:$now,users:[{id:"default",name:$name,enabled:true,created_at:$now}]}')
       ;;
     trojan)
       node=$(jq -n --arg id "$id" --arg name "$name" --argjson port "$port" --arg domain "$domain" --arg address "$address" --arg now "$created_at" --argjson enabled "$enabled" '{id:$id,name:$name,protocol:"trojan",enabled:$enabled,listen:"::",port:$port,domain:$domain,server_address:$address,created_at:$now,users:[{id:"default",name:$name,enabled:true,created_at:$now}]}')

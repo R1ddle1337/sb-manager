@@ -17,7 +17,7 @@ node_transport_kinds() {
 }
 
 validate_state_semantics() {
-  local state=$1 ids count node id protocol port domain cert_dir kind key user_ids user_id enabled_users
+  local state=$1 ids count node id protocol port domain cert_dir kind key user_ids user_id enabled_users realm_url realm_domain realm_port realm_id
   state_validate "$state"
   if declare -F traffic_validate_state >/dev/null 2>&1; then
     traffic_validate_state "$state"
@@ -31,6 +31,16 @@ validate_state_semantics() {
   if [[ $(jq -r '.api.enabled // false' "$state") == true ]]; then
     version_ge "$(core_current_version)" 1.14.0-rc.1 || die 'sing-box API/Dashboard 需要 1.14+ 核心。'
     [[ -r "$(state_secret_path api)" ]] || die 'API secret 文件缺失。'
+  fi
+  if [[ $(jq -r '.realm.enabled // false' "$state") == true ]]; then
+    version_ge "$(core_current_version)" 1.14.0-rc.1 || die 'Hysteria Realm 需要 sing-box 1.14.0-rc.1 或更高版本核心。'
+    [[ -r "$SBM_REALM_SECRET" ]] || die 'Hysteria Realm secret 文件缺失。'
+    realm_url=$(jq -r '.realm.public_url // ""' "$state")
+    [[ "$realm_url" =~ ^https?://[^/[:space:]]+$ ]] || die "无效 Realm 公网 URL：$realm_url"
+    realm_domain=$(jq -r '.realm.tls_domain // ""' "$state")
+    if [[ -n "$realm_domain" ]]; then
+      [[ -s "$SBM_CERTS/$realm_domain/fullchain.pem" && -s "$SBM_CERTS/$realm_domain/key.pem" ]] || die "Realm 缺少证书：$SBM_CERTS/$realm_domain/{fullchain.pem,key.pem}"
+    fi
   fi
 
   declare -A occupied=()
@@ -54,6 +64,11 @@ validate_state_semantics() {
       fi
       if [[ "$protocol" == hysteria2 ]] && { [[ $(jq -r '.obfs.type // ""' <<<"$node") == gecko ]] || [[ $(jq -r '.disable_chrome_parrot // false' <<<"$node") == true ]] || [[ -n $(jq -r '.bbr_profile // ""' <<<"$node") ]] || [[ $(jq -r '.brutal_debug // false' <<<"$node") == true ]]; }; then
         version_ge "$(core_current_version)" 1.14.0-rc.1 || die '当前 Hysteria2 配置包含 1.14+ 功能，需要 sing-box 1.14.0-rc.1 或更高版本核心。'
+      fi
+      if [[ "$protocol" == hysteria2 && $(jq -r '.realm_enabled // false' <<<"$node") == true ]]; then
+        [[ $(jq -r '.realm.enabled // false' "$state") == true ]] || die "节点 $id 启用了 Hysteria Realm，但全局 Realm 服务未启用。"
+        realm_id=$(jq -r '.realm_id // ""' <<<"$node")
+        [[ "$realm_id" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$ ]] || die "节点 $id 的 Realm ID 无效：$realm_id"
       fi
     fi
     user_ids=$(jq -r '.users[].id' <<<"$node" | sort)
@@ -81,6 +96,10 @@ validate_state_semantics() {
       fi
     fi
   done < <(jq -c '.nodes[]?' "$state")
+  if [[ $(jq -r '.realm.enabled // false' "$state") == true ]]; then
+    realm_port=$(jq -r '.realm.port' "$state")
+    [[ -z ${occupied[tcp:$realm_port]+x} ]] || die "Realm 端口冲突：${occupied[tcp:$realm_port]} 已占用 ${realm_port}/TCP。"
+  fi
 }
 
 node_enabled_credentials() {
@@ -113,7 +132,7 @@ render_inbound_for_node() {
 }
 
 render_config_from_state() {
-  local state=$1 output=$2 node node_id credentials node_secret inbound inbounds='[]' log_level api_enabled api_secret api_port dashboard strategy dns_optimistic dns_optimistic_timeout dns_timeout dns_advanced core_version
+  local state=$1 output=$2 node node_id credentials node_secret inbound inbounds='[]' log_level api_enabled api_secret api_port dashboard strategy dns_optimistic dns_optimistic_timeout dns_timeout dns_advanced core_version realm_enabled realm_listen realm_port realm_url realm_token realm_user realm_max realm_domain
   validate_state_semantics "$state"
   while IFS= read -r node; do
     [[ -n "$node" ]] || continue
@@ -131,6 +150,15 @@ render_config_from_state() {
   api_enabled=$(jq -r '.api.enabled // false' "$state")
   api_secret=''; api_port=$(jq -r '.api.port // 9090' "$state"); dashboard=$(jq -r '.api.dashboard // false' "$state")
   strategy=$(jq -r '.settings.outbound_ip_strategy // "prefer_ipv4"' "$state")
+  realm_enabled=$(jq -r '.realm.enabled // false' "$state")
+  realm_listen=$(jq -r '.realm.listen // "::"' "$state")
+  realm_port=$(jq -r '.realm.port // 9443' "$state")
+  realm_url=$(jq -r '.realm.public_url // ""' "$state")
+  realm_user=$(jq -r '.realm.user_name // "default"' "$state")
+  realm_max=$(jq -r '.realm.max_realms // 0' "$state")
+  realm_domain=$(jq -r '.realm.tls_domain // ""' "$state")
+  realm_token=''
+  [[ "$realm_enabled" != true ]] || realm_token=$(jq -r '.token' "$SBM_REALM_SECRET")
   dns_optimistic=$(jq -r '.settings.dns_optimistic // false' "$state")
   dns_optimistic_timeout=$(jq -r '.settings.dns_optimistic_timeout // "3d"' "$state")
   dns_timeout=$(jq -r '.settings.dns_timeout // "10s"' "$state")
@@ -143,7 +171,8 @@ render_config_from_state() {
   [[ "$api_enabled" != true ]] || api_secret=$(state_get_secret api | jq -r '.secret')
   jq -n --arg level "$log_level" --arg strategy "$strategy" --argjson inbounds "$inbounds" --argjson api_enabled "$api_enabled" \
     --arg secret "$api_secret" --argjson api_port "$api_port" --argjson dashboard "$dashboard" --arg dashboard_path "$SBM_VAR/dashboard" \
-    --argjson dns_advanced "$dns_advanced" --argjson dns_optimistic "$dns_optimistic" --arg dns_optimistic_timeout "$dns_optimistic_timeout" --arg dns_timeout "$dns_timeout" '{
+    --argjson dns_advanced "$dns_advanced" --argjson dns_optimistic "$dns_optimistic" --arg dns_optimistic_timeout "$dns_optimistic_timeout" --arg dns_timeout "$dns_timeout" \
+    --argjson realm_enabled "$realm_enabled" --arg realm_listen "$realm_listen" --argjson realm_port "$realm_port" --arg realm_url "$realm_url" --arg realm_token "$realm_token" --arg realm_user "$realm_user" --argjson realm_max "$realm_max" --arg realm_domain "$realm_domain" --arg cert_dir "$SBM_CERTS" '{
     "$schema":"https://sing-box.sagernet.org/schema.json",
     log:{level:$level,timestamp:true},
     inbounds:$inbounds,
@@ -155,14 +184,18 @@ render_config_from_state() {
       .dns.timeout=$dns_timeout
       | .dns.optimistic=(if $dns_optimistic then {enabled:true,timeout:$dns_optimistic_timeout} else false end)
     else . end
+  | if $realm_enabled then
+      .services=[{type:"hysteria-realm",tag:"realm-local",listen:$realm_listen,listen_port:$realm_port,users:[{name:$realm_user,token:$realm_token,max_realms:$realm_max}]}]
+      | if $realm_domain=="" then . else .services[0].tls={enabled:true,server_name:$realm_domain,certificate_path:($cert_dir + "/" + $realm_domain + "/fullchain.pem"),key_path:($cert_dir + "/" + $realm_domain + "/key.pem")} end
+    else . end
   | if $api_enabled then
       .http_clients=[{tag:"http-direct",detour:"direct"}]
       | .route.default_http_client="http-direct"
-      | .services=[{
+      | .services=((.services // []) + [{
           type:"api",tag:"api-local",listen:"127.0.0.1",listen_port:$api_port,secret:$secret,
           access_control_allow_origin:[("http://127.0.0.1:" + ($api_port|tostring))],
           dashboard:(if $dashboard then {enabled:true,path:$dashboard_path,http_client:"http-direct",update_interval:"1d"} else false end)
-        }]
+        }])
     else . end
   ' >"$output"
   jq -e . "$output" >/dev/null

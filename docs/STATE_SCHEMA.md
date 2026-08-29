@@ -97,6 +97,8 @@ Every node has a normalized `traffic` object. `configured` distinguishes a never
 
 `nginx_stream.routes` separates the public frontend from sing-box's runtime listener. A node keeps its original direct `listen`/`port`; while the mux is enabled, rendering substitutes `127.0.0.1:<backend_port>` and exports substitute the shared public port. Node IDs, SNI values, and backend ports must each be unique. Older schema-v2 files without this section are normalized to a disabled empty configuration before validation.
 
+The optional top-level `realm` object configures sing-box's `hysteria-realm` service. Its bearer token is stored only in `secrets/realm.json`; `realm.public_url` is used by Hysteria2 inbound/outbound `realm` blocks. A Hysteria2 node opts in with `realm_enabled`/`realm_id`, and may restrict Realm traffic to IPv4/IPv6 or request UPnP/NAT-PMP port mapping. Realm cannot be disabled while an enabled Hysteria2 node still references it.
+
 Existing v1 installations migrate once, before rendering, with a pre-migration snapshot. Future changes must use explicit, one-way migration steps. Generated config files must never be parsed back into state.
 
 `nodes[].metadata` contains operator-only `remark`, `region`, `purpose`, `line`, and unique `tags`. These values are for filtering and dashboards and are deliberately excluded from protocol renderers and client exports.

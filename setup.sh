@@ -415,6 +415,7 @@ source "$TARGET_LIB/lib/core.sh"
 source "$TARGET_LIB/lib/tunnel.sh"
 source "$TARGET_LIB/lib/subscription.sh"
 source "$TARGET_LIB/lib/api.sh"
+source "$TARGET_LIB/lib/realm.sh"
 
 if [[ "$TEST_MODE" != 1 ]]; then require_init_system; fi
 BACKEND=$(init_system 2>/dev/null || true)

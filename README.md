@@ -270,6 +270,18 @@ sb settings dns show
 
 客户端 TUN 导出也可使用 1.14 的 DNS 模式：`sb export config --mode tun --tun-dns-mode hijack|native|disabled [--tun-dns-address IP]`。留空地址时由核心根据 TUN 地址自动推导。
 
+### Hysteria Realm（NAT 穿透）
+
+面板的“Hysteria Realm”菜单会在 sing-box 内启用独立的 rendezvous 服务。公网部署建议使用 HTTPS 证书：
+
+```bash
+sb realm enable 9443 https://realm.example.com --listen :: --tls-domain realm.example.com --max-realms 8
+sb node add hy2 --id hy2-nat --domain edge.example.com --address 192.0.2.1 \
+  --port 24543 --realm-id vps-a --realm-ip-version 4 --realm-port-mapping
+```
+
+Realm 只负责 STUN 地址登记和 UDP 打洞控制，成功后代理流量直连。Realm token 保存在受保护的 `secrets/realm.json`，不会写入 `state.json`；客户端 outbound 和分享链接会自动带上 Realm 参数。停用 Realm 前必须先停用引用它的 Hysteria2 节点。
+
 启用 API 后，面板的“sing-box API/Dashboard”菜单可查看服务状态、outbounds 和导出 Schema；脚本也可通过 `sb api cli status`、`sb api cli outbounds` 调用 1.14 API CLI。API 仍只监听 loopback，远程使用请通过 SSH 转发。
 
 “核心与组件更新”菜单中的“查看核心 build tags 与能力”以及 `sb core capabilities --json` 可检查当前二进制是否编译了 `with_quic`、`with_utls`、`with_openvpn`、`with_openconnect`、`with_usbip`、`with_tailscale` 等标签。未编译的能力不会被管理器伪装成可用。

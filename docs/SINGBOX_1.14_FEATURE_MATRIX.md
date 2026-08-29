@@ -12,6 +12,7 @@
 | Hysteria2 BBR profile / Brutal debug | 添加节点 → Hysteria2 | `--bbr-profile`、`--brutal-debug` | 需要 1.14+ |
 | Optimistic DNS、DNS timeout | 全局设置 → sing-box 1.14 DNS 优化 | `sb settings dns ...` | 需要 1.14+，1.13 自动省略字段 |
 | TUN DNS mode/address | 完整客户端配置导出 | `sb export config --mode tun --tun-dns-mode ...` | 需要 1.14+，1.13 保持旧格式 |
+| Hysteria Realm rendezvous service | Hysteria Realm 菜单 | `sb realm enable|disable|status|show-token`；Hysteria2 使用 `--realm-id` | 需要 1.14+ |
 | API Service / Dashboard | sing-box API/Dashboard | `sb api ...` | loopback-only |
 | API CLI | sing-box API/Dashboard | `sb api cli status|outbounds|...` | 需要 1.14+ |
 | JSON Schema | 核心与组件更新 → 导出 Schema | `sb core schema [FILE]` | 需要 1.14 beta2+ |
@@ -25,7 +26,6 @@
 
 ## 需要独立数据模型，暂未接入节点面板
 
-- Hysteria Realm：需要独立 rendezvous 服务、Realm 用户/token、STUN、UDP 打洞和 NAT-PMP/UPnP 生命周期，不能复用普通 Hysteria2 节点的单端口模型。
 - OpenVPN Server endpoint：需要地址池、TLS/静态密钥、推送路由/DNS、UDP NAT 和客户端用户体系，属于完整 VPN 服务而不是普通代理入站。
 - OpenConnect Client、OpenVPN Client：是出站端点，应该进入单独的出站/链路模型，而不是服务端节点列表。
 - Network namespace、Bridge、L3 forwarding、UDP NAT 参数：需要主机网络命名空间和权限编排，必须单独设计安全策略。

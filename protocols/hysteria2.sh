@@ -2,7 +2,7 @@
 # shellcheck shell=bash
 
 protocol_hy2_render() {
-  local node=$1 credentials=$2 node_secret=$3 domain cert_dir base obfs_type obfs_password masquerade min_packet_size max_packet_size bbr_profile brutal_debug
+  local node=$1 credentials=$2 node_secret=$3 domain cert_dir base obfs_type obfs_password masquerade min_packet_size max_packet_size bbr_profile brutal_debug realm_enabled realm_url realm_token realm_id realm_ip realm_mapping
   domain=$(jq -r '.domain' <<<"$node")
   cert_dir="$SBM_CERTS/$domain"
   obfs_type=$(jq -r '.obfs.type // ""' <<<"$node")
@@ -37,11 +37,21 @@ protocol_hy2_render() {
   brutal_debug=$(jq -r '.brutal_debug // false' <<<"$node")
   [[ -z "$bbr_profile" ]] || base=$(jq --arg p "$bbr_profile" '. + {bbr_profile:$p}' <<<"$base")
   [[ "$brutal_debug" != true ]] || base=$(jq '. + {brutal_debug:true}' <<<"$base")
+  realm_enabled=$(jq -r '.realm_enabled // false' <<<"$node")
+  if [[ "$realm_enabled" == true ]]; then
+    realm_url=$(jq -r '.realm.public_url' "$SBM_STATE")
+    realm_id=$(jq -r '.realm_id' <<<"$node")
+    realm_ip=$(jq -r '.realm_ip_version // 0' <<<"$node")
+    realm_mapping=$(jq -r '.realm_port_mapping // false' <<<"$node")
+    realm_token=$(realm_secret_token)
+    base=$(jq --arg url "$realm_url" --arg token "$realm_token" --arg id "$realm_id" --argjson ip "$realm_ip" --argjson mapping "$realm_mapping" \
+      '. + {realm:({server_url:$url,token:$token,realm_id:$id,stun_servers:["stun.cloudflare.com:3478","stun.l.google.com:19302"]} + (if $ip==0 then {} else {ip_version:$ip} end) + (if $mapping then {port_mapping:{enabled:true}} else {} end))}' <<<"$base")
+  fi
   printf '%s\n' "$base"
 }
 
 protocol_hy2_share() {
-  local node=$1 secret=$2 node_secret=${3:-'{}'} address domain port password name hp uri obfs_type obfs_password
+  local node=$1 secret=$2 node_secret=${3:-'{}'} address domain port password name hp uri obfs_type obfs_password realm_enabled realm_url realm_token realm_id
   address=$(jq -r '.server_address // ""' <<<"$node")
   domain=$(jq -r '.domain' <<<"$node")
   port=$(jq -r '.port' <<<"$node")
@@ -55,11 +65,18 @@ protocol_hy2_share() {
     obfs_password=$(jq -r '.obfs_password // ""' <<<"$node_secret")
     uri+="&obfs=$(urlencode "$obfs_type")&obfs-password=$(urlencode "$obfs_password")"
   fi
+  realm_enabled=$(jq -r '.realm_enabled // false' <<<"$node")
+  if [[ "$realm_enabled" == true ]]; then
+    realm_url=$(jq -r '.realm.public_url' "$SBM_STATE")
+    realm_token=$(realm_secret_token)
+    realm_id=$(jq -r '.realm_id' <<<"$node")
+    uri+="&realm-server=$(urlencode "$realm_url")&realm-token=$(urlencode "$realm_token")&realm-id=$(urlencode "$realm_id")"
+  fi
   printf '%s#%s\n' "$uri" "$(urlencode "$name")"
 }
 
 protocol_hy2_client_outbound() {
-  local node=$1 secret=$2 node_secret=${3:-'{}'} base obfs_type min_packet_size max_packet_size disable_chrome_parrot bbr_profile brutal_debug
+  local node=$1 secret=$2 node_secret=${3:-'{}'} base obfs_type min_packet_size max_packet_size disable_chrome_parrot bbr_profile brutal_debug realm_enabled realm_url realm_token realm_id realm_ip realm_mapping
   base=$(jq -n \
     --arg tag "proxy-$(jq -r '.id' <<<"$node")" \
     --arg server "$(jq -r '.server_address // ""' <<<"$node")" \
@@ -86,5 +103,15 @@ protocol_hy2_client_outbound() {
   brutal_debug=$(jq -r '.brutal_debug // false' <<<"$node")
   [[ -z "$bbr_profile" ]] || base=$(jq --arg p "$bbr_profile" '. + {bbr_profile:$p}' <<<"$base")
   [[ "$brutal_debug" != true ]] || base=$(jq '. + {brutal_debug:true}' <<<"$base")
+  realm_enabled=$(jq -r '.realm_enabled // false' <<<"$node")
+  if [[ "$realm_enabled" == true ]]; then
+    realm_url=$(jq -r '.realm.public_url' "$SBM_STATE")
+    realm_id=$(jq -r '.realm_id' <<<"$node")
+    realm_ip=$(jq -r '.realm_ip_version // 0' <<<"$node")
+    realm_mapping=$(jq -r '.realm_port_mapping // false' <<<"$node")
+    realm_token=$(realm_secret_token)
+    base=$(jq --arg url "$realm_url" --arg token "$realm_token" --arg id "$realm_id" --argjson ip "$realm_ip" --argjson mapping "$realm_mapping" \
+      'del(.server,.server_port) + {realm:({server_url:$url,token:$token,realm_id:$id,stun_servers:["stun.cloudflare.com:3478","stun.l.google.com:19302"]} + (if $ip==0 then {} else {ip_version:$ip} end) + (if $mapping then {port_mapping:{enabled:true}} else {} end))}' <<<"$base")
+  fi
   printf '%s\n' "$base"
 }

@@ -142,7 +142,7 @@ ui_prompt_port() {
 
 ui_add_node() {
   local choice domain address port name id obfs method security security_choice snell_obfs_choice snell_obfs_host snell_version_choice snell_mode_choice
-  local hy2_obfs_choice hy2_min_packet_size hy2_max_packet_size hy2_disable_chrome hy2_bbr_profile hy2_brutal_debug
+  local hy2_obfs_choice hy2_min_packet_size hy2_max_packet_size hy2_disable_chrome hy2_bbr_profile hy2_brutal_debug hy2_realm_choice hy2_realm_id hy2_realm_ip hy2_realm_mapping
   local handshake_server handshake_port congestion_control network strict_mode wildcard_sni
   printf '%s\n' \
     '1. VMess + WebSocket + Cloudflare Tunnel' \
@@ -199,6 +199,16 @@ ui_add_node() {
       esac
       prompt_value hy2_brutal_debug '启用 Hysteria Brutal 调试日志？(y/N)' 'N'
       [[ "$hy2_brutal_debug" =~ ^[Yy]$ ]] && hy2_args+=(--brutal-debug)
+      if [[ $(jq -r '.realm.enabled // false' "$SBM_STATE") == true ]]; then
+        prompt_value hy2_realm_choice '启用 Hysteria Realm NAT 穿透？(y/N)' 'N'
+        if [[ "$hy2_realm_choice" =~ ^[Yy]$ ]]; then
+          prompt_value hy2_realm_id 'Realm slot ID' ''
+          prompt_value hy2_realm_ip 'Realm IP 版本（0/4/6）' '0'
+          prompt_value hy2_realm_mapping '启用 UPnP/NAT-PMP 端口映射？(y/N)' 'N'
+          hy2_args+=(--realm-id "$hy2_realm_id" --realm-ip-version "$hy2_realm_ip")
+          [[ "$hy2_realm_mapping" =~ ^[Yy]$ ]] && hy2_args+=(--realm-port-mapping)
+        fi
+      fi
       node_add "${hy2_args[@]}"
       ;;
     5)
@@ -377,6 +387,23 @@ ui_api_menu() {
     5) api_cli status;;
     6) api_cli outbounds;;
     7) path="$SBM_EXPORTS/sing-box-schema.json"; prompt_value path 'Schema 输出文件' "$path"; core_schema "$path";;
+  esac
+}
+
+ui_realm_menu() {
+  local c port url listen domain max token
+  realm_status
+  printf '\n1. 启用/配置 Hysteria Realm\n2. 停用 Hysteria Realm\n3. 显示 Realm token\n4. 查看 Realm 配置 JSON\n0. 返回\n'
+  prompt_value c '选择操作' '0'
+  case "$c" in
+    1)
+      port=$(jq -r '.realm.port // 9443' "$SBM_STATE"); url=$(jq -r '.realm.public_url // ""' "$SBM_STATE"); listen=$(jq -r '.realm.listen // "::"' "$SBM_STATE"); domain=$(jq -r '.realm.tls_domain // ""' "$SBM_STATE"); max=$(jq -r '.realm.max_realms // 0' "$SBM_STATE")
+      prompt_value port 'Realm 监听端口' "$port"; prompt_value url 'Realm 公网 URL（http/https）' "$url"; prompt_value listen '监听地址' "$listen"; prompt_value domain 'TLS 域名（留空为明文 HTTP）' "$domain"; prompt_value max '每个用户最大 Realm 数（0 不限）' "$max"
+      realm_enable "$port" "$url" "$listen" "$domain" "$max"
+      ;;
+    2) confirm '确认停用 Hysteria Realm？' N && realm_disable;;
+    3) realm_show_token;;
+    4) realm_status 1;;
   esac
 }
 
@@ -576,15 +603,15 @@ ui_main() {
   local choice
   while true; do
     ui_header
-    printf '1. 查看统一运行状态\n2. 添加协议节点\n3. 管理现有节点\n4. 分享链接与客户端导出\n5. 完整客户端配置导出\n6. 域名与证书管理\n7. Cloudflare Tunnel 管理\n8. 核心与组件更新\n9. sing-box API/Dashboard\n10. 日志\n11. 诊断与修复\n12. 备份与恢复\n13. 全局设置\n14. 防火墙与协议端口\n15. 流量统计、配额与限速\n16. 通知与定时健康检查\n17. 节点模板与批量操作\n18. 卸载与彻底清理\n0. 退出\n\n'
+    printf '1. 查看统一运行状态\n2. 添加协议节点\n3. 管理现有节点\n4. 分享链接与客户端导出\n5. 完整客户端配置导出\n6. 域名与证书管理\n7. Cloudflare Tunnel 管理\n8. 核心与组件更新\n9. sing-box API/Dashboard\n10. Hysteria Realm\n11. 日志\n12. 诊断与修复\n13. 备份与恢复\n14. 全局设置\n15. 防火墙与协议端口\n16. 流量统计、配额与限速\n17. 通知与定时健康检查\n18. 节点模板与批量操作\n19. 卸载与彻底清理\n0. 退出\n\n'
     prompt_value choice '请选择' '0'
     case "$choice" in
       1) status_summary || true;; 2) ui_add_node;; 3) ui_manage_nodes;;
       4) ui_share_export_menu || continue;;
-      5) ui_client_export_menu;; 6) ui_cert_menu;; 7) ui_tunnel_menu;; 8) ui_update_menu;; 9) ui_api_menu;; 10) show_logs all 100;; 11) ui_doctor_menu;; 12) ui_backup_menu;; 13) ui_settings_menu;; 14) ui_firewall_menu;; 15) ui_traffic_menu;;
-      16) ui_notification_health_menu;;
-      17) ui_template_menu;;
-      18) ui_uninstall_menu; [[ ${SBM_UNINSTALLED:-0} == 1 ]] && return;;
+      5) ui_client_export_menu;; 6) ui_cert_menu;; 7) ui_tunnel_menu;; 8) ui_update_menu;; 9) ui_api_menu;; 10) ui_realm_menu;; 11) show_logs all 100;; 12) ui_doctor_menu;; 13) ui_backup_menu;; 14) ui_settings_menu;; 15) ui_firewall_menu;; 16) ui_traffic_menu;;
+      17) ui_notification_health_menu;;
+      18) ui_template_menu;;
+      19) ui_uninstall_menu; [[ ${SBM_UNINSTALLED:-0} == 1 ]] && return;;
       0) return;; *) log_error '选择无效';;
     esac
     ui_pause

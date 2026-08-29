@@ -38,6 +38,7 @@ source "$SBM_LIB/lib/cert.sh"
 source "$SBM_LIB/lib/tunnel.sh"
 source "$SBM_LIB/lib/subscription.sh"
 source "$SBM_LIB/lib/api.sh"
+source "$SBM_LIB/lib/realm.sh"
 source "$SBM_LIB/lib/backup.sh"
 source "$SBM_LIB/lib/doctor.sh"
 source "$SBM_LIB/lib/uninstall.sh"
@@ -71,6 +72,8 @@ sb-manager：状态驱动的 sing-box 多协议管理器
   sb subscription create [7d|24h] [mixed|tun]
   sb subscription list|status|revoke <TOKEN>
   sb api enable [PORT] [--dashboard]|disable|status [--json]|show-token|cli <COMMAND> [ARGS]
+  sb realm enable PORT PUBLIC_URL [--listen ADDRESS] [--tls-domain DOMAIN] [--max-realms N]
+  sb realm disable|status [--json]|show-token
   sb mux status [--json]|enable [PORT]|disable|route list|route add NODE_ID SNI [BACKEND_PORT]|route remove NODE_ID
   sb traffic status [NODE_ID] [--json]
   sb traffic set NODE_ID [--quota 100G|unlimited] [--reset-day 1-28]
@@ -116,6 +119,7 @@ sb-manager：状态驱动的 sing-box 多协议管理器
          --disable-chrome-parrot --masquerade URL (Gecko/Chrome 选项需要 sing-box 1.14+)
   Snell: --snell-version 5|6 --snell-mode default|unshaped|unsafe-raw
          v5 可用 --obfs none|http [--obfs-host DOMAIN]；v6 需要 sing-box 1.14 rc.2+
+  Hysteria2 Realm: --realm-id ID [--realm-ip-version 0|4|6] [--realm-port-mapping]
   通用:  --disabled --remark TEXT --region REGION --purpose PURPOSE --line LINE --tags a,b
 EOF_HELP
 }
@@ -306,6 +310,28 @@ main() {
         show-token) api_show_token ;;
         cli) shift 2; api_cli "$@" ;;
         *) usage_die '用法：sb api enable [PORT] [--dashboard] | disable | status | show-token | cli COMMAND [ARGS]' ;;
+      esac
+      ;;
+    realm)
+      local action=${2:-status}
+      case "$action" in
+        enable)
+          local realm_port=${3:?缺少 Realm 端口} realm_url=${4:?缺少 Realm 公网 URL} realm_listen='::' realm_domain='' realm_max=0 realm_arg
+          shift 4
+          while (($#)); do
+            case "$1" in
+              --listen) realm_listen=${2:?缺少 listen 地址}; shift 2;;
+              --tls-domain) realm_domain=${2:?缺少 TLS 域名}; shift 2;;
+              --max-realms) realm_max=${2:?缺少 max_realms}; shift 2;;
+              *) usage_die '用法：sb realm enable PORT PUBLIC_URL [--listen ADDRESS] [--tls-domain DOMAIN] [--max-realms N]';;
+            esac
+          done
+          realm_enable "$realm_port" "$realm_url" "$realm_listen" "$realm_domain" "$realm_max"
+          ;;
+        disable) (($# == 2)) || usage_die '用法：sb realm disable'; realm_disable;;
+        status) (($# <= 3)) || usage_die '用法：sb realm status [--json]'; realm_status "$([[ ${3:-} == --json || ${SBM_OUTPUT_JSON:-0} == 1 ]] && echo 1 || echo 0)";;
+        show-token) (($# == 2)) || usage_die '用法：sb realm show-token'; realm_show_token;;
+        *) usage_die '用法：sb realm enable PORT PUBLIC_URL [--listen ADDRESS] [--tls-domain DOMAIN] [--max-realms N] | disable | status [--json] | show-token';;
       esac
       ;;
     mux|nginx-stream)

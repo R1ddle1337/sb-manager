@@ -38,6 +38,15 @@ state_default_json() {
         port: 9090,
         dashboard: false
       },
+      realm: {
+        enabled: false,
+        listen: "::",
+        port: 9443,
+        public_url: "",
+        tls_domain: "",
+        user_name: "default",
+        max_realms: 0
+      },
       nginx_stream: {
         enabled: false,
         listen: "::",
@@ -126,6 +135,14 @@ state_normalize_v2_file() {
     | .settings.dns_optimistic_timeout //= "3d"
     | .settings.dns_timeout //= "10s"
     | .api //= {enabled:false,listen:"127.0.0.1",port:9090,dashboard:false}
+    | .realm //= {enabled:false,listen:"::",port:9443,public_url:"",tls_domain:"",user_name:"default",max_realms:0}
+    | .realm.enabled //= false
+    | .realm.listen //= "::"
+    | .realm.port //= 9443
+    | .realm.public_url //= ""
+    | .realm.tls_domain //= ""
+    | .realm.user_name //= "default"
+    | .realm.max_realms //= 0
     | .nginx_stream //= {enabled:false,listen:"::",port:443,routes:[]}
     | .notifications //= {enabled:false,provider:"none",traffic_thresholds:[80,90,100]}
     | .notifications.enabled //= false
@@ -168,6 +185,12 @@ state_normalize_v2_file() {
         | if .protocol == "snell" then
             .snell_version //= 5
             | .snell_mode //= "default"
+          else . end
+        | if .protocol == "hysteria2" then
+            .realm_enabled //= false
+            | .realm_id //= ""
+            | .realm_ip_version //= 0
+            | .realm_port_mapping //= false
           else . end
       )
   ' "$file" >"$tmp"
@@ -216,6 +239,7 @@ state_migrate_v1_to_v2() {
     | .settings.dns_optimistic_timeout="3d"
     | .settings.dns_timeout="10s"
     | .api={enabled:false,listen:"127.0.0.1",port:9090,dashboard:false}
+    | .realm={enabled:false,listen:"::",port:9443,public_url:"",tls_domain:"",user_name:"default",max_realms:0}
     | .nginx_stream={enabled:false,listen:"::",port:443,routes:[]}
     | .notifications={enabled:false,provider:"none",traffic_thresholds:[80,90,100]}
     | .health={enabled:false,certificate_warn_days:21,resources:{disk_min_free_percent:10,inode_max_percent:90,memory_max_percent:90,cpu_load_per_core_max:2,file_descriptors_max_percent:80,fail2ban_banned_warn:10,service_restart_warn:3}}
@@ -295,6 +319,10 @@ state_validate() {
         and ((.disable_chrome_parrot // false) | type == "boolean")
         and ((.bbr_profile // "") | IN("", "conservative", "standard", "aggressive"))
         and ((.brutal_debug // false) | type == "boolean")
+        and ((.realm_enabled // false) | type == "boolean")
+        and ((.realm_id // "") | type == "string" and length <= 64)
+        and ((.realm_ip_version // 0) | type == "number" and IN(0, 4, 6))
+        and ((.realm_port_mapping // false) | type == "boolean")
         and (.masquerade | string)
       elif .protocol == "trojan" then
         (.domain | nonempty) and (.server_address | string)
@@ -353,6 +381,14 @@ state_validate() {
       and .listen == "127.0.0.1"
       and (.port | port)
       and (.dashboard | type == "boolean"))
+    and (.realm | type == "object"
+      and (.enabled | type == "boolean")
+      and (.listen | nonempty)
+      and (.port | port)
+      and (.public_url | string)
+      and (.tls_domain | string)
+      and (.user_name | nonempty and length <= 128)
+      and (.max_realms | type == "number" and floor == . and . >= 0 and . <= 1000000))
     and (.nginx_stream | type == "object"
       and (.enabled | type == "boolean")
       and (.listen | nonempty)
@@ -424,7 +460,7 @@ state_enabled_count() {
 }
 state_runtime_required() {
   local state=${1:-$SBM_STATE}
-  (( $(state_enabled_count "$state") > 0 )) || [[ $(jq -r '.api.enabled // false' "$state") == true ]]
+  (( $(state_enabled_count "$state") > 0 )) || [[ $(jq -r '.api.enabled // false' "$state") == true ]] || [[ $(jq -r '.realm.enabled // false' "$state") == true ]]
 }
 
 singbox_service_reconcile() {
