@@ -393,13 +393,41 @@ _node_set() {
   node=$(state_get_node "$id"); [[ -n "$node" ]] || die "节点不存在：$id"
   candidate=$(state_candidate); cp "$SBM_STATE" "$candidate"
   while (($#)); do
-    key=$1; value=${2-}; shift 2
+    key=$1
+    case "$key" in
+      --disable-chrome-parrot|--brutal-debug|--realm-port-mapping) value=true; shift;;
+      --enable-chrome-parrot|--no-brutal-debug|--no-realm-port-mapping) value=false; shift;;
+      --clear-realm) value=''; shift;;
+      *) value=${2-}; shift 2;;
+    esac
     case "$key" in
       --name) tmp=$(mktemp "$SBM_RUN/edit.XXXXXX"); jq --arg id "$id" --arg v "$value" '(.nodes[]|select(.id==$id)|.name)=$v' "$candidate" >"$tmp"; mv "$tmp" "$candidate";;
       --port) validate_port "$value" || die "无效端口：$value"; tmp=$(mktemp "$SBM_RUN/edit.XXXXXX"); jq --arg id "$id" --argjson v "$value" '(.nodes[]|select(.id==$id)|.port)=$v' "$candidate" >"$tmp"; mv "$tmp" "$candidate";;
       --address) validate_address "$value" || die "无效地址"; tmp=$(mktemp "$SBM_RUN/edit.XXXXXX"); jq --arg id "$id" --arg v "$value" '(.nodes[]|select(.id==$id)) |= if .protocol=="vmess-ws-cf" then .client_address=$v else .server_address=$v | .server_address_source="manual" end' "$candidate" >"$tmp"; mv "$tmp" "$candidate";;
       --domain) validate_domain "$value" || die "无效域名：$value"; tmp=$(mktemp "$SBM_RUN/edit.XXXXXX"); jq --arg id "$id" --arg v "$value" '(.nodes[]|select(.id==$id)|.domain)=$v' "$candidate" >"$tmp"; mv "$tmp" "$candidate";;
       --path) value=$(normalize_ws_path "$value"); tmp=$(mktemp "$SBM_RUN/edit.XXXXXX"); jq --arg id "$id" --arg v "$value" '(.nodes[]|select(.id==$id)|.ws_path)=$v' "$candidate" >"$tmp"; mv "$tmp" "$candidate";;
+      --method) case "$value" in 2022-blake3-aes-128-gcm|2022-blake3-aes-256-gcm|2022-blake3-chacha20-poly1305) ;; *) rm -f "$candidate"; die "无效 Shadowsocks 2022 方法：$value";; esac; tmp=$(mktemp "$SBM_RUN/edit.XXXXXX"); jq --arg id "$id" --arg v "$value" '(.nodes[]|select(.id==$id)|.method)=$v' "$candidate" >"$tmp"; mv "$tmp" "$candidate";;
+      --network) [[ "$value" == tcp || "$value" == udp ]] || { rm -f "$candidate"; die "network 必须是 tcp 或 udp"; }; tmp=$(mktemp "$SBM_RUN/edit.XXXXXX"); jq --arg id "$id" --arg v "$value" '(.nodes[]|select(.id==$id)|.network)=$v' "$candidate" >"$tmp"; mv "$tmp" "$candidate";;
+      --obfs) [[ "$value" == salamander || "$value" == gecko || "$value" == none || "$value" == http || -z "$value" ]] || { rm -f "$candidate"; die "无效 obfs 类型"; }; tmp=$(mktemp "$SBM_RUN/edit.XXXXXX"); jq --arg id "$id" --arg v "$value" '(.nodes[]|select(.id==$id)) |= if .protocol=="hysteria2" then .obfs=(if ($v=="" or $v=="none") then {} elif $v=="gecko" then (.obfs // {}) + {type:$v} else {type:$v} end) elif .protocol=="snell" then .obfs_mode=(if $v=="" then "none" else $v end) else . end' "$candidate" >"$tmp"; mv "$tmp" "$candidate";;
+      --obfs-host) validate_domain "$value" || die "无效 obfs Host：$value"; tmp=$(mktemp "$SBM_RUN/edit.XXXXXX"); jq --arg id "$id" --arg v "$value" '(.nodes[]|select(.id==$id)|.obfs_host)=$v' "$candidate" >"$tmp"; mv "$tmp" "$candidate";;
+      --obfs-min-packet-size|--obfs-max-packet-size) [[ "$value" =~ ^[0-9]+$ ]] && (( value >= 64 && value <= 1500 )) || { rm -f "$candidate"; die "Gecko 包长必须是 64-1500"; }; local packet_field=${key#--obfs-}; packet_field=${packet_field//-/_}; tmp=$(mktemp "$SBM_RUN/edit.XXXXXX"); jq --arg id "$id" --arg field "$packet_field" --argjson v "$value" '(.nodes[]|select(.id==$id)|.obfs[$field])=$v' "$candidate" >"$tmp"; mv "$tmp" "$candidate";;
+      --disable-chrome-parrot|--enable-chrome-parrot) tmp=$(mktemp "$SBM_RUN/edit.XXXXXX"); jq --arg id "$id" --argjson v "$value" '(.nodes[]|select(.id==$id)|.disable_chrome_parrot)=$v' "$candidate" >"$tmp"; mv "$tmp" "$candidate";;
+      --bbr-profile) case "$value" in ''|conservative|standard|aggressive) ;; *) rm -f "$candidate"; die "无效 Hysteria2 BBR profile";; esac; tmp=$(mktemp "$SBM_RUN/edit.XXXXXX"); jq --arg id "$id" --arg v "$value" '(.nodes[]|select(.id==$id)|.bbr_profile)=$v' "$candidate" >"$tmp"; mv "$tmp" "$candidate";;
+      --brutal-debug|--no-brutal-debug) tmp=$(mktemp "$SBM_RUN/edit.XXXXXX"); jq --arg id "$id" --argjson v "$value" '(.nodes[]|select(.id==$id)|.brutal_debug)=$v' "$candidate" >"$tmp"; mv "$tmp" "$candidate";;
+      --masquerade) [[ "$value" != *$'\n'* && "$value" != *$'\r'* ]] || die 'masquerade 不能包含控制字符'; tmp=$(mktemp "$SBM_RUN/edit.XXXXXX"); jq --arg id "$id" --arg v "$value" '(.nodes[]|select(.id==$id)|.masquerade)=$v' "$candidate" >"$tmp"; mv "$tmp" "$candidate";;
+      --security) [[ "$value" == "$(jq -r --arg id "$id" '.nodes[]|select(.id==$id)|.security' "$candidate")" ]] || { rm -f "$candidate"; die 'VLESS security 创建后不可直接切换；请新建目标类型节点。'; };;
+      --flow) [[ -z "$value" || "$value" == xtls-rprx-vision ]] || { rm -f "$candidate"; die 'VLESS flow 仅支持 xtls-rprx-vision 或空值。'; }; tmp=$(mktemp "$SBM_RUN/edit.XXXXXX"); jq --arg id "$id" --arg v "$value" '(.nodes[]|select(.id==$id)|.flow)=(if $v=="" then null else $v end)' "$candidate" >"$tmp"; mv "$tmp" "$candidate";;
+      --handshake-server) validate_domain "$value" || { rm -f "$candidate"; die "无效握手域名：$value"; }; tmp=$(mktemp "$SBM_RUN/edit.XXXXXX"); jq --arg id "$id" --arg v "$value" '(.nodes[]|select(.id==$id)|.handshake_server)=$v' "$candidate" >"$tmp"; mv "$tmp" "$candidate";;
+      --strict-mode) [[ "$value" == true || "$value" == false ]] || { rm -f "$candidate"; die 'strict-mode 必须是 true 或 false。'; }; tmp=$(mktemp "$SBM_RUN/edit.XXXXXX"); jq --arg id "$id" --argjson v "$value" '(.nodes[]|select(.id==$id)|.strict_mode)=$v' "$candidate" >"$tmp"; mv "$tmp" "$candidate";;
+      --wildcard-sni) case "$value" in off|authed|all) ;; *) rm -f "$candidate"; die 'wildcard-sni 必须是 off、authed 或 all。';; esac; tmp=$(mktemp "$SBM_RUN/edit.XXXXXX"); jq --arg id "$id" --arg v "$value" '(.nodes[]|select(.id==$id)|.wildcard_sni)=$v' "$candidate" >"$tmp"; mv "$tmp" "$candidate";;
+      --snell-mode) case "$value" in default|unshaped|unsafe-raw) ;; *) rm -f "$candidate"; die 'Snell mode 必须是 default、unshaped 或 unsafe-raw。';; esac; tmp=$(mktemp "$SBM_RUN/edit.XXXXXX"); jq --arg id "$id" --arg v "$value" '(.nodes[]|select(.id==$id)|.snell_mode)=$v' "$candidate" >"$tmp"; mv "$tmp" "$candidate";;
+      --handshake-port) validate_port "$value" || die "无效握手端口"; tmp=$(mktemp "$SBM_RUN/edit.XXXXXX"); jq --arg id "$id" --argjson v "$value" '(.nodes[]|select(.id==$id)|.handshake_port)=$v' "$candidate" >"$tmp"; mv "$tmp" "$candidate";;
+      --congestion-control) case "$value" in cubic|new_reno|bbr) ;; *) rm -f "$candidate"; die "无效拥塞控制算法";; esac; tmp=$(mktemp "$SBM_RUN/edit.XXXXXX"); jq --arg id "$id" --arg v "$value" '(.nodes[]|select(.id==$id)) |= if .protocol=="naive" then .quic_congestion_control=$v else .congestion_control=$v end' "$candidate" >"$tmp"; mv "$tmp" "$candidate";;
+      --snell-version) [[ "$value" == 5 || "$value" == 6 ]] || { rm -f "$candidate"; die "Snell 版本必须是 5 或 6"; }; tmp=$(mktemp "$SBM_RUN/edit.XXXXXX"); jq --arg id "$id" --argjson v "$value" '(.nodes[]|select(.id==$id)|.snell_version)=$v' "$candidate" >"$tmp"; mv "$tmp" "$candidate";;
+      --realm-id) [[ -z "$value" || "$value" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$ ]] || { rm -f "$candidate"; die "无效 Realm ID"; }; tmp=$(mktemp "$SBM_RUN/edit.XXXXXX"); jq --arg id "$id" --arg v "$value" '(.nodes[]|select(.id==$id)) |= (.realm_id=$v | .realm_enabled=($v!=""))' "$candidate" >"$tmp"; mv "$tmp" "$candidate";;
+      --realm-ip-version) [[ "$value" == 0 || "$value" == 4 || "$value" == 6 ]] || { rm -f "$candidate"; die "Realm IP 版本必须是 0、4 或 6"; }; tmp=$(mktemp "$SBM_RUN/edit.XXXXXX"); jq --arg id "$id" --argjson v "$value" '(.nodes[]|select(.id==$id)|.realm_ip_version)=$v' "$candidate" >"$tmp"; mv "$tmp" "$candidate";;
+      --realm-port-mapping|--no-realm-port-mapping) tmp=$(mktemp "$SBM_RUN/edit.XXXXXX"); jq --arg id "$id" --argjson v "$value" '(.nodes[]|select(.id==$id)|.realm_port_mapping)=$v' "$candidate" >"$tmp"; mv "$tmp" "$candidate";;
+      --clear-realm) tmp=$(mktemp "$SBM_RUN/edit.XXXXXX"); jq --arg id "$id" '(.nodes[]|select(.id==$id)) |= (.realm_enabled=false | .realm_id="")' "$candidate" >"$tmp"; mv "$tmp" "$candidate";;
       --remark|--region|--purpose|--line)
         local field=${key#--}
         [[ "$value" != *$'\n'* && "$value" != *$'\r'* && "$value" != *$'\t'* ]] || die "节点元数据不能包含控制字符。"

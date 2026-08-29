@@ -64,6 +64,14 @@ sb-manager：状态驱动的 sing-box 多协议管理器
   sb node template list|save NAME NODE_ID|delete NAME|add NAME ID [参数]
   sb node set <ID> --port N|--address HOST|--domain DOMAIN|--name NAME|--path PATH
                  [--remark TEXT] [--region REGION] [--purpose PURPOSE] [--line LINE] [--tags a,b]
+                 [--method METHOD] [--network tcp|udp] [--obfs TYPE] [--obfs-host DOMAIN]
+                 [--obfs-min-packet-size N] [--obfs-max-packet-size N]
+                 [--disable-chrome-parrot|--enable-chrome-parrot] [--bbr-profile PROFILE]
+                 [--brutal-debug|--no-brutal-debug] [--masquerade URL]
+                 [--security tls|reality] [--flow FLOW] [--handshake-server DOMAIN] [--handshake-port N]
+                 [--congestion-control cubic|new_reno|bbr] [--strict-mode true|false]
+                 [--wildcard-sni off|authed|all] [--snell-version 5|6] [--snell-mode MODE]
+                 [--realm-id ID] [--realm-ip-version 0|4|6] [--realm-port-mapping|--no-realm-port-mapping]
   sb user list <NODE_ID>
   sb user add <NODE_ID> <USER_ID> [NAME]
   sb user enable|disable|delete|rotate <NODE_ID> <USER_ID>
