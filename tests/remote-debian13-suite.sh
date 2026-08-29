@@ -5,7 +5,7 @@ set -Eeuo pipefail
 # outside the checkout so install-smoke cannot copy large test assets.
 PROJECT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 STABLE=${SBM_TEST_SING_BOX_STABLE:?Set SBM_TEST_SING_BOX_STABLE to official 1.13.19}
-PREVIEW=${SBM_TEST_SING_BOX_PREVIEW:?Set SBM_TEST_SING_BOX_PREVIEW to official 1.14.0-rc.1}
+PREVIEW=${SBM_TEST_SING_BOX_PREVIEW:?Set SBM_TEST_SING_BOX_PREVIEW to official 1.14.0-rc.2}
 
 run_stable() {
   local test=$1

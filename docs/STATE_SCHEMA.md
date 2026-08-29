@@ -87,7 +87,7 @@ Protocol credentials are excluded from the state file. User credentials live und
 
 Notification provider choice and thresholds are non-secret state. Telegram tokens/chat IDs and Webhook URLs live only in `secrets/notifications.json` with mode `0600`. Delivery deduplication and the last health report are runtime journals under `/var/lib/sb-manager/`.
 
-Snell nodes require a sing-box 1.14.0-rc.1 or newer core. Their protocol-level secret stores the server `psk`; each user secret stores a Snell `userkey`.
+Snell nodes require a sing-box 1.14.0-rc.1 or newer core. `snell_version` is 5 or 6 (existing schema-v2 nodes normalize to 5; new nodes default to 6). Version 5 uses `obfs_mode`/`obfs_host` and exports a compatible v4 client; version 6 uses `snell_mode` (`default`, `unshaped`, or `unsafe-raw`) and requires sing-box 1.14.0-rc.2 or newer. Their protocol-level secret stores the server `psk`; each user secret stores a Snell `userkey`.
 
 Hysteria2 nodes may set `obfs.type` to `salamander` or the sing-box 1.14-only `gecko`. Gecko stores `min_packet_size` and `max_packet_size` in the node state (defaults 512 and 1200); its password remains in the protected node secret. `disable_chrome_parrot` controls the 1.14 Hysteria2 client fingerprint option and defaults to `false`. `bbr_profile` accepts `conservative`, `standard`, or `aggressive`; `brutal_debug` enables Hysteria Brutal diagnostics. Enabled nodes using these 1.14 options require sing-box 1.14.0-rc.1 or newer.
 

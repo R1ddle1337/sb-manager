@@ -106,6 +106,9 @@ core_validate_build_tags() {
   if jq -e '.nodes[]? | select(.enabled==true and .protocol=="snell")' "$state" >/dev/null; then
     version_ge "$(extract_semver "$output")" 1.14.0-rc.1 || { log_error '当前 Snell 配置需要 sing-box 1.14.0-rc.1 或更高版本核心。'; return 1; }
   fi
+  if jq -e '.nodes[]? | select(.enabled==true and .protocol=="snell" and (.snell_version // 5)==6)' "$state" >/dev/null; then
+    version_ge "$(extract_semver "$output")" 1.14.0-rc.2 || { log_error '当前 Snell v6 配置需要 sing-box 1.14.0-rc.2 或更高版本核心。'; return 1; }
+  fi
 }
 
 verify_asset_digest() {

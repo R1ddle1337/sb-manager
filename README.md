@@ -163,7 +163,7 @@ sb
 bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/install.sh) --no-menu
 
 # 安装指定 sing-box 稳定版本
-bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/install.sh) --core-version 1.14.0-rc.1
+bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/install.sh) --core-version 1.14.0-rc.2
 ```
 
 也可以克隆源码后安装：
@@ -232,13 +232,13 @@ sb node set hk-01 --name '预览名称' --dry-run
 sb traffic set hk-01 --quota 100G --dry-run
 ```
 
-### Snell v5
+### Snell v5/v6
 
-Snell 需要 sing-box `1.14.0-rc.1` 或更高版本核心。服务端使用 v5，客户端 outbound 使用兼容的 v4；默认不启用 HTTP 混淆，可按需设置 `--obfs http --obfs-host example.com`。
+Snell 需要 sing-box `1.14.0-rc.1` 或更高版本核心。新建节点默认使用 Snell v6（traffic shaping），可选 `default`、`unshaped` 或 `unsafe-raw`；v6 需要 `1.14.0-rc.2` 或更高版本。Snell v5 仍可用于兼容旧客户端，服务端使用 v5、客户端 outbound 使用兼容的 v4，并可按需设置 `--obfs http --obfs-host example.com`。v6 不支持 HTTP obfs。
 
 ```bash
-sb core update 1.14.0-rc.1
-sb node add snell --id snell-main --address YOUR_SERVER_IP --port 6160
+sb core update 1.14.0-rc.2
+sb node add snell --id snell-main --address YOUR_SERVER_IP --port 6160 --snell-version 6 --snell-mode default
 sb share snell-main
 ```
 

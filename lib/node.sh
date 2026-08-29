@@ -12,7 +12,7 @@ node_protocol_label() {
     vless) printf 'VLESS' ;;
     naive) printf 'NaiveProxy' ;;
     shadowtls) printf 'ShadowTLS v3' ;;
-    snell) printf 'Snell v5' ;;
+    snell) printf 'Snell' ;;
     *) printf '%s' "$1" ;;
   esac
 }
@@ -121,7 +121,7 @@ node_show() {
 
 _node_add() {
   local type=$1; shift
-  local id='' name='' port='' domain='' address='' address_supplied=0 address_source=auto path='' method='2022-blake3-aes-256-gcm' network='tcp' mux=true enabled=true obfs='' obfs_host='' obfs_min_packet_size=512 obfs_max_packet_size=1200 disable_chrome_parrot=false bbr_profile='' brutal_debug=false masquerade='' security='tls' flow='' handshake_server='' handshake_port=443 congestion_control='cubic' strict_mode=true wildcard_sni='off'
+  local id='' name='' port='' domain='' address='' address_supplied=0 address_source=auto path='' method='2022-blake3-aes-256-gcm' network='tcp' mux=true enabled=true obfs='' obfs_host='' obfs_min_packet_size=512 obfs_max_packet_size=1200 disable_chrome_parrot=false bbr_profile='' brutal_debug=false masquerade='' security='tls' flow='' handshake_server='' handshake_port=443 congestion_control='cubic' strict_mode=true wildcard_sni='off' snell_version=6 snell_mode=default
   local remark='' region='' purpose='' line='' tags=''
   while (($#)); do
     case "$1" in
@@ -133,6 +133,7 @@ _node_add() {
       --handshake-server) handshake_server=${2:?}; shift 2;; --handshake-port) handshake_port=${2:?}; shift 2;;
       --congestion-control) congestion_control=${2:?}; shift 2;;
       --strict-mode) strict_mode=${2:?}; shift 2;; --wildcard-sni) wildcard_sni=${2:?}; shift 2;; --quic) network=udp; shift;;
+      --snell-version) snell_version=${2:?}; shift 2;; --snell-mode) snell_mode=${2:?}; shift 2;;
       --remark) [[ $# -ge 2 ]] || die '缺少备注'; remark=$2; shift 2;; --region) [[ $# -ge 2 ]] || die '缺少地区'; region=$2; shift 2;; --purpose) [[ $# -ge 2 ]] || die '缺少用途'; purpose=$2; shift 2;; --line) [[ $# -ge 2 ]] || die '缺少线路'; line=$2; shift 2;; --tags) [[ $# -ge 2 ]] || die '缺少标签'; tags=$2; shift 2;;
       *) die "未知参数：$1";;
     esac
@@ -208,8 +209,16 @@ _node_add() {
     snell)
       [[ "$enabled" != true ]] || version_ge "$(core_current_version)" 1.14.0-rc.1 || die 'Snell 需要 sing-box 1.14.0-rc.1 或更高版本核心。'
       protocol=snell; base=snell; transport=tcp; port=${port:-6160}; name=${name:-Snell}; address=${address:-$default_address}
-      case "$obfs" in ''|none) snell_obfs_mode=none;; http) snell_obfs_mode=http;; *) die 'Snell 混淆必须是 none 或 http。';; esac
-      snell_obfs_host=${obfs_host:-bing.com}; [[ "$snell_obfs_mode" != http ]] || { validate_domain "$snell_obfs_host" || die "无效 Snell HTTP 混淆 Host：$snell_obfs_host"; }
+      case "$snell_version" in 5|6) ;; *) die 'Snell 版本必须是 5 或 6。';; esac
+      case "$snell_mode" in default|unshaped|unsafe-raw) ;; *) die 'Snell v6 mode 必须是 default、unshaped 或 unsafe-raw。';; esac
+      if [[ "$snell_version" == 6 ]]; then
+        [[ "$enabled" != true ]] || version_ge "$(core_current_version)" 1.14.0-rc.2 || die 'Snell v6 需要 sing-box 1.14.0-rc.2 或更高版本核心。'
+        case "$obfs" in ''|none) ;; *) die 'Snell v6 使用 traffic shaping mode，不支持 HTTP obfs。';; esac
+        snell_obfs_mode=none; snell_obfs_host=bing.com
+      else
+        case "$obfs" in ''|none) snell_obfs_mode=none;; http) snell_obfs_mode=http;; *) die 'Snell v5 混淆必须是 none 或 http。';; esac
+        snell_obfs_host=${obfs_host:-bing.com}; [[ "$snell_obfs_mode" != http ]] || { validate_domain "$snell_obfs_host" || die "无效 Snell HTTP 混淆 Host：$snell_obfs_host"; }
+      fi
       secret=$(jq -n --arg userkey "$(random_password 24)" '{userkey:$userkey}')
       node_secret=$(jq -n --arg psk "$(random_password 24)" '{psk:$psk}')
       ;;
@@ -274,7 +283,7 @@ _node_add() {
       node=$(jq -n --arg id "$id" --arg name "$name" --argjson port "$port" --arg address "$address" --arg hs "$handshake_server" --argjson hp "$handshake_port" --argjson strict "$strict_mode" --arg wildcard "$wildcard_sni" --arg now "$created_at" --argjson enabled "$enabled" '{id:$id,name:$name,protocol:"shadowtls",enabled:$enabled,listen:"::",port:$port,server_address:$address,handshake_server:$hs,handshake_port:$hp,strict_mode:$strict,wildcard_sni:$wildcard,created_at:$now,users:[{id:"default",name:$name,enabled:true,created_at:$now}]}')
       ;;
     snell)
-      node=$(jq -n --arg id "$id" --arg name "$name" --argjson port "$port" --arg address "$address" --arg obfs_mode "$snell_obfs_mode" --arg obfs_host "$snell_obfs_host" --arg now "$created_at" --argjson enabled "$enabled" '{id:$id,name:$name,protocol:"snell",enabled:$enabled,listen:"::",port:$port,server_address:$address,obfs_mode:$obfs_mode,obfs_host:$obfs_host,created_at:$now,users:[{id:"default",name:$name,enabled:true,created_at:$now}]}')
+      node=$(jq -n --arg id "$id" --arg name "$name" --argjson port "$port" --arg address "$address" --argjson snell_version "$snell_version" --arg snell_mode "$snell_mode" --arg obfs_mode "$snell_obfs_mode" --arg obfs_host "$snell_obfs_host" --arg now "$created_at" --argjson enabled "$enabled" '{id:$id,name:$name,protocol:"snell",enabled:$enabled,listen:"::",port:$port,server_address:$address,snell_version:$snell_version,snell_mode:$snell_mode,obfs_mode:$obfs_mode,obfs_host:$obfs_host,created_at:$now,users:[{id:"default",name:$name,enabled:true,created_at:$now}]}')
       ;;
   esac
   node=$(jq --arg remark "$remark" --arg region "$region" --arg purpose "$purpose" --arg line "$line" --arg tags "$tags" '

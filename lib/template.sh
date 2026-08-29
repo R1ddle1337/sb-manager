@@ -9,7 +9,7 @@ node_template_safe_defaults() {
       port,listen,network:(.network // ""),method:(.method // ""),multiplex:(.multiplex // true),ws_path:(.ws_path // ""),
       obfs:(.obfs.type // ""),obfs_min_packet_size:(.obfs.min_packet_size // 512),obfs_max_packet_size:(.obfs.max_packet_size // 1200),disable_chrome_parrot:(.disable_chrome_parrot // false),bbr_profile:(.bbr_profile // ""),brutal_debug:(.brutal_debug // false),obfs_host:(.obfs_host // ""),masquerade:(.masquerade // ""),security:(.security // ""),flow:(.flow // ""),
       handshake_server:(.handshake_server // ""),handshake_port:(.handshake_port // 443),congestion_control:(.congestion_control // .quic_congestion_control // "cubic"),
-      strict_mode:(.strict_mode // true),wildcard_sni:(.wildcard_sni // "off"),obfs_mode:(.obfs_mode // "none"),
+      strict_mode:(.strict_mode // true),wildcard_sni:(.wildcard_sni // "off"),obfs_mode:(.obfs_mode // "none"),snell_version:(.snell_version // 5),snell_mode:(.snell_mode // "default"),
       metadata:(.metadata // {remark:"",region:"",purpose:"",line:"",tags:[]})}' <<<"$node"
 }
 
@@ -70,7 +70,7 @@ node_template_add() {
     vless) args+=(--security "$(jq -r '.security' <<<"$defaults")" --handshake-server "$(jq -r '.handshake_server' <<<"$defaults")" --handshake-port "$(jq -r '.handshake_port' <<<"$defaults")");;
     naive) args+=(--network "$(jq -r '.network' <<<"$defaults")");;
     shadowtls) args+=(--handshake-server "$(jq -r '.handshake_server' <<<"$defaults")" --handshake-port "$(jq -r '.handshake_port' <<<"$defaults")" --strict-mode "$(jq -r '.strict_mode' <<<"$defaults")" --wildcard-sni "$(jq -r '.wildcard_sni' <<<"$defaults")");;
-    snell) args+=(--obfs "$(jq -r '.obfs_mode' <<<"$defaults")" --obfs-host "$(jq -r '.obfs_host' <<<"$defaults")");;
+    snell) args+=(--snell-version "$(jq -r '.snell_version' <<<"$defaults")" --snell-mode "$(jq -r '.snell_mode' <<<"$defaults")"); [[ $(jq -r '.snell_version' <<<"$defaults") != 5 ]] || args+=(--obfs "$(jq -r '.obfs_mode' <<<"$defaults")" --obfs-host "$(jq -r '.obfs_host' <<<"$defaults")");;
     tuic) args+=(--congestion-control "$(jq -r '.congestion_control' <<<"$defaults")");;
   esac
   while (($#)); do
@@ -87,7 +87,7 @@ node_template_add() {
     vmess-ws-cf) args+=(--path "$(jq -r '.ws_path' <<<"$defaults")");; shadowsocks) args+=(--method "$(jq -r '.method' <<<"$defaults")" --network "$(jq -r '.network' <<<"$defaults")"); [[ $(jq -r '.multiplex' <<<"$defaults") == true ]] || args+=(--no-mux);;
     hysteria2) [[ -n $(jq -r '.obfs' <<<"$defaults") ]] && args+=(--obfs "$(jq -r '.obfs' <<<"$defaults")"); [[ $(jq -r '.obfs' <<<"$defaults") == gecko ]] && args+=(--obfs-min-packet-size "$(jq -r '.obfs_min_packet_size' <<<"$defaults")" --obfs-max-packet-size "$(jq -r '.obfs_max_packet_size' <<<"$defaults")"); [[ $(jq -r '.disable_chrome_parrot' <<<"$defaults") == true ]] && args+=(--disable-chrome-parrot); [[ -n $(jq -r '.bbr_profile' <<<"$defaults") ]] && args+=(--bbr-profile "$(jq -r '.bbr_profile' <<<"$defaults")"); [[ $(jq -r '.brutal_debug' <<<"$defaults") == true ]] && args+=(--brutal-debug); [[ -n $(jq -r '.masquerade' <<<"$defaults") ]] && args+=(--masquerade "$(jq -r '.masquerade' <<<"$defaults")");;
     vless) args+=(--security "$(jq -r '.security' <<<"$defaults")"); [[ -n $(jq -r '.flow // ""' <<<"$defaults") ]] && args+=(--flow "$(jq -r '.flow' <<<"$defaults")"); [[ $(jq -r '.security' <<<"$defaults") != reality ]] || args+=(--handshake-server "$(jq -r '.handshake_server' <<<"$defaults")" --handshake-port "$(jq -r '.handshake_port' <<<"$defaults")");;
-    naive) args+=(--network "$(jq -r '.network' <<<"$defaults")" --congestion-control "$(jq -r '.congestion_control' <<<"$defaults")");; shadowtls) args+=(--handshake-server "$(jq -r '.handshake_server' <<<"$defaults")" --handshake-port "$(jq -r '.handshake_port' <<<"$defaults")" --strict-mode "$(jq -r '.strict_mode' <<<"$defaults")" --wildcard-sni "$(jq -r '.wildcard_sni' <<<"$defaults")");; snell) args+=(--obfs "$(jq -r '.obfs_mode' <<<"$defaults")" --obfs-host "$(jq -r '.obfs_host' <<<"$defaults")");; tuic) args+=(--congestion-control "$(jq -r '.congestion_control' <<<"$defaults")");;
+    naive) args+=(--network "$(jq -r '.network' <<<"$defaults")" --congestion-control "$(jq -r '.congestion_control' <<<"$defaults")");; shadowtls) args+=(--handshake-server "$(jq -r '.handshake_server' <<<"$defaults")" --handshake-port "$(jq -r '.handshake_port' <<<"$defaults")" --strict-mode "$(jq -r '.strict_mode' <<<"$defaults")" --wildcard-sni "$(jq -r '.wildcard_sni' <<<"$defaults")");; snell) args+=(--snell-version "$(jq -r '.snell_version' <<<"$defaults")" --snell-mode "$(jq -r '.snell_mode' <<<"$defaults")"); [[ $(jq -r '.snell_version' <<<"$defaults") != 5 ]] || args+=(--obfs "$(jq -r '.obfs_mode' <<<"$defaults")" --obfs-host "$(jq -r '.obfs_host' <<<"$defaults")");; tuic) args+=(--congestion-control "$(jq -r '.congestion_control' <<<"$defaults")");;
   esac
   args+=(--remark "$remark" --region "$region" --purpose "$purpose" --line "$line" --tags "$tags")
   (( disabled == 0 )) || args+=(--disabled)

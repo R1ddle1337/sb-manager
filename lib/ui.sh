@@ -141,7 +141,7 @@ ui_prompt_port() {
 }
 
 ui_add_node() {
-  local choice domain address port name id obfs method security security_choice snell_obfs_choice snell_obfs_host
+  local choice domain address port name id obfs method security security_choice snell_obfs_choice snell_obfs_host snell_version_choice snell_mode_choice
   local hy2_obfs_choice hy2_min_packet_size hy2_max_packet_size hy2_disable_chrome hy2_bbr_profile hy2_brutal_debug
   local handshake_server handshake_port congestion_control network strict_mode wildcard_sni
   printf '%s\n' \
@@ -154,7 +154,7 @@ ui_add_node() {
     '7. VLESS（TLS/Reality）' \
     '8. NaiveProxy（HTTPS/QUIC）' \
     '9. ShadowTLS v3' \
-    '10. Snell v5（需要 sing-box 1.14+）' \
+    '10. Snell v5/v6（需要 sing-box 1.14+）' \
     '0. 返回'
   prompt_value choice '选择协议' '0'
   case "$choice" in
@@ -246,10 +246,21 @@ ui_add_node() {
       ;;
     10)
       prompt_value name '节点名称' 'Snell'; prompt_value address '客户端连接地址（域名或 IP）' "$(ui_client_address_default '')"; ui_prompt_port port tcp 'TCP 端口' 6160 443 8443 9443 10443
-      printf '1. 不启用 HTTP 混淆（默认）\n2. HTTP 混淆\n'; prompt_value snell_obfs_choice '选择混淆' '1'
-      case "$snell_obfs_choice" in
-        1) obfs=none; node_add snell --name "$name" --address "$address" --port "$port" --obfs none ;;
-        2) prompt_value snell_obfs_host 'HTTP 混淆 Host' 'bing.com'; node_add snell --name "$name" --address "$address" --port "$port" --obfs http --obfs-host "$snell_obfs_host" ;;
+      printf '1. Snell v6（默认，traffic shaping）\n2. Snell v5（兼容 v4 客户端，可选 HTTP obfs）\n'; prompt_value snell_version_choice '选择 Snell 版本' '1'
+      case "$snell_version_choice" in
+        1)
+          printf '1. default（默认）\n2. unshaped\n3. unsafe-raw\n'; prompt_value snell_mode_choice 'Snell v6 traffic shaping mode' '1'
+          case "$snell_mode_choice" in 1) snell_mode_choice=default;; 2) snell_mode_choice=unshaped;; 3) snell_mode_choice=unsafe-raw;; *) log_error '选择无效'; return;; esac
+          node_add snell --name "$name" --address "$address" --port "$port" --snell-version 6 --snell-mode "$snell_mode_choice"
+          ;;
+        2)
+          printf '1. 不启用 HTTP 混淆（默认）\n2. HTTP 混淆\n'; prompt_value snell_obfs_choice '选择混淆' '1'
+          case "$snell_obfs_choice" in
+            1) obfs=none; node_add snell --name "$name" --address "$address" --port "$port" --snell-version 5 --obfs none ;;
+            2) prompt_value snell_obfs_host 'HTTP 混淆 Host' 'bing.com'; node_add snell --name "$name" --address "$address" --port "$port" --snell-version 5 --obfs http --obfs-host "$snell_obfs_host" ;;
+            *) log_error '选择无效';;
+          esac
+          ;;
         *) log_error '选择无效';;
       esac
       ;;

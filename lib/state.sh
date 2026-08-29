@@ -165,6 +165,10 @@ state_normalize_v2_file() {
             | .bbr_profile //= ""
             | .brutal_debug //= false
           else . end
+        | if .protocol == "snell" then
+            .snell_version //= 5
+            | .snell_mode //= "default"
+          else . end
       )
   ' "$file" >"$tmp"
   chmod 0600 "$tmp"
@@ -313,8 +317,11 @@ state_validate() {
         and (.wildcard_sni | IN("off", "authed", "all"))
       elif .protocol == "snell" then
         (.server_address | string)
+        and (.snell_version | IN(5, 6))
+        and (.snell_mode | IN("default", "unshaped", "unsafe-raw"))
         and (.obfs_mode | IN("none", "http"))
         and (.obfs_host | nonempty)
+        and (if .snell_version == 6 then .obfs_mode == "none" else true end)
       else false end;
     type == "object"
     and .schema_version == 2

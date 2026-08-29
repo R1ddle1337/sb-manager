@@ -6,7 +6,7 @@
 
 | 特性 | 面板入口 | CLI | 兼容性 |
 | --- | --- | --- | --- |
-| Snell v5（含 HTTP obfs） | 添加节点 → Snell v5 | `sb node add snell` | 需要 1.14+ |
+| Snell v5/v6（v5 HTTP obfs、v6 traffic shaping） | 添加节点 → Snell v5/v6 | `sb node add snell --snell-version 5|6` | v5 需要 1.14+，v6 需要 rc.2+ |
 | Hysteria2 Gecko obfs | 添加节点 → Hysteria2 | `--obfs gecko --obfs-min-packet-size N --obfs-max-packet-size N` | 需要 1.14+ |
 | Hysteria2 Chrome QUIC 指纹开关 | 添加节点 → Hysteria2 | `--disable-chrome-parrot` | 需要 1.14+ |
 | Hysteria2 BBR profile / Brutal debug | 添加节点 → Hysteria2 | `--bbr-profile`、`--brutal-debug` | 需要 1.14+ |

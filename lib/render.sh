@@ -48,6 +48,9 @@ validate_state_semantics() {
     if [[ $(jq -r '.enabled' <<<"$node") == true ]]; then
       if [[ "$protocol" == snell ]]; then
         version_ge "$(core_current_version)" 1.14.0-rc.1 || die 'Snell 需要 sing-box 1.14.0-rc.1 或更高版本核心。'
+        if [[ $(jq -r '.snell_version // 5' <<<"$node") == 6 ]]; then
+          version_ge "$(core_current_version)" 1.14.0-rc.2 || die 'Snell v6 需要 sing-box 1.14.0-rc.2 或更高版本核心。'
+        fi
       fi
       if [[ "$protocol" == hysteria2 ]] && { [[ $(jq -r '.obfs.type // ""' <<<"$node") == gecko ]] || [[ $(jq -r '.disable_chrome_parrot // false' <<<"$node") == true ]] || [[ -n $(jq -r '.bbr_profile // ""' <<<"$node") ]] || [[ $(jq -r '.brutal_debug // false' <<<"$node") == true ]]; }; then
         version_ge "$(core_current_version)" 1.14.0-rc.1 || die '当前 Hysteria2 配置包含 1.14+ 功能，需要 sing-box 1.14.0-rc.1 或更高版本核心。'

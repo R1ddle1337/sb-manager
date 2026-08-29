@@ -114,7 +114,8 @@ sb-manager：状态驱动的 sing-box 多协议管理器
   SS:    --method 2022-blake3-aes-128-gcm|... --network tcp
   HY2:   --obfs salamander|gecko --obfs-min-packet-size N --obfs-max-packet-size N
          --disable-chrome-parrot --masquerade URL (Gecko/Chrome 选项需要 sing-box 1.14+)
-  Snell: --obfs none|http [--obfs-host DOMAIN] (需要 sing-box 1.14+)
+  Snell: --snell-version 5|6 --snell-mode default|unshaped|unsafe-raw
+         v5 可用 --obfs none|http [--obfs-host DOMAIN]；v6 需要 sing-box 1.14 rc.2+
   通用:  --disabled --remark TEXT --region REGION --purpose PURPOSE --line LINE --tags a,b
 EOF_HELP
 }
