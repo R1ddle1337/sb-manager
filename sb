@@ -70,7 +70,7 @@ sb-manager：状态驱动的 sing-box 多协议管理器
   sb export config [文件] [--mode mixed|tun]
   sb subscription create [7d|24h] [mixed|tun]
   sb subscription list|status|revoke <TOKEN>
-  sb api enable [PORT] [--dashboard]|disable|status [--json]|show-token
+  sb api enable [PORT] [--dashboard]|disable|status [--json]|show-token|cli <COMMAND> [ARGS]
   sb mux status [--json]|enable [PORT]|disable|route list|route add NODE_ID SNI [BACKEND_PORT]|route remove NODE_ID
   sb traffic status [NODE_ID] [--json]
   sb traffic set NODE_ID [--quota 100G|unlimited] [--reset-day 1-28]
@@ -298,7 +298,8 @@ main() {
         disable) api_disable ;;
         status) api_status "$([[ ${3:-} == --json || ${SBM_OUTPUT_JSON:-0} == 1 ]] && echo 1 || echo 0)" ;;
         show-token) api_show_token ;;
-        *) usage_die '用法：sb api enable [PORT] [--dashboard] | disable | status | show-token' ;;
+        cli) shift 2; api_cli "$@" ;;
+        *) usage_die '用法：sb api enable [PORT] [--dashboard] | disable | status | show-token | cli COMMAND [ARGS]' ;;
       esac
       ;;
     mux|nginx-stream)

@@ -328,6 +328,25 @@ ui_update_menu() {
   esac
 }
 
+ui_api_menu() {
+  local c port dashboard path command
+  api_status
+  printf '\n1. 启用 API\n2. 启用 API + Dashboard\n3. 停用 API/Dashboard\n4. 显示 API 令牌\n5. 查看 API 服务状态\n6. 查看 API outbounds\n7. 导出 sing-box JSON Schema\n0. 返回\n'
+  prompt_value c '选择操作' '0'
+  case "$c" in
+    1|2)
+      port=$(jq -r '.api.port // 9090' "$SBM_STATE")
+      prompt_value port 'API loopback 端口' "$port"
+      if [[ "$c" == 2 ]]; then api_enable "$port" true; else api_enable "$port" false; fi
+      ;;
+    3) confirm '确认停用 API/Dashboard？' N && api_disable;;
+    4) api_show_token;;
+    5) api_cli status;;
+    6) api_cli outbounds;;
+    7) path="$SBM_EXPORTS/sing-box-schema.json"; prompt_value path 'Schema 输出文件' "$path"; core_schema "$path";;
+  esac
+}
+
 ui_doctor_menu() {
   local c
   printf '1. 运行完整诊断\n2. 自动修复权限、配置与服务\n3. 低风险自动修复（不改防火墙/SSH/内核）\n4. 协调/重启 sing-box 服务\n5. 查看 sing-box 最近日志\n0. 返回\n'
@@ -524,15 +543,15 @@ ui_main() {
   local choice
   while true; do
     ui_header
-    printf '1. 查看统一运行状态\n2. 添加协议节点\n3. 管理现有节点\n4. 分享链接与客户端导出\n5. 域名与证书管理\n6. Cloudflare Tunnel 管理\n7. 核心与组件更新\n8. 日志\n9. 诊断与修复\n10. 备份与恢复\n11. 全局设置\n12. 防火墙与协议端口\n13. 流量统计、配额与限速\n14. 通知与定时健康检查\n15. 节点模板与批量操作\n16. 卸载与彻底清理\n0. 退出\n\n'
+    printf '1. 查看统一运行状态\n2. 添加协议节点\n3. 管理现有节点\n4. 分享链接与客户端导出\n5. 域名与证书管理\n6. Cloudflare Tunnel 管理\n7. 核心与组件更新\n8. sing-box API/Dashboard\n9. 日志\n10. 诊断与修复\n11. 备份与恢复\n12. 全局设置\n13. 防火墙与协议端口\n14. 流量统计、配额与限速\n15. 通知与定时健康检查\n16. 节点模板与批量操作\n17. 卸载与彻底清理\n0. 退出\n\n'
     prompt_value choice '请选择' '0'
     case "$choice" in
       1) status_summary || true;; 2) ui_add_node;; 3) ui_manage_nodes;;
       4) ui_share_export_menu || continue;;
-      5) ui_cert_menu;; 6) ui_tunnel_menu;; 7) ui_update_menu;; 8) show_logs all 100;; 9) ui_doctor_menu;; 10) ui_backup_menu;; 11) ui_settings_menu;; 12) ui_firewall_menu;; 13) ui_traffic_menu;;
-      14) ui_notification_health_menu;;
-      15) ui_template_menu;;
-      16) ui_uninstall_menu; [[ ${SBM_UNINSTALLED:-0} == 1 ]] && return;;
+      5) ui_cert_menu;; 6) ui_tunnel_menu;; 7) ui_update_menu;; 8) ui_api_menu;; 9) show_logs all 100;; 10) ui_doctor_menu;; 11) ui_backup_menu;; 12) ui_settings_menu;; 13) ui_firewall_menu;; 14) ui_traffic_menu;;
+      15) ui_notification_health_menu;;
+      16) ui_template_menu;;
+      17) ui_uninstall_menu; [[ ${SBM_UNINSTALLED:-0} == 1 ]] && return;;
       0) return;; *) log_error '选择无效';;
     esac
     ui_pause

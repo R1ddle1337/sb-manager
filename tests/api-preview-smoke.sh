@@ -40,6 +40,8 @@ runtime_pid=$!
 for _ in {1..30}; do kill -0 "$runtime_pid" 2>/dev/null || { cat "$ROOT/api.log" >&2; exit 1; }; ss -H -ltn | awk '{print $4}' | grep -Fxq '127.0.0.1:19090' && break; sleep 0.1; done
 ss -H -ltn | awk '{print $4}' | grep -Fxq '127.0.0.1:19090'
 ! ss -H -ltn | awk '{print $4}' | grep -Fxq '0.0.0.0:19090'
+api_cli status >"$ROOT/api-status.txt"
+[[ -s "$ROOT/api-status.txt" ]]
 kill "$runtime_pid"; wait "$runtime_pid" 2>/dev/null || true; runtime_pid=''
 
 candidate=$(state_candidate)

@@ -267,6 +267,8 @@ sb settings dns show
 
 这些字段仅在使用 1.14 核心时写入生成配置；继续使用 1.13 核心时会保持原有 DNS 配置格式。
 
+启用 API 后，面板的“sing-box API/Dashboard”菜单可查看服务状态、outbounds 和导出 Schema；脚本也可通过 `sb api cli status`、`sb api cli outbounds` 调用 1.14 API CLI。API 仍只监听 loopback，远程使用请通过 SSH 转发。
+
 ### AnyTLS 与 Hysteria2
 
 先准备一个直接解析到 VPS 的域名，例如 `edge.example.com`。使用 Cloudflare DNS 时，该记录应为 **DNS Only**，不要开启橙云代理。

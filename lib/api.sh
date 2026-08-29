@@ -42,3 +42,13 @@ api_show_token() {
   [[ $(jq -r '.api.enabled' "$SBM_STATE") == true ]] || die 'API 未启用。'
   state_get_secret api | jq -r '.secret'
 }
+
+api_cli() {
+  local port secret
+  (($# > 0)) || die '请指定 sing-box api 子命令；例如 status、outbounds 或 logs。'
+  [[ $(jq -r '.api.enabled // false' "$SBM_STATE") == true ]] || die 'API 未启用。'
+  version_ge "$(core_current_version)" 1.14.0-rc.1 || die 'sing-box API CLI 需要 1.14+ 核心。'
+  port=$(jq -r '.api.port' "$SBM_STATE")
+  secret=$(state_get_secret api | jq -r '.secret')
+  BOX_API_URL="http://127.0.0.1:$port" BOX_API_SECRET="$secret" "$SBM_SING_BOX_BIN" api "$@"
+}
