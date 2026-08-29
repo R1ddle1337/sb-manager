@@ -319,7 +319,7 @@ required_commands
 
 ### 7.1 第一版
 
-第一版允许 `sb-web server` 以 root 运行，但必须满足：
+第一版使用 `sbweb` 普通用户 Web 服务和 root helper Unix Socket，但必须满足：
 
 - 默认绑定 `127.0.0.1`
 - 所有 API 需要登录
@@ -328,11 +328,11 @@ required_commands
 - 所有命令带 context 超时
 - 日志脱敏
 
-这是为了降低跨发行版权限配置复杂度，适合第一版快速落地。
+如果 helper 不可用，任务会失败而不会自动降级为 root 执行。
 
-### 7.2 后续拆分
+### 7.2 helper 边界
 
-Web 服务稳定后拆为：
+安装器会同时部署：
 
 ```text
 sb-web（普通用户，HTTP/API/UI）
@@ -748,7 +748,7 @@ sb-manager-web.service
 - 日志输出到项目日志目录或 journald
 - Agent 模式支持自动重启和网络依赖
 
-第一版如果服务需要 root 调用 sb，必须在单元文件中明确说明，并保持监听 loopback。
+需要 root 的 sb 操作通过 helper 单元执行；Web 单元使用 `sbweb` 用户并保持监听 loopback。
 
 ### 16.2 OpenRC
 
@@ -1070,8 +1070,7 @@ sb-manager-web 0.1.0
 
 ### Phase 4：权限和可靠性增强
 
-- root helper 拆分。
-- 更细的操作权限。
+- root helper 已拆分；继续细化操作权限。
 - Agent 证书轮换。
 - 任务断点续传。
 - 受控灰度发布。
@@ -1123,7 +1122,7 @@ sb-manager-web 0.1.0
 7. 多服务器采用逐台任务，不伪造跨服务器原子事务。
 8. `latest` 在控制端解析为具体版本后再批量下发。
 9. WebUI 不记录或集中保存节点秘密。
-10. 先保证易用和可回滚，再增加 root helper、灰度和复杂权限。
+10. 先保证易用和可回滚，再增加更细权限、灰度和复杂控制端高可用。
 
 ## 25. 开发约定
 
