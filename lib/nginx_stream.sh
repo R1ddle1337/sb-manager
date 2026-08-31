@@ -163,6 +163,9 @@ nginx_stream_prepare_binary_for_backend() {
       managed=$SBM_NGINX_STREAM_OPENRC_BIN
       mkdir -p "$(dirname "$managed")"
       if [[ "$target" != "$managed" ]]; then install -m 0755 "$target" "$managed"; fi
+      if ! command_exists setcap && declare -F dependency_require_feature >/dev/null 2>&1; then
+        dependency_require_feature low-port || die 'OpenRC Nginx Stream 需要 libcap；请运行 sb deps install low-port。'
+      fi
       command_exists setcap || die 'OpenRC Nginx Stream 需要 setcap；请安装 Alpine 的 libcap 包。'
       setcap 'cap_net_bind_service=+ep' "$managed" || die "无法为托管 Nginx 设置低端口能力：$managed"
       ;;

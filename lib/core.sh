@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 
+if ! declare -F dependency_require_feature >/dev/null 2>&1 && [[ -f "$SBM_LIB/lib/dependencies.sh" ]]; then
+  # shellcheck source=lib/dependencies.sh
+  source "$SBM_LIB/lib/dependencies.sh"
+fi
 if ! declare -F prepare_singbox_binary_for_backend >/dev/null 2>&1; then
   # shellcheck source=lib/runtime-security.sh
   source "$SBM_LIB/lib/runtime-security.sh"
@@ -44,6 +48,7 @@ download_file_with_retries() {
     delay=$((attempt * 2))
     sleep "$delay"
   done
+  rm -f "$output"
   die "$label 下载失败，已重试 $attempts 次。"
 }
 
@@ -147,6 +152,47 @@ artifact_record() {
   mv -f "$tmp" "$manifest"
 }
 
+core_check_free_space() {
+  local path=${1:-$SBM_CORE_DIR} required=${2:-${SBM_CORE_MIN_FREE_BYTES:-260000000}} available
+  [[ "$required" =~ ^[0-9]+$ ]] || required=260000000
+  available=$(df -Pk "$path" 2>/dev/null | awk 'NR==2 {print $4 * 1024; exit}')
+  [[ "$available" =~ ^[0-9]+$ ]] || return 0
+  if (( available < required )); then
+    log_error "磁盘剩余空间不足：$(numfmt --to=iec "$available" 2>/dev/null || printf '%s bytes' "$available")，至少需要约 $(numfmt --to=iec "$required" 2>/dev/null || printf '%s bytes' "$required") 才能安全下载/解压核心。"
+    log_error "请清理缓存或设置 SBM_CORE_MIN_FREE_BYTES 调整预检查阈值后重试。"
+    return 1
+  fi
+}
+
+core_prune_cached_versions() {
+  local keep=${SBM_CORE_RETENTION:-2} current path version
+  local -a dirs=()
+  [[ "$keep" =~ ^[0-9]+$ ]] || keep=2
+  (( keep >= 1 )) || keep=1
+  current=$(readlink -f "$SBM_SING_BOX_BIN" 2>/dev/null || true)
+  [[ -d "$SBM_CORE_DIR/sing-box" ]] || return 0
+  while IFS= read -r path; do [[ -n "$path" ]] && dirs+=("$path"); done < <(
+    find "$SBM_CORE_DIR/sing-box" -mindepth 2 -maxdepth 2 -type f -name sing-box -perm -u+x -printf '%T@ %p\n' 2>/dev/null |
+      sort -nr | awk '{sub(/^[^ ]+ /, ""); print}'
+  )
+  # Always retain the active target, then retain the newest candidates up to
+  # the configured limit.  Each entry is the binary; its parent is the
+  # version directory containing the optional libcronet.so.
+  local retained=0 max_others=$((keep - 1))
+  [[ -n "$current" ]] || max_others=$keep
+  for path in "${dirs[@]}"; do
+    if [[ "$path" == "$current" ]]; then
+      continue
+    fi
+    if (( retained < max_others )); then
+      retained=$((retained + 1))
+      continue
+    fi
+    version=$(dirname "$path")
+    rm -rf -- "$version"
+  done
+}
+
 core_download_version() {
   local version=$1 arch json asset_name asset_url digest checksum_url tmpdir archive target expected found found_dir
   arch=$(sb_arch)
@@ -166,6 +212,10 @@ core_download_version() {
     printf '%s\n' "$target"
     return 0
   fi
+  mkdir -p "$SBM_CORE_DIR"
+  mkdir -p "$SBM_CACHE"
+  core_check_free_space "$SBM_CACHE"
+  core_check_free_space "$SBM_CORE_DIR"
   tmpdir=$(mktemp -d "$SBM_CACHE/sing-box.XXXXXX"); archive="$tmpdir/$asset_name"
   log_info "下载 sing-box $version ($arch)…"
   download_file_with_retries "$asset_url" "$archive" "sing-box $version" 5
@@ -186,14 +236,20 @@ core_download_version() {
   local found
   found=$(find "$tmpdir" -type f -name sing-box -perm -u+x -print -quit)
   [[ -n "$found" ]] || { rm -rf "$tmpdir"; die "压缩包中未找到 sing-box。"; }
-  install -m 0755 "$found" "$target"
+  if ! install -m 0755 "$found" "$target"; then
+    rm -rf "$tmpdir"
+    die "无法写入 sing-box 核心，可能是磁盘空间不足：$target"
+  fi
   found_dir=$(dirname "$found")
   if [[ -f "$found_dir/libcronet.so" ]]; then
-    install -m 0755 "$found_dir/libcronet.so" "$(dirname "$target")/libcronet.so"
+    if ! install -m 0755 "$found_dir/libcronet.so" "$(dirname "$target")/libcronet.so"; then
+      rm -rf "$tmpdir"
+      die "无法写入 sing-box companion library，可能是磁盘空间不足。"
+    fi
   fi
   ensure_program_permissions
   if ! "$target" version >/dev/null 2>&1; then
-    rm -rf "$tmpdir"
+    rm -rf "$tmpdir" "$(dirname "$target")"
     if [[ -f /etc/alpine-release ]]; then
       die "sing-box 官方核心无法在当前 Alpine 运行；请确认已安装 gcompat。"
     fi
@@ -233,6 +289,7 @@ core_switch_to() {
     fi
   fi
   printf '%s\t%s\t%s\t%s\n' "$(now_iso)" "$previous" "$binary" "$transition_snapshot" >>"$SBM_VAR/core-history/sing-box.tsv"
+  core_prune_cached_versions
   log_ok "sing-box 已切换到 $(core_current_version)。"
 }
 
@@ -398,6 +455,10 @@ cloudflared_download_latest() {
     printf '%s\n' "$target"
     return 0
   fi
+  mkdir -p "$SBM_CORE_DIR"
+  mkdir -p "$SBM_CACHE"
+  core_check_free_space "$SBM_CACHE" "${SBM_CLOUDFLARED_MIN_FREE_BYTES:-160000000}"
+  core_check_free_space "$SBM_CORE_DIR" "${SBM_CLOUDFLARED_MIN_FREE_BYTES:-160000000}"
   mkdir -p "$(dirname "$target")"
   chmod 0755 "$SBM_CORE_DIR" "$SBM_CORE_DIR/cloudflared" "$(dirname "$target")"
   tmp=$(mktemp "$SBM_CACHE/cloudflared.XXXXXX")
@@ -405,22 +466,86 @@ cloudflared_download_latest() {
   download_file_with_retries "$url" "$tmp" "cloudflared $version" 5
   [[ -n "$digest" && "$digest" == sha256:* ]] || { rm -f "$tmp"; die "Release API 未提供 cloudflared SHA-256 摘要，已拒绝安装。"; }
   verify_asset_digest "$tmp" "$digest" || { rm -f "$tmp"; die "cloudflared 校验失败。"; }
-  install -m 0755 "$tmp" "$target"; rm -f "$tmp"; ensure_program_permissions
-  "$target" version >/dev/null 2>&1 || die "下载的 cloudflared 核心无法执行。"
+  if ! install -m 0755 "$tmp" "$target"; then
+    rm -f "$tmp"
+    die "无法写入 cloudflared，可能是磁盘空间不足：$target"
+  fi
+  rm -f "$tmp"
+  ensure_program_permissions
+  if ! "$target" version >/dev/null 2>&1; then
+    rm -rf "$(dirname "$target")"
+    die "下载的 cloudflared 核心无法执行。"
+  fi
   artifact_record cloudflared "$version" "$url" "$digest" "$target"
   printf '%s\n' "$target"
 }
 
-_cloudflared_update() {
-  local binary old
-  binary=$(cloudflared_download_latest); old=$(readlink -f "$SBM_CLOUDFLARED_BIN" 2>/dev/null || true)
+cloudflared_prune_cached_versions() {
+  local keep=${SBM_CLOUDFLARED_RETENTION:-1} current path version
+  local -a dirs=()
+  [[ "$keep" =~ ^[0-9]+$ ]] || keep=1
+  (( keep >= 1 )) || keep=1
+  current=$(readlink -f "$SBM_CLOUDFLARED_BIN" 2>/dev/null || true)
+  [[ -d "$SBM_CORE_DIR/cloudflared" ]] || return 0
+  while IFS= read -r path; do [[ -n "$path" ]] && dirs+=("$path"); done < <(
+    find "$SBM_CORE_DIR/cloudflared" -mindepth 2 -maxdepth 2 -type f -name cloudflared -perm -u+x -printf '%T@ %p\n' 2>/dev/null |
+      sort -nr | awk '{sub(/^[^ ]+ /, ""); print}'
+  )
+  local retained=0 max_others=$((keep - 1))
+  [[ -n "$current" ]] || max_others=$keep
+  for path in "${dirs[@]}"; do
+    if [[ "$path" == "$current" ]]; then
+      continue
+    fi
+    if (( retained < max_others )); then
+      retained=$((retained + 1))
+      continue
+    fi
+    version=$(dirname "$path")
+    rm -rf -- "$version"
+  done
+}
+
+cloudflared_require() {
+  [[ -x "$SBM_CLOUDFLARED_BIN" ]] || die 'Cloudflare Tunnel 组件尚未安装；请先运行：sb cloudflared install'
+  validate_runtime_binary_path cloudflared "$SBM_CLOUDFLARED_BIN"
+}
+
+_cloudflared_install() {
+  local binary old new_linked=0 mode
+  binary=$(cloudflared_download_latest)
+  old=$(readlink -f "$SBM_CLOUDFLARED_BIN" 2>/dev/null || true)
   validate_runtime_binary_path cloudflared "$binary"
   ensure_program_permissions
-  if [[ "$old" == "$binary" ]]; then log_ok "cloudflared 已是最新版。"; return; fi
-  ln -sfn "$binary" "$SBM_CLOUDFLARED_BIN.new"; mv -Tf "$SBM_CLOUDFLARED_BIN.new" "$SBM_CLOUDFLARED_BIN"
-  if [[ "$SBM_SKIP_INIT" != "1" ]] && service_exists "$SBM_TUNNEL_SERVICE" && service_enabled "$SBM_TUNNEL_SERVICE"; then
-    if ! service_restart "$SBM_TUNNEL_SERVICE"; then [[ -n "$old" ]] && ln -sfn "$old" "$SBM_CLOUDFLARED_BIN"; service_try_restart "$SBM_TUNNEL_SERVICE" || true; return 1; fi
+  mkdir -p "$SBM_BIN_DIR"
+  mkdir -p "$SBM_VAR/cloudflared-home" "$SBM_LOG_DIR"
+  chown "$SBM_SERVICE_USER":"$SBM_SERVICE_USER" "$SBM_VAR/cloudflared-home" "$SBM_LOG_DIR" 2>/dev/null || true
+  chmod 0750 "$SBM_VAR/cloudflared-home" "$SBM_LOG_DIR" 2>/dev/null || true
+  ln -sfn "$binary" "$SBM_CLOUDFLARED_BIN.new"
+  mv -Tf "$SBM_CLOUDFLARED_BIN.new" "$SBM_CLOUDFLARED_BIN"
+  new_linked=1
+  ensure_program_permissions
+  mode=$(jq -r '.tunnel.mode // "none"' "$SBM_STATE" 2>/dev/null || printf 'none')
+  if declare -F tunnel_reconcile >/dev/null 2>&1 && [[ "$mode" != none ]]; then
+    if ! tunnel_reconcile 1; then
+      if [[ -n "$old" && -x "$old" ]]; then
+        ln -sfn "$old" "$SBM_CLOUDFLARED_BIN"
+      elif (( new_linked )); then
+        rm -f "$SBM_CLOUDFLARED_BIN"
+      fi
+      return 1
+    fi
   fi
-  log_ok "cloudflared 已更新至 $(cloudflared_current_version)。"
+  cloudflared_prune_cached_versions
+  if [[ "$old" == "$binary" ]]; then
+    log_ok 'cloudflared 已是最新版。'
+  else
+    log_ok "cloudflared 已安装/更新至 $(cloudflared_current_version || printf '未知版本')。"
+  fi
+}
+cloudflared_install() { with_lock _cloudflared_install; }
+
+_cloudflared_update() {
+  _cloudflared_install
 }
 cloudflared_update() { with_lock _cloudflared_update; }

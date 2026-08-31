@@ -67,6 +67,9 @@ bbr_apply_config() {
 
 _bbr_enable() {
   local qdisc cc tmp
+  if ! command_exists "$SBM_BBR_MODPROBE_CMD" && declare -F dependency_require_feature >/dev/null 2>&1; then
+    dependency_require_feature bbr || die 'BBR 调优需要 kmod/modprobe；请运行 sb deps install bbr。'
+  fi
   bbr_available || {
     command_exists "$SBM_BBR_MODPROBE_CMD" || die '内核未提供 BBR，且系统缺少 modprobe。'
     "$SBM_BBR_MODPROBE_CMD" tcp_bbr >/dev/null 2>&1 || true

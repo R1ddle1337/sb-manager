@@ -9,7 +9,7 @@ ROOT=$(mktemp -d)
 trap 'rm -rf "$ROOT"' EXIT
 PROJECT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 REAL=${SBM_TEST_SING_BOX:?Set SBM_TEST_SING_BOX}
-export SBM_TEST_MODE=1 SBM_SKIP_INIT=1 SBM_SKIP_SYSTEMD=1 SBM_TEST_SING_BOX="$REAL" NO_COLOR=1
+export SBM_TEST_MODE=1 SBM_SKIP_INIT=1 SBM_SKIP_SYSTEMD=1 SBM_TEST_SING_BOX="$REAL" SBM_INSTALL_CLOUDFLARED=0 NO_COLOR=1
 export SBM_PREFIX="$ROOT/usr/local"
 export SBM_LIB="$ROOT/usr/local/lib/sb-manager"
 export SBM_BIN_DIR="$ROOT/usr/local/bin"
@@ -34,9 +34,9 @@ export SBM_CLOUDFLARED_BIN="$SBM_BIN_DIR/cloudflared"
 export SBM_SERVICE_USER=daemon
 
 bash "$PROJECT/setup.sh" --no-menu --no-start
-[[ -x "$SBM_BIN_DIR/sb" && -x "$SBM_SING_BOX_BIN" && -x "$SBM_CLOUDFLARED_BIN" ]]
+[[ -x "$SBM_BIN_DIR/sb" && -x "$SBM_SING_BOX_BIN" ]]
+[[ ! -e "$SBM_CLOUDFLARED_BIN" && ! -d "$SBM_CORE_DIR/cloudflared" ]]
 [[ "$(readlink "$SBM_SING_BOX_BIN")" != *$'\n'* ]]
-[[ "$(readlink "$SBM_CLOUDFLARED_BIN")" != *$'\n'* ]]
 env -u SBM_LIB "$SBM_BIN_DIR/sb" version | grep -q "$(tr -d '[:space:]' <"$PROJECT/VERSION")"
 [[ -z $(find "$SBM_LIB" -maxdepth 0 ! -perm -0001 -print -quit) ]]
 [[ -z $(find "$SBM_CORE_DIR" -type d ! -perm -0001 -print -quit) ]]
@@ -45,6 +45,11 @@ runuser -u "$SBM_SERVICE_USER" -- "$SBM_SING_BOX_BIN" version >/dev/null
 if [[ -f "$(dirname "$REAL")/libcronet.so" ]]; then
   [[ -x "$(dirname "$(readlink -f "$SBM_SING_BOX_BIN")")/libcronet.so" ]]
 fi
+# The optional component is installed explicitly and is never part of the
+# default/minimal installation path.
+SBM_INSTALL_CLOUDFLARED=1 bash "$PROJECT/setup.sh" --no-menu --no-start
+[[ -x "$SBM_CLOUDFLARED_BIN" ]]
+[[ "$(readlink "$SBM_CLOUDFLARED_BIN")" != *$'\n'* ]]
 runuser -u "$SBM_SERVICE_USER" -- "$SBM_CLOUDFLARED_BIN" version >/dev/null
 runuser -u "$SBM_SERVICE_USER" -- test -r "$SBM_CONFIG"
 runuser -u "$SBM_SERVICE_USER" -- test -x "$SBM_VAR"

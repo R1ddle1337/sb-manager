@@ -10,7 +10,11 @@ subscription_duration_seconds() {
 
 subscription_write_service() {
   local python unit backend
-  python=$(command -v python3) || die '订阅服务需要 python3。'
+  if ! command_exists python3 && ! command_exists python && declare -F dependency_require_feature >/dev/null 2>&1; then
+    dependency_require_feature subscription || die '订阅服务需要 python3；请运行 sb deps install subscription。'
+  fi
+  python=$(command -v python3 || command -v python || true)
+  [[ -n "$python" ]] || die '订阅服务需要 python3。'
   backend=$(effective_init_system)
   mkdir -p "$SBM_SUBSCRIPTIONS"
   chown root:"$SBM_SERVICE_USER" "$SBM_SUBSCRIPTIONS" 2>/dev/null || true

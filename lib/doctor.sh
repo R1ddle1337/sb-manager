@@ -215,6 +215,9 @@ doctor_network_probe() {
 doctor_probe() {
   local id=${1:-} node failures=0 warnings=0
   [[ -n "$id" ]] || die '用法：sb probe NODE_ID'
+  if ! command_exists ss && declare -F dependency_require_feature >/dev/null 2>&1; then
+    dependency_require_feature probe || die '节点探测需要 iproute2/ss；请运行 sb deps install probe。'
+  fi
   node=$(state_get_node "$id")
   [[ -n "$node" ]] || die "节点不存在：$id"
   printf '%s\n' "---- 节点探测：$id ----"
@@ -345,13 +348,17 @@ doctor_run() {
     esac
   fi
 
+  local tunnel_mode
+  tunnel_mode=$(jq -r '.tunnel.mode // "none"' "$SBM_STATE" 2>/dev/null || printf 'none')
   if [[ -x "$SBM_CLOUDFLARED_BIN" ]]; then
     cf_version=$(cloudflared_current_version || true)
     if [[ -n "$cf_version" ]]; then check_line PASS "cloudflared $cf_version"
     else check_line WARN 'cloudflared 文件存在，但无法读取版本信息'; warnings=$((warnings + 1)); fi
+  elif [[ "$tunnel_mode" != none ]]; then
+    check_line FAIL 'Cloudflare Tunnel 已配置，但 cloudflared 未安装；运行 sb cloudflared install'
+    failures=$((failures + 1))
   else
-    check_line WARN 'cloudflared 未安装或链接缺失'
-    warnings=$((warnings + 1))
+    check_line PASS 'cloudflared 未安装（按需组件，Tunnel 未启用）'
   fi
 
   tmp=$(mktemp "$SBM_RUN/doctor-config.XXXXXX")

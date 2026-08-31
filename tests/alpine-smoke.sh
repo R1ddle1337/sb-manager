@@ -2,10 +2,10 @@
 set -Eeuo pipefail
 [[ -f /etc/alpine-release ]] || { echo 'This test must run on Alpine.' >&2; exit 1; }
 if command -v apk >/dev/null 2>&1; then
-  # The test intentionally runs setup in test mode, so provide the musl
-  # compatibility/runtime tools that a clean Alpine image does not contain.
-  apk add --no-cache curl ca-certificates jq openssl tar gzip coreutils util-linux procps findutils \
-    python3 iproute2 nftables shadow openrc dcron libcap musl-utils gcompat >/dev/null
+  # Keep the bootstrap close to the minimal production profile.  Optional
+  # Python/nftables/cron packages are intentionally absent from this smoke.
+  apk add --no-cache bash curl ca-certificates jq openssl tar gzip coreutils findutils flock \
+    iproute2-ss openrc libcap-utils gcompat >/dev/null
 fi
 ROOT=$(mktemp -d)
 trap 'rm -rf "$ROOT"' EXIT
@@ -41,7 +41,7 @@ REAL_CLOUDFLARED=$(cloudflared_download_latest)
 getcap "$REAL_SING_BOX" | grep -q cap_net_bind_service
 
 # Exercise installation output and lifecycle with an isolated OpenRC backend.
-export SBM_TEST_MODE=1 SBM_TEST_SING_BOX="$REAL_SING_BOX"
+export SBM_TEST_MODE=1 SBM_TEST_SING_BOX="$REAL_SING_BOX" SBM_INSTALL_CLOUDFLARED=1
 export SBM_PREFIX="$ROOT/install/usr/local"
 export SBM_LIB="$ROOT/install/usr/local/lib/sb-manager"
 export SBM_BIN_DIR="$ROOT/install/usr/local/bin"

@@ -42,6 +42,7 @@ for test in \
   tests/openrc-nginx-stream-smoke.sh \
   tests/systemd-exec-smoke.sh \
   tests/systemd-real-exec.sh \
+  tests/minimal-install-smoke.sh \
   tests/install-smoke.sh \
   tests/bootstrap-latest-smoke.sh \
   tests/download-retry-smoke.sh \

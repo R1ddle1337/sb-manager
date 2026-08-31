@@ -349,19 +349,20 @@ ui_cert_menu() {
 
 ui_tunnel_menu() {
   local c id domain address
-  printf '1. 查看 Tunnel 状态\n2. 配置固定 Tunnel\n3. 启动 Quick Tunnel\n4. 刷新 Quick Tunnel 域名\n5. 更换固定 Tunnel Token\n6. 停止 Tunnel\n0. 返回\n'
+  printf '1. 查看 Tunnel 状态\n2. 安装/更新 cloudflared\n3. 配置固定 Tunnel\n4. 启动 Quick Tunnel\n5. 刷新 Quick Tunnel 域名\n6. 更换固定 Tunnel Token\n7. 停止 Tunnel\n0. 返回\n'
   prompt_value c '选择操作' '0'
   case "$c" in
     1) tunnel_status;;
-    2) ui_select_node id || return; prompt_value domain 'Tunnel 公网域名' ''; prompt_value address '客户端 add 地址' "$domain"; tunnel_setup_fixed "$id" "$domain" '' "$address";;
-    3) ui_select_node id || return; tunnel_setup_quick "$id";;
-    4) tunnel_refresh_quick;; 5) tunnel_set_token;; 6) confirm '停止 Tunnel？' N && tunnel_stop;;
+    2) cloudflared_install;;
+    3) ui_select_node id || return; prompt_value domain 'Tunnel 公网域名' ''; prompt_value address '客户端 add 地址' "$domain"; tunnel_setup_fixed "$id" "$domain" '' "$address";;
+    4) ui_select_node id || return; tunnel_setup_quick "$id";;
+    5) tunnel_refresh_quick;; 6) tunnel_set_token;; 7) confirm '停止 Tunnel？' N && tunnel_stop;;
   esac
 }
 
 ui_update_menu() {
   local c p v path
-  printf '1. 检查 sing-box 更新\n2. 更新 sing-box 最新版\n3. 指定 sing-box 版本\n4. 回滚 sing-box\n5. 设置自动更新策略\n6. 更新 cloudflared\n7. 更新 acme.sh\n8. 导出 sing-box 1.14 JSON Schema\n9. 查看核心 build tags 与能力\n0. 返回\n'
+  printf '1. 检查 sing-box 更新\n2. 更新 sing-box 最新版\n3. 指定 sing-box 版本\n4. 回滚 sing-box\n5. 设置自动更新策略\n6. 安装/更新 cloudflared\n7. 更新 acme.sh\n8. 导出 sing-box 1.14 JSON Schema\n9. 查看核心 build tags 与能力\n0. 返回\n'
   prompt_value c '选择操作' '0'
   case "$c" in
     1) core_check_update || true;; 2) core_update latest;; 3) prompt_value v '版本号，如 1.14.0-rc.1' ''; core_update "$v";; 4) core_rollback;;

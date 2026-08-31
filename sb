@@ -12,6 +12,7 @@ SELF_DIR=$(cd -P -- "$(dirname -- "$SOURCE_PATH")" && pwd)
 SBM_LIB="${SBM_LIB:-$SELF_DIR}"
 # shellcheck source=lib/common.sh
 source "$SBM_LIB/lib/common.sh"
+source "$SBM_LIB/lib/dependencies.sh"
 source "$SBM_LIB/lib/service.sh"
 source "$SBM_LIB/lib/state.sh"
 source "$SBM_LIB/lib/nginx_stream.sh"
@@ -113,7 +114,8 @@ sb-manager：状态驱动的 sing-box 多协议管理器
   sb probe NODE_ID                探测节点 DNS、监听和 TLS/UDP 可达性
 
   sb core check|update [VERSION]|rollback|schema [文件]|capabilities [--json]|policy <manual|notify|patch|stable>|auto
-  sb cloudflared update
+  sb cloudflared status|install|update
+  sb deps status [--json]|install <low-port|traffic|subscription|bbr|probe|scheduler|logrotate>
   sb acme update
   sb doctor [--repair|--network]
   sb repair                      修复权限、配置与服务状态
@@ -463,7 +465,44 @@ main() {
         *) usage_die "未知 core 操作：$action" ;;
       esac
       ;;
-    cloudflared) [[ ${2:-} == update ]] || usage_die '用法：sb cloudflared update'; cloudflared_update ;;
+    cloudflared)
+      local action=${2:-status}
+      case "$action" in
+        status)
+          (($# <= 3)) || usage_die '用法：sb cloudflared status [--json]'
+          if [[ ${3:-} == --json || ${SBM_OUTPUT_JSON:-0} == 1 ]]; then
+            local installed=false version=''
+            if [[ -x "$SBM_CLOUDFLARED_BIN" ]]; then installed=true; version=$(cloudflared_current_version || true); fi
+            jq -n --argjson installed "$installed" --arg version "$version" --arg path "$SBM_CLOUDFLARED_BIN" \
+              '{installed:$installed,version:(if $version=="" then null else $version end),path:$path}'
+          elif [[ -x "$SBM_CLOUDFLARED_BIN" ]]; then
+            printf 'cloudflared：%s\n路径：%s\n' "$(cloudflared_current_version || printf '未知版本')" "$SBM_CLOUDFLARED_BIN"
+          else
+            printf 'cloudflared：未安装（按需执行 sb cloudflared install）\n'
+          fi
+          ;;
+        install) (($# == 2)) || usage_die '用法：sb cloudflared install'; cloudflared_install ;;
+        update) (($# == 2)) || usage_die '用法：sb cloudflared update'; cloudflared_update ;;
+        *) usage_die '用法：sb cloudflared status|install|update' ;;
+      esac
+      ;;
+    deps)
+      local action=${2:-status} json=0 feature
+      case "$action" in
+        status)
+          [[ ${3:-} == --json ]] && json=1
+          (($# <= 3)) || usage_die '用法：sb deps status [--json]'
+          dependency_status "$json"
+          ;;
+        install)
+          feature=${3:?缺少功能名}
+          (($# == 3)) || usage_die '用法：sb deps install FEATURE'
+          dependency_require_feature "$feature" || die "无法准备功能依赖：$feature"
+          log_ok "功能依赖已就绪：$feature"
+          ;;
+        *) usage_die '用法：sb deps status [--json]|install FEATURE' ;;
+      esac
+      ;;
     acme) [[ ${2:-} == update ]] || usage_die '用法：sb acme update'; acme_update ;;
     doctor)
       case ${2:-} in

@@ -22,6 +22,8 @@ Acceptance: concurrent mutations cannot lose updates; any failed render, restart
 - [x] Publish immutable releases with checksums and a signed provenance path.
 - [x] Pin bootstrap installations to a tag or commit instead of mutable `main`.
 - [x] Require verified sing-box, cloudflared, and acme.sh artifacts.
+- [x] Keep the default install disk-friendly: Cloudflared and feature-heavy
+  dependencies are opt-in/lazy, with bounded core and upgrade-backup retention.
 - [x] Record installed versions, URLs, digests, and build tags.
 - [x] Treat minor/major core upgrades as compatibility migrations and retain an explicit known-good core/config pair.
 - [x] Validate certificate SAN, chain, permissions, reload, and rollback after renewal.

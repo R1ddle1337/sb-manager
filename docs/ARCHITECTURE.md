@@ -37,7 +37,7 @@ state.json: nodes[].traffic                 /var/lib/sb-manager/traffic-usage.js
                   └─ output: listener → client (download)
 ```
 
-The traffic subsystem is separate from sing-box rendering but participates in the same manager lock, snapshots, state transitions, backup/restore, and rollback. Node state holds policy (`quota_bytes`, `quota_mode`, reset day, and directional bit rates); the protected runtime journal holds only cycle IDs and accumulated counters. Before replacing rules, live named counters are checkpointed and used as the initial values of the new atomic nftables transaction. A systemd lifecycle unit restores rules at boot and checkpoints at shutdown; a timer checkpoints and processes UTC billing-cycle rollover every five minutes without rebuilding an already-correct table. OpenRC uses an equivalent boot service and a 15-minute dcron job.
+The traffic subsystem is separate from sing-box rendering but participates in the same manager lock, snapshots, state transitions, backup/restore, and rollback. Node state holds policy (`quota_bytes`, `quota_mode`, reset day, and directional bit rates); the protected runtime journal holds only cycle IDs and accumulated counters. Before replacing rules, live named counters are checkpointed and used as the initial values of the new atomic nftables transaction. A systemd lifecycle unit restores rules at boot and checkpoints at shutdown; a timer checkpoints and processes UTC billing-cycle rollover every five minutes without rebuilding an already-correct table. OpenRC uses an equivalent boot service and, when `dcron` is installed, a 15-minute periodic job.
 
 Rules match the effective listener returned by the Nginx Stream topology layer. Direct nodes therefore match their public listener, routed nodes match the unique loopback backend, and Tunnel-backed VMess matches its loopback origin. Loopback listeners are matched on the `output` hook in both destination (client/Tunnel → sing-box) and source (sing-box → client/Tunnel) directions; direct listeners use `input` for upload and `output` for download. Each rule includes the protocol transport, so TCP and UDP nodes may retain the same numeric port without sharing counters.
 
@@ -64,12 +64,16 @@ Configuration previews render a candidate state and compare both state and gener
 ```text
                     ┌─ systemd units + timers + journald
 sb service API ─────┤
-                    └─ OpenRC supervise-daemon + dcron periodic jobs + files
+                    └─ OpenRC supervise-daemon + optional dcron periodic jobs + files
 ```
 
 All lifecycle operations use a shared service abstraction: existence, enable/disable, start/stop/restart, active-state checks, logs, repair, and failure reporting. Logical names retain their systemd suffix for state compatibility; the OpenRC backend maps `sb-sing-box.service` to `/etc/init.d/sb-sing-box` and `sb-cloudflared.service` to `/etc/init.d/sb-cloudflared`.
 
-On OpenRC, sing-box and cloudflared run under the `sbmanager` account through `supervise-daemon`. The sing-box binary receives only the `cap_net_bind_service` file capability so the unprivileged process can bind ports below 1024. OpenRC logs are stored under `/var/log/sb-manager/`.
+On OpenRC, sing-box (and, when explicitly installed, cloudflared) run under the `sbmanager` account through `supervise-daemon`. The sing-box binary receives only the `cap_net_bind_service` file capability so the unprivileged process can bind ports below 1024. OpenRC logs are stored under `/var/log/sb-manager/`; the Cloudflared directory and logs are created only when the optional component is installed.
+
+## Minimal installation and optional dependencies
+
+The default installer uses the `minimal` profile. It installs the manager's small command-line base, the sing-box core and the Alpine `gcompat`/OpenRC runtime, but does not download Cloudflared or install Python, nftables, kmod, dcron or Nginx. Feature modules call the dependency resolver immediately before use (`subscription`, `traffic`, `bbr`, `probe`, `scheduler`, and `logrotate`). This keeps the first boot suitable for a roughly 1GB disk while preserving the full feature set for larger hosts.
 
 ## Exposure model
 

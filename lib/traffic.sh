@@ -310,6 +310,9 @@ traffic_apply_unlocked() {
     traffic_delete_table_unlocked
     return 0
   fi
+  if [[ "$SBM_SKIP_INIT" != 1 ]] && ! command_exists nft && declare -F dependency_require_feature >/dev/null 2>&1; then
+    dependency_require_feature traffic || die '流量控制需要 nftables；请运行 sb deps install traffic。'
+  fi
   require_command nft; require_command sha256sum
   script=$(mktemp "$SBM_RUN/traffic-rules.XXXXXX")
   if traffic_nft_table_exists; then table_exists=1; fi
@@ -402,6 +405,9 @@ _traffic_set() {
       *) die "未知流量控制参数：$1" ;;
     esac
   done
+  if [[ "$SBM_SKIP_INIT" != 1 ]] && ! command_exists nft && declare -F dependency_require_feature >/dev/null 2>&1; then
+    dependency_require_feature traffic || die '流量控制需要 nftables；请运行 sb deps install traffic。'
+  fi
   [[ "$SBM_SKIP_INIT" == 1 ]] || { require_command nft; require_command sha256sum; }
   if [[ ${SBM_DRY_RUN:-0} != 1 ]]; then
     traffic_usage_init_unlocked

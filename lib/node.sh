@@ -139,6 +139,9 @@ _node_add() {
       *) die "未知参数：$1";;
     esac
   done
+  if [[ "$SBM_SKIP_INIT" != 1 ]] && ! command_exists ss && declare -F dependency_require_feature >/dev/null 2>&1; then
+    dependency_require_feature probe || die '节点端口探测需要 iproute2/ss；请运行 sb deps install probe。'
+  fi
   local protocol base transport secret node_secret='' node candidate user_secret_path default_address created_at reality_secret='' snell_obfs_mode snell_obfs_host
   default_address=$(jq -r '.settings.default_server_address // ""' "$SBM_STATE")
   case "$type" in
@@ -315,6 +318,9 @@ node_add() { with_state_transaction node-add _node_add "$@"; }
 _node_set_enabled() {
   local id=$1 value=$2 candidate
   state_node_exists "$id" || die "节点不存在：$id"
+  if [[ "$value" == true && "$SBM_SKIP_INIT" != 1 ]] && ! command_exists ss && declare -F dependency_require_feature >/dev/null 2>&1; then
+    dependency_require_feature probe || die '节点端口探测需要 iproute2/ss；请运行 sb deps install probe。'
+  fi
   candidate=$(state_candidate)
   jq --arg id "$id" --argjson value "$value" '(.nodes[] | select(.id==$id) | .enabled)=$value' "$SBM_STATE" >"$candidate"
   if ! apply_candidate_state "$candidate" "${value}-$(printf '%s' "$id")"; then rm -f "$candidate"; return 1; fi

@@ -64,6 +64,7 @@ require_vmess_node() {
 
 write_tunnel_unit() {
   local mode=$1 node_id=$2 node port unit token_path backend dependency start_post
+  cloudflared_require
   node=$(require_vmess_node "$node_id")
   port=$(jq -r '.port' <<<"$node")
   backend=$(effective_init_system)
@@ -204,6 +205,7 @@ tunnel_start_enabled() {
 
 _tunnel_setup_fixed() {
   local id=$1 domain=$2 token=${3:-} address=${4:-} node port tmp
+  cloudflared_require
   node=$(require_vmess_node "$id"); port=$(jq -r '.port' <<<"$node")
   validate_domain "$domain" || die "无效 Tunnel 域名：$domain"
   [[ -n "$token" ]] || prompt_secret token 'Cloudflare Tunnel Token'
@@ -227,6 +229,7 @@ tunnel_setup_fixed() { with_state_transaction tunnel-fixed _tunnel_setup_fixed "
 
 _tunnel_setup_quick() {
   local id=$1 domain='' i
+  cloudflared_require
   require_vmess_node "$id" >/dev/null
   _tunnel_update_state quick "$id" '' ''
   write_tunnel_unit quick "$id"
@@ -343,12 +346,14 @@ tunnel_reconcile() {
   case "$mode" in
     none) return 0 ;;
     fixed)
+      [[ -x "$SBM_CLOUDFLARED_BIN" ]] || { log_warn 'Cloudflare Tunnel 已配置，但 cloudflared 尚未安装；运行 sb cloudflared install。'; return 1; }
       [[ -n "$id" ]] || { log_warn '固定 Tunnel 状态缺少节点 ID。'; return 1; }
       [[ -s "$SBM_TUNNEL_TOKEN_FILE" ]] || { log_warn '固定 Tunnel Token 文件缺失，未启动 Tunnel。'; return 1; }
       quick_refresh_disable
       write_tunnel_unit fixed "$id"
       ;;
     quick)
+      [[ -x "$SBM_CLOUDFLARED_BIN" ]] || { log_warn 'Quick Tunnel 已配置，但 cloudflared 尚未安装；运行 sb cloudflared install。'; return 1; }
       [[ -n "$id" ]] || { log_warn 'Quick Tunnel 状态缺少节点 ID。'; return 1; }
       write_tunnel_unit quick "$id"
       write_quick_refresh_schedule

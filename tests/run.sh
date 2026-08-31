@@ -25,6 +25,17 @@ export SBM_LOCK="$SBM_RUN/manager.lock"
 export SBM_SKIP_INIT=1 SBM_SKIP_SYSTEMD=1
 export NO_COLOR=1
 
+mkdir -p "$ROOT/bin"
+cat >"$SBM_CLOUDFLARED_BIN" <<'EOF_CLOUDFLARED'
+#!/usr/bin/env bash
+if [[ ${1:-} == version ]]; then
+  printf 'cloudflared version 2026.1.0\n'
+else
+  exit 0
+fi
+EOF_CLOUDFLARED
+chmod 0755 "$SBM_CLOUDFLARED_BIN"
+
 source "$PROJECT/lib/common.sh"
 source "$PROJECT/lib/service.sh"
 source "$PROJECT/lib/state.sh"

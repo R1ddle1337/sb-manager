@@ -48,10 +48,10 @@ source "$PROJECT/lib/doctor.sh"
 state_init
 render_current_config
 
-# Missing cloudflared deliberately creates the first warning. Under `set -e`,
-# unsafe `((warnings++))` used to terminate doctor before its final summary.
+# cloudflared is an optional component; a clean install with no Tunnel should
+# report it as intentionally absent rather than as a health warning.
 output=$(doctor_run 2>&1)
-grep -q '\[WARN\] cloudflared' <<<"$output"
+grep -q 'cloudflared 未安装（按需组件' <<<"$output"
 grep -q '暂无启用节点\|测试模式' <<<"$output" || true
 grep -q '结果：0 个失败' <<<"$output"
 printf 'DOCTOR SMOKE PASSED\n'

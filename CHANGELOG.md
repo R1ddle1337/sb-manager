@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Make Alpine installation default to a disk-friendly `minimal` dependency
+  profile; defer Python, nftables, kmod, dcron, Nginx, and other optional
+  components until the corresponding feature is used.
+- Stop downloading Cloudflared during normal installation. Add explicit
+  `sb cloudflared install|status` commands and retain existing Tunnel
+  installations across upgrades.
+- Bound cached core and program-upgrade backups and add free-space checks before
+  large core downloads, with dedicated Alpine/OpenRC minimal-install coverage.
 - Add the complete Go `sb-manager-web` project development specification, including repository boundaries, CLI integration, Web API, Agent enrollment, security, deployment, testing, and phased milestones.
 - Start the independent Go `sb-manager-web` repository with SQLite storage, embedded WebUI, local/remote task APIs, Agent enrollment, and systemd/OpenRC deployment.
 - Make the default installation and `sb core update` resolve the newest non-draft GitHub sing-box Release (including prereleases); retain `--core-version` for reproducible pinning.

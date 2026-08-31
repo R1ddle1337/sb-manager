@@ -2,7 +2,7 @@
 
 `sb-manager` 是一个面向 systemd/OpenRC Linux 的、状态驱动的 sing-box 多协议管理脚本。安装后输入 `sb` 即可打开中文交互面板，也可以使用完整的非交互 CLI。
 
-> 当前版本：`0.1.0-alpha.27`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
+> 当前版本：`0.1.0-alpha.28`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
 
 ## 功能
 
@@ -17,7 +17,7 @@
 - sing-box 核心检查、自动更新策略、版本切换与回滚
 - 默认安装和 `sb core update` 自动解析 GitHub 最新 sing-box Release；需要复现时仍可用 `--core-version VERSION` 固定版本
 - Hysteria2 官方 UDP 缓冲区优化的一键开启、状态查看和恢复
-- cloudflared 独立更新
+- Cloudflare Tunnel 按需安装与独立更新（默认不下载 cloudflared）
 - 节点添加、编辑、启停、删除和凭据轮换
 - 节点级双向流量统计、月配额与独立上/下行速率控制
 - 分享 URI 与 sing-box outbound JSON 导出
@@ -105,7 +105,7 @@ sb mux status
 - systemd 或 OpenRC 作为实际服务管理器
 - Bash 4+
 - root 权限
-- 启用流量控制时需要 `nftables`（安装器会自动补齐）
+- 启用流量控制时需要 `nftables`（首次使用时按需补齐）
 - `x86_64/amd64`、`aarch64/arm64`、ARMv7 或 x86 32 位
 - 服务器可访问 GitHub Releases、Cloudflare 和 ACME 服务
 
@@ -122,7 +122,24 @@ apk add --no-cache bash curl ca-certificates
 bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/install.sh)
 ```
 
-安装器会继续补齐 OpenRC、dcron、libcap、gcompat、shadow、jq、openssl、iproute2、nftables 等依赖。OpenRC 服务日志位于：
+安装器默认使用 `minimal` 依赖档位：只补齐管理器和 sing-box 所需的 Bash、curl、证书、jq、OpenSSL、基础文本工具，以及 Alpine 运行官方 glibc ABI 核心所需的 `gcompat`。OpenRC 低端口能力使用轻量的 `libcap-utils`；不会默认下载 Cloudflared，也不会预装 Python、nftables、kmod、dcron 或 Nginx。
+
+Cloudflare Tunnel 和高级功能都是按需安装：
+
+```bash
+# 安装/更新 Cloudflare Tunnel（默认安装不会执行）
+sb cloudflared install
+
+# 仅在启用对应功能时安装依赖
+sb deps install subscription   # Python 订阅服务
+sb deps install traffic        # nftables 流量配额/限速
+sb deps install bbr            # kmod/modprobe
+sb deps install probe          # iproute2/ss 探测工具
+sb deps install scheduler      # Alpine dcron 定时任务
+sb deps status
+```
+
+需要一次性预装全部高级依赖时可使用 `bash setup.sh --profile full`（或 `--full`）；也可以在首次安装时显式加入 `--with-cloudflared`。OpenRC 服务日志位于：
 
 ```text
 /var/log/sb-manager/sing-box.log
@@ -133,7 +150,12 @@ bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/i
 /var/log/sb-manager/nginx-stream.err.log
 ```
 
-官方 sing-box Linux 核心使用 glibc ABI，Alpine 由 `gcompat` 提供运行时兼容。AnyTLS/Hysteria2 使用 443 等低位端口时，安装器会为 sing-box 核心设置最小的 `cap_net_bind_service` 文件能力，服务本身仍以 `sbmanager` 低权限用户运行。自动更新和 ACME 续期使用 Alpine `dcron` 的 `/etc/periodic` 任务。
+其中 `cloudflared.log` 和 `cloudflared.err.log` 只有安装并启用 Tunnel 后才会创建。
+
+官方 sing-box Linux 核心使用 glibc ABI，Alpine 由 `gcompat` 提供运行时兼容。AnyTLS/Hysteria2 使用 443 等低位端口时，安装器会为 sing-box 核心设置最小的 `cap_net_bind_service` 文件能力，服务本身仍以 `sbmanager` 低权限用户运行。自动更新和 ACME 续期使用 Alpine `dcron` 的 `/etc/periodic` 任务（未安装 dcron 时任务文件仍会保留，安装 `sb deps install scheduler` 后即可启用）。
+
+对于只有 1GB 磁盘的 Alpine VPS，建议保持 `minimal` 档位并按需启用组件。安装器会在下载/解压核心前检查空间（默认至少预留约 260MB，覆盖下载、解压和安装的瞬时峰值），默认只保留当前核心和一个回滚核心、两份程序升级备份；下载压缩包在校验和安装后立即删除。官方 1.14 amd64 核心（含 `libcronet.so`）安装后约占 90MB，Cloudflared 约占 40MB，因此不安装 Tunnel 可以直接省下这一大块空间。可通过 `SBM_CORE_RETENTION`、`SBM_PROGRAM_BACKUP_RETENTION` 调整保留数量。
+如果不希望功能命令自动调用包管理器，可设置 `SBM_AUTO_INSTALL_DEPENDENCIES=0`，然后按 `sb deps status` 提示手工安装；磁盘预检查阈值可用 `SBM_CORE_MIN_FREE_BYTES`（Cloudflared 对应 `SBM_CLOUDFLARED_MIN_FREE_BYTES`）调整。
 
 ### systemd 发行版
 
@@ -151,7 +173,7 @@ sudo bash install.sh
 bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/install.sh)
 ```
 
-`install.sh` 默认先解析 `main` 的最新 commit SHA，再按该不可变 commit 下载源码；也可设置 `SBM_INSTALL_REF=v0.1.0-alpha.27` 固定版本。显式指定 `main` 等可变分支仍需 `SBM_ALLOW_MUTABLE_REF=1`。离线发布包可使用 `build-release.sh` 生成，并核验 `SHA256SUMS`、`PROVENANCE-SHA256SUMS` 及可选的 GPG 签名文件。
+`install.sh` 默认先解析 `main` 的最新 commit SHA，再按该不可变 commit 下载源码；也可设置 `SBM_INSTALL_REF=v0.1.0-alpha.28` 固定版本。显式指定 `main` 等可变分支仍需 `SBM_ALLOW_MUTABLE_REF=1`。离线发布包可使用 `build-release.sh` 生成，并核验 `SHA256SUMS`、`PROVENANCE-SHA256SUMS` 及可选的 GPG 签名文件。
 
 安装完成后：
 
@@ -403,7 +425,11 @@ sb core policy notify
 sb core policy patch
 sb core policy stable
 
+sb cloudflared status
+sb cloudflared install      # 按需下载 Cloudflare Tunnel
 sb cloudflared update
+sb deps status
+sb deps install traffic     # 仅在启用流量控制时
 sb acme update
 sb backup
 sb restore /path/to/backup.tar.gz
@@ -575,6 +601,7 @@ SBM_TEST_SING_BOX=/path/to/sing-box bash tests/install-smoke.sh
 bash tests/systemd-exec-smoke.sh
 bash tests/openrc-lifecycle.sh
 bash tests/openrc-nginx-stream-smoke.sh
+SBM_TEST_SING_BOX=/path/to/sing-box bash tests/minimal-install-smoke.sh
 # 在 Alpine 3.21-3.24 的一次性 VM/容器中以 root 运行：
 bash tests/alpine-nginx-stream-smoke.sh
 ```

@@ -12,9 +12,18 @@ PROGRAM_BACKUP_ROOT=${SBM_BACKUPS:-${SBM_VAR:-/var/lib/sb-manager}/backups}
 NO_MENU=0
 NO_START=0
 CORE_VERSION=latest
+INSTALL_PROFILE=${SBM_INSTALL_PROFILE:-minimal}
+INSTALL_CLOUDFLARED=${SBM_INSTALL_CLOUDFLARED:-0}
 TEST_MODE=${SBM_TEST_MODE:-0}
 SETUP_MUTATED=0
 SETUP_ROLLBACK_DIR=''
+
+# Load only the small dependency policy before the source tree is copied.  It
+# is loaded again from TARGET_LIB below so an upgrade uses the installed code.
+# shellcheck source=lib/common.sh
+source "$SRC_DIR/lib/common.sh"
+# shellcheck source=lib/dependencies.sh
+source "$SRC_DIR/lib/dependencies.sh"
 
 setup_rollback_on_error() {
   local rc=$?
@@ -51,12 +60,39 @@ setup_fail_if_requested() {
   fi
 }
 
+prune_runtime_payload() {
+  # Documentation, tests and release-only assets are useful in the checkout
+  # but never needed by the installed CLI.  Keeping them out of /usr/local is
+  # noticeable on small disks and does not touch the source tree when setup is
+  # run in-place.
+  rm -rf \
+    "$TARGET_LIB/.git" "$TARGET_LIB/.github" "$TARGET_LIB/tests" \
+    "$TARGET_LIB/docs" "$TARGET_LIB/sing-box-official-docs-cn" \
+    "$TARGET_LIB"/sing-box-official-docs-cn-*.zip \
+    "$TARGET_LIB/libexec/__pycache__"
+  rm -f "$TARGET_LIB/AGENTS.md" "$TARGET_LIB/README.md" "$TARGET_LIB/CHANGELOG.md"
+}
+
+prune_setup_backups() {
+  local keep=${SBM_PROGRAM_BACKUP_RETENTION:-2} i
+  local -a backups=()
+  [[ "$keep" =~ ^[0-9]+$ ]] || keep=2
+  [[ -d "$PROGRAM_BACKUP_ROOT" ]] || return 0
+  while IFS= read -r path; do [[ -n "$path" ]] && backups+=("$path"); done < <(
+    find "$PROGRAM_BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d -name 'program-*' -printf '%T@ %p\n' 2>/dev/null | sort -nr | awk '{sub(/^[^ ]+ /, ""); print}'
+  )
+  for ((i=keep; i<${#backups[@]}; i++)); do rm -rf -- "${backups[$i]}"; done
+}
+
 usage() {
   cat <<'EOF_USAGE'
 用法：sudo ./setup.sh [选项]
   --no-menu             安装后不打开交互面板
   --no-start            不启动/启用 systemd 或 OpenRC 服务和定时任务
   --core-version VER    安装指定 sing-box 版本（默认 latest）
+  --profile PROFILE     安装依赖档位：minimal（默认）或 full
+  --full                --profile full 的快捷方式（会预装高级功能依赖）
+  --with-cloudflared    同时安装可选的 Cloudflare Tunnel 客户端
   -h, --help            帮助
 EOF_USAGE
 }
@@ -65,34 +101,26 @@ while (($#)); do
     --no-menu) NO_MENU=1; shift ;;
     --no-start) NO_START=1; shift ;;
     --core-version) CORE_VERSION=${2:?}; shift 2 ;;
+    --profile) INSTALL_PROFILE=${2:?}; shift 2 ;;
+    --full) INSTALL_PROFILE=full; shift ;;
+    --with-cloudflared) INSTALL_CLOUDFLARED=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "未知参数：$1" >&2; usage; exit 1 ;;
   esac
 done
 
+case "$INSTALL_PROFILE" in
+  minimal|full) ;;
+  *) echo '安装依赖档位只能是 minimal 或 full。' >&2; exit 1 ;;
+esac
+case "$INSTALL_CLOUDFLARED" in
+  0|1) ;;
+  *) echo 'SBM_INSTALL_CLOUDFLARED 只能是 0 或 1。' >&2; exit 1 ;;
+esac
+
 [[ "$TEST_MODE" == 1 || ${EUID:-$(id -u)} -eq 0 ]] || { echo '请使用 root/sudo 运行。' >&2; exit 1; }
 
-install_dependencies() {
-  local packages=(curl ca-certificates jq openssl tar gzip coreutils util-linux procps findutils logrotate python3 kmod)
-  if command -v apk >/dev/null 2>&1; then
-    apk add --no-cache bash "${packages[@]}" iproute2 nftables shadow openrc dcron libcap musl-utils gcompat
-  elif command -v apt-get >/dev/null 2>&1; then
-    export DEBIAN_FRONTEND=noninteractive
-    apt-get update -y
-    apt-get install -y --no-install-recommends "${packages[@]}" iproute2 nftables passwd libcap2-bin
-  elif command -v dnf >/dev/null 2>&1; then
-    dnf install -y "${packages[@]}" iproute nftables shadow-utils libcap
-  elif command -v yum >/dev/null 2>&1; then
-    yum install -y "${packages[@]}" iproute nftables shadow-utils libcap
-  elif command -v pacman >/dev/null 2>&1; then
-    pacman -Sy --noconfirm --needed "${packages[@]}" iproute2 nftables shadow libcap
-  elif command -v zypper >/dev/null 2>&1; then
-    zypper --non-interactive install "${packages[@]}" iproute2 nftables shadow libcap-progs
-  else
-    echo '不支持的包管理器。当前支持 apk、apt、dnf、yum、pacman、zypper。' >&2
-    exit 1
-  fi
-}
+install_dependencies() { dependency_install_base "$INSTALL_PROFILE"; }
 
 create_service_account() {
   [[ "$TEST_MODE" == 1 ]] && return 0
@@ -347,7 +375,7 @@ scheduler_reconcile() {
         service_enable crond || true
         service_active crond || service_start crond || log_warn '无法启动 crond；自动更新和证书续期定时任务不会运行。'
       else
-        log_warn '未发现 crond OpenRC 服务；自动更新和证书续期定时任务不会运行。'
+        log_info '未安装 dcron；已保留 periodic 任务，需自动更新/续期时运行 sb deps install scheduler。'
       fi
       ;;
   esac
@@ -377,7 +405,7 @@ if [[ "$src_real" != "$target_real" ]]; then
   fi
   find "$TARGET_LIB" -mindepth 1 -maxdepth 1 ! -name cores -exec rm -rf {} + 2>/dev/null || true
   cp -a "$SRC_DIR"/. "$TARGET_LIB"/
-  rm -rf "$TARGET_LIB/.git"
+  prune_runtime_payload
 else
   printf '      检测到从已安装目录执行，跳过自覆盖复制。\n'
 fi
@@ -390,6 +418,7 @@ ln -sfn "$TARGET_LIB/sb" "$TARGET_BIN/sb"
 
 # shellcheck source=lib/common.sh
 source "$TARGET_LIB/lib/common.sh"
+source "$TARGET_LIB/lib/dependencies.sh"
 source "$TARGET_LIB/lib/service.sh"
 source "$TARGET_LIB/lib/state.sh"
 source "$TARGET_LIB/lib/nginx_stream.sh"
@@ -425,12 +454,17 @@ BACKEND=$(init_system 2>/dev/null || true)
 printf '[3/7] 创建低权限服务用户和数据目录…\n'
 create_service_account
 state_init
-mkdir -p "$SBM_VAR/cloudflared-home" "$SBM_VAR/dashboard" "$SBM_LOG_DIR"
+mkdir -p "$SBM_VAR/dashboard" "$SBM_LOG_DIR"
+if [[ "$INSTALL_CLOUDFLARED" == 1 || -x "$SBM_CLOUDFLARED_BIN" || $(jq -r '.tunnel.mode // "none"' "$SBM_STATE") != none ]]; then
+  mkdir -p "$SBM_VAR/cloudflared-home"
+fi
 chown root:"$SBM_SERVICE_USER" "$SBM_ETC" "$SBM_GENERATED_DIR" "$SBM_CERTS" 2>/dev/null || true
 chown root:"$SBM_SERVICE_USER" "$SBM_VAR" 2>/dev/null || true
 chown root:root "$SBM_RUN" 2>/dev/null || true
-chown "$SBM_SERVICE_USER":"$SBM_SERVICE_USER" "$SBM_VAR/cloudflared-home" "$SBM_VAR/dashboard" "$SBM_LOG_DIR" 2>/dev/null || true
-chmod 0750 "$SBM_ETC" "$SBM_GENERATED_DIR" "$SBM_CERTS" "$SBM_VAR" "$SBM_VAR/cloudflared-home" "$SBM_VAR/dashboard" "$SBM_LOG_DIR"
+chown "$SBM_SERVICE_USER":"$SBM_SERVICE_USER" "$SBM_VAR/dashboard" "$SBM_LOG_DIR" 2>/dev/null || true
+[[ ! -d "$SBM_VAR/cloudflared-home" ]] || chown "$SBM_SERVICE_USER":"$SBM_SERVICE_USER" "$SBM_VAR/cloudflared-home" 2>/dev/null || true
+chmod 0750 "$SBM_ETC" "$SBM_GENERATED_DIR" "$SBM_CERTS" "$SBM_VAR" "$SBM_VAR/dashboard" "$SBM_LOG_DIR"
+[[ ! -d "$SBM_VAR/cloudflared-home" ]] || chmod 0750 "$SBM_VAR/cloudflared-home"
 chown root:"$SBM_SERVICE_USER" "$SBM_SECRETS" 2>/dev/null || true
 chmod 0710 "$SBM_SECRETS"
 chmod 0700 "$SBM_SECRETS/nodes"
@@ -456,32 +490,43 @@ ensure_program_permissions
 prepare_singbox_binary_for_backend "$sb_binary" "$BACKEND"
 ln -sfn "$sb_binary" "$SBM_SING_BOX_BIN.new"; mv -Tf "$SBM_SING_BOX_BIN.new" "$SBM_SING_BOX_BIN"
 prepare_singbox_binary_for_backend "$SBM_SING_BOX_BIN" "$BACKEND"
+core_prune_cached_versions
 
-printf '[5/7] 安装 cloudflared…\n'
-if [[ "$TEST_MODE" == 1 ]]; then
-  mkdir -p "$SBM_CORE_DIR/cloudflared/test"
-  cat >"$SBM_CORE_DIR/cloudflared/test/cloudflared" <<'EOF_CF'
+if [[ "$INSTALL_CLOUDFLARED" == 1 ]]; then
+  printf '[5/7] 安装可选 cloudflared…\n'
+  if [[ "$TEST_MODE" == 1 ]]; then
+    mkdir -p "$SBM_CORE_DIR/cloudflared/test"
+    cat >"$SBM_CORE_DIR/cloudflared/test/cloudflared" <<'EOF_CF'
 #!/usr/bin/env bash
 echo 'cloudflared version 2026.1.0'
 EOF_CF
-  chmod +x "$SBM_CORE_DIR/cloudflared/test/cloudflared"
-  cf_binary="$SBM_CORE_DIR/cloudflared/test/cloudflared"
+    chmod +x "$SBM_CORE_DIR/cloudflared/test/cloudflared"
+    cf_binary="$SBM_CORE_DIR/cloudflared/test/cloudflared"
+  else
+    cf_binary=$(cloudflared_download_latest)
+  fi
+  validate_runtime_binary_path cloudflared "$cf_binary"
+  ensure_program_permissions
+  ln -sfn "$cf_binary" "$SBM_CLOUDFLARED_BIN.new"; mv -Tf "$SBM_CLOUDFLARED_BIN.new" "$SBM_CLOUDFLARED_BIN"
+  ensure_program_permissions
+elif [[ -x "$SBM_CLOUDFLARED_BIN" ]]; then
+  printf '[5/7] 保留现有 cloudflared（可用 --with-cloudflared 更新）…\n'
+  validate_runtime_binary_path cloudflared "$SBM_CLOUDFLARED_BIN"
 else
-  cf_binary=$(cloudflared_download_latest)
+  printf '[5/7] 跳过 cloudflared（按需执行：sb cloudflared install）…\n'
 fi
-validate_runtime_binary_path cloudflared "$cf_binary"
-ensure_program_permissions
-ln -sfn "$cf_binary" "$SBM_CLOUDFLARED_BIN.new"; mv -Tf "$SBM_CLOUDFLARED_BIN.new" "$SBM_CLOUDFLARED_BIN"
-ensure_program_permissions
 
 printf '[6/7] 生成配置与 %s 服务…\n' "$BACKEND"
 render_current_config
-if [[ "$TEST_MODE" != 1 ]] && service_exists "$SBM_SERVICE"; then
+if [[ "$TEST_MODE" != 1 ]]; then
   # Stop a stale restart loop before replacing the service definition. The
   # final reconcile below restores the correct state based on enabled nodes.
   if service_exists "$SBM_NGINX_STREAM_SERVICE"; then service_stop "$SBM_NGINX_STREAM_SERVICE"; fi
-  service_stop "$SBM_SERVICE"
-  service_reset_failed "$SBM_SERVICE"
+  if service_exists "$SBM_TUNNEL_SERVICE"; then service_stop "$SBM_TUNNEL_SERVICE"; fi
+  if service_exists "$SBM_SERVICE"; then
+    service_stop "$SBM_SERVICE"
+    service_reset_failed "$SBM_SERVICE"
+  fi
 fi
 case "$BACKEND" in
   systemd) write_systemd_runtime ;;
@@ -542,15 +587,23 @@ else
   tunnel_reconcile 0 || true
   subscription_reconcile 0 || true
 fi
+if [[ -x "$SBM_CLOUDFLARED_BIN" ]] && declare -F cloudflared_prune_cached_versions >/dev/null 2>&1; then
+  cloudflared_prune_cached_versions
+fi
+prune_setup_backups
 
 printf '\n安装完成。\n'
 printf '  服务管理：%s\n' "$BACKEND"
+printf '  安装档位：%s\n' "$INSTALL_PROFILE"
 printf '  面板命令：sb\n'
 printf '  状态检查：sb status\n'
 printf '  诊断命令：sb doctor（自动修复：sb doctor --repair）\n'
 printf '  数据目录：%s\n' "$SBM_ETC"
 if ! state_runtime_required; then
   printf '  sing-box：暂无启用节点，服务保持待命；添加首个节点后会自动启动。\n'
+fi
+if [[ ! -x "$SBM_CLOUDFLARED_BIN" ]]; then
+  printf '  cloudflared：未安装（Tunnel 功能启用前执行 sb cloudflared install）。\n'
 fi
 printf '\n注意：脚本不会关闭防火墙，也不会自动开放直连协议端口。\n'
 
