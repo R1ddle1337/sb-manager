@@ -470,6 +470,7 @@ chmod 0710 "$SBM_SECRETS"
 chmod 0700 "$SBM_SECRETS/nodes"
 
 printf '[4/7] 安装 sing-box 核心…\n'
+current_core_version=$(core_current_version || true)
 if [[ "$TEST_MODE" == 1 ]]; then
   test_version_output=$(${SBM_TEST_SING_BOX:?} version)
   test_version=$(extract_semver "$test_version_output") || die '无法识别测试 sing-box 核心版本。'
@@ -482,6 +483,10 @@ if [[ "$TEST_MODE" == 1 ]]; then
 else
   if [[ "$CORE_VERSION" == latest ]]; then
     CORE_VERSION=$(core_latest_version) || die '无法查询 sing-box 最新官方版本。'
+    if [[ -n "$current_core_version" && "$current_core_version" != "$CORE_VERSION" ]] && version_ge "$current_core_version" "$CORE_VERSION"; then
+      log_warn "解析到的目标核心 $CORE_VERSION 不高于当前 $current_core_version，保留现有核心以避免意外降级。"
+      CORE_VERSION=$current_core_version
+    fi
   fi
   sb_binary=$(core_download_version "$CORE_VERSION")
 fi

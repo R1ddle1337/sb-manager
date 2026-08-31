@@ -6,7 +6,7 @@ SBM_LIB="${SBM_LIB:-${SBM_PREFIX}/lib/sb-manager}"
 SBM_BIN_DIR="${SBM_BIN_DIR:-${SBM_PREFIX}/bin}"
 if [[ -z ${SBM_VERSION:-} ]]; then
   if [[ -r "$SBM_LIB/VERSION" ]]; then SBM_VERSION=$(tr -d '[:space:]' <"$SBM_LIB/VERSION" 2>/dev/null || true); fi
-SBM_VERSION=${SBM_VERSION:-0.1.0-alpha.28}
+SBM_VERSION=${SBM_VERSION:-0.1.0-alpha.29}
 fi
 SBM_ETC="${SBM_ETC:-/etc/sb-manager}"
 SBM_VAR="${SBM_VAR:-/var/lib/sb-manager}"
@@ -66,6 +66,9 @@ SBM_HEALTH_SERVICE="${SBM_HEALTH_SERVICE:-sb-health-check.service}"
 SBM_CORE_RETENTION="${SBM_CORE_RETENTION:-2}"
 SBM_CLOUDFLARED_RETENTION="${SBM_CLOUDFLARED_RETENTION:-1}"
 SBM_PROGRAM_BACKUP_RETENTION="${SBM_PROGRAM_BACKUP_RETENTION:-2}"
+# Used only when GitHub's Release API cannot be queried.  Normal installs and
+# updates still resolve the newest non-draft Release dynamically.
+SBM_CORE_FALLBACK_VERSION="${SBM_CORE_FALLBACK_VERSION:-1.14.0-rc.4}"
 
 if [[ -t 1 && "${NO_COLOR:-}" == "" ]]; then
   C_RESET=$'\033[0m'; C_BOLD=$'\033[1m'; C_RED=$'\033[31m'; C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'; C_BLUE=$'\033[34m'; C_CYAN=$'\033[36m'
@@ -291,7 +294,24 @@ set_group_if_exists() {
   if group_exists "$group"; then chgrp "$group" "$path" 2>/dev/null || true; fi
 }
 
-version_lt() { [[ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | sed -n '1p')" != "$2" && "$1" != "$2" ]]; }
+version_sort_key() {
+  local version=${1#v}
+  # sort -V places 1.14.0 before 1.14.0-rc.4.  Append a high prerelease
+  # marker to final versions so comparisons follow semver (final > rc/beta).
+  if [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    printf '%s-zzzz\n' "$version"
+  else
+    printf '%s\n' "$version"
+  fi
+}
+version_lt() {
+  local first second first_key second_key
+  first=$1; second=$2
+  first_key=$(version_sort_key "$first")
+  second_key=$(version_sort_key "$second")
+  [[ "$first_key" != "$second_key" ]] || return 1
+  [[ "$(printf '%s\n%s\n' "$first_key" "$second_key" | sort -V | sed -n '1p')" == "$first_key" ]]
+}
 version_ge() { ! version_lt "$1" "$2"; }
 
 confirm() {

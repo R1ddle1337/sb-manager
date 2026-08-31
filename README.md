@@ -2,7 +2,7 @@
 
 `sb-manager` 是一个面向 systemd/OpenRC Linux 的、状态驱动的 sing-box 多协议管理脚本。安装后输入 `sb` 即可打开中文交互面板，也可以使用完整的非交互 CLI。
 
-> 当前版本：`0.1.0-alpha.28`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
+> 当前版本：`0.1.0-alpha.29`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
 
 ## 功能
 
@@ -15,7 +15,7 @@
 - 可选 Nginx Stream SNI 透传，让多个 TLS/TCP 协议共享一个公网端口
 - acme.sh + Cloudflare DNS-01 证书申请、部署与续期
 - sing-box 核心检查、自动更新策略、版本切换与回滚
-- 默认安装和 `sb core update` 自动解析 GitHub 最新 sing-box Release；需要复现时仍可用 `--core-version VERSION` 固定版本
+- 默认安装和 `sb core update` 自动解析 GitHub 最新 sing-box Release（API 暂不可用时使用已校验 fallback）；需要复现时仍可用 `--core-version VERSION` 固定版本
 - Hysteria2 官方 UDP 缓冲区优化的一键开启、状态查看和恢复
 - Cloudflare Tunnel 按需安装与独立更新（默认不下载 cloudflared）
 - 节点添加、编辑、启停、删除和凭据轮换
@@ -122,7 +122,7 @@ apk add --no-cache bash curl ca-certificates
 bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/install.sh)
 ```
 
-安装器默认使用 `minimal` 依赖档位：只补齐管理器和 sing-box 所需的 Bash、curl、证书、jq、OpenSSL、基础文本工具，以及 Alpine 运行官方 glibc ABI 核心所需的 `gcompat`。OpenRC 低端口能力使用轻量的 `libcap-utils`；不会默认下载 Cloudflared，也不会预装 Python、nftables、kmod、dcron 或 Nginx。
+安装器默认使用 `minimal` 依赖档位：只补齐管理器和 sing-box 所需的 Bash、curl、证书、jq、OpenSSL、基础文本工具，以及 Alpine 运行官方 glibc ABI 核心所需的 `gcompat`。sing-box 版本默认实时解析 GitHub 最新的非 draft Release，不在安装器里固定版本；只有 Release API 不可用时才回退到内置、已校验的 `1.14.0-rc.4`。OpenRC 低端口能力使用轻量的 `libcap-utils`；不会默认下载 Cloudflared，也不会预装 Python、nftables、kmod、dcron 或 Nginx。
 
 Cloudflare Tunnel 和高级功能都是按需安装：
 
@@ -173,7 +173,7 @@ sudo bash install.sh
 bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/install.sh)
 ```
 
-`install.sh` 默认先解析 `main` 的最新 commit SHA，再按该不可变 commit 下载源码；也可设置 `SBM_INSTALL_REF=v0.1.0-alpha.28` 固定版本。显式指定 `main` 等可变分支仍需 `SBM_ALLOW_MUTABLE_REF=1`。离线发布包可使用 `build-release.sh` 生成，并核验 `SHA256SUMS`、`PROVENANCE-SHA256SUMS` 及可选的 GPG 签名文件。
+`install.sh` 默认先解析 `main` 的最新 commit SHA，再按该不可变 commit 下载源码；也可设置 `SBM_INSTALL_REF=v0.1.0-alpha.29` 固定版本。显式指定 `main` 等可变分支仍需 `SBM_ALLOW_MUTABLE_REF=1`。离线发布包可使用 `build-release.sh` 生成，并核验 `SHA256SUMS`、`PROVENANCE-SHA256SUMS` 及可选的 GPG 签名文件。
 
 安装完成后：
 
@@ -187,8 +187,8 @@ sb
 # 安装后不自动打开菜单
 bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/install.sh) --no-menu
 
-# 安装指定 sing-box 稳定版本
-bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/install.sh) --core-version 1.14.0-rc.2
+# 安装指定 sing-box 版本
+bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/install.sh) --core-version 1.14.0-rc.4
 ```
 
 也可以克隆源码后安装：
@@ -286,7 +286,7 @@ sb traffic set hk-01 --quota 100G --dry-run
 Snell 需要 sing-box `1.14.0-rc.1` 或更高版本核心。新建节点默认使用 Snell v6（traffic shaping），可选 `default`、`unshaped` 或 `unsafe-raw`；v6 需要 `1.14.0-rc.2` 或更高版本。Snell v5 仍可用于兼容旧客户端，服务端使用 v5、客户端 outbound 使用兼容的 v4，并可按需设置 `--obfs http --obfs-host example.com`。v6 不支持 HTTP obfs。
 
 ```bash
-sb core update 1.14.0-rc.2
+sb core update 1.14.0-rc.4
 sb node add snell --id snell-main --address YOUR_SERVER_IP --port 6160 --snell-version 6 --snell-mode default
 sb share snell-main
 ```
@@ -602,6 +602,7 @@ bash tests/systemd-exec-smoke.sh
 bash tests/openrc-lifecycle.sh
 bash tests/openrc-nginx-stream-smoke.sh
 SBM_TEST_SING_BOX=/path/to/sing-box bash tests/minimal-install-smoke.sh
+SBM_TEST_SING_BOX=/path/to/sing-box bash tests/core-latest-fallback-smoke.sh
 # 在 Alpine 3.21-3.24 的一次性 VM/容器中以 root 运行：
 bash tests/alpine-nginx-stream-smoke.sh
 ```
@@ -610,7 +611,7 @@ bash tests/alpine-nginx-stream-smoke.sh
 
 ```bash
 SBM_TEST_SING_BOX_STABLE=/opt/sing-box-1.13.19/sing-box \
-SBM_TEST_SING_BOX_PREVIEW=/opt/sing-box-1.14.0-rc.2/sing-box \
+SBM_TEST_SING_BOX_PREVIEW=/opt/sing-box-1.14.0-rc.4/sing-box \
 bash tests/remote-debian13-suite.sh
 ```
 

@@ -5,7 +5,7 @@ set -Eeuo pipefail
 # outside the checkout so install-smoke cannot copy large test assets.
 PROJECT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 STABLE=${SBM_TEST_SING_BOX_STABLE:?Set SBM_TEST_SING_BOX_STABLE to official 1.13.19}
-PREVIEW=${SBM_TEST_SING_BOX_PREVIEW:?Set SBM_TEST_SING_BOX_PREVIEW to official 1.14.0-rc.2}
+PREVIEW=${SBM_TEST_SING_BOX_PREVIEW:?Set SBM_TEST_SING_BOX_PREVIEW to official 1.14.0-rc.4}
 
 run_stable() {
   local test=$1
@@ -35,6 +35,7 @@ for test in \
   tests/subscription-systemd-smoke.sh \
   tests/backup-age-smoke.sh \
   tests/core-paired-rollback-smoke.sh \
+  tests/core-latest-fallback-smoke.sh \
   tests/recovery-smoke.sh \
   tests/doctor-smoke.sh \
   tests/service-lifecycle.sh \

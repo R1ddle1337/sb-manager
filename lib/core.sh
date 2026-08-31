@@ -78,12 +78,53 @@ core_release_json() {
   else github_api "https://api.github.com/repos/SagerNet/sing-box/releases/tags/v${version#v}"; fi
 }
 
-core_latest_version() {
+core_fallback_version() {
+  local version=${SBM_CORE_FALLBACK_VERSION:-1.14.0-rc.4}
+  version=${version#v}
+  [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$ ]] || die "无效的 sing-box fallback 版本：$version"
+  printf '%s\n' "$version"
+}
+
+core_latest_version_strict() {
   local json tag
   json=$(github_api 'https://api.github.com/repos/SagerNet/sing-box/releases?per_page=20') || return 1
   tag=$(jq -r 'map(select(.draft == false)) | first.tag_name // empty' <<<"$json")
-  [[ -n "$tag" ]] || return 1
-  printf '%s\n' "${tag#v}"
+  tag=${tag#v}
+  [[ "$tag" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$ ]] || return 1
+  printf '%s\n' "$tag"
+}
+
+core_latest_version() {
+  local latest
+  if latest=$(core_latest_version_strict); then
+    printf '%s\n' "$latest"
+    return 0
+  fi
+  latest=$(core_fallback_version)
+  log_warn "无法获取 sing-box 最新 Release，回退到 $latest；如需确认最新版本，请稍后运行 sb core check。"
+  printf '%s\n' "$latest"
+}
+
+core_fallback_asset_digest() {
+  local version=${1#v} arch=$2
+  [[ "$version" == "$(core_fallback_version)" ]] || return 1
+  case "$arch" in
+    amd64) printf '%s\n' 'sha256:3d745827f1e7e2b6caf5788e2f94b7957ecea0b7a68f27e52ef90fdb9be6b4f8' ;;
+    arm64) printf '%s\n' 'sha256:6ec92b22359c1eed7aa36e3dd5f9d2fce9796b56838744840953b8bdb79a8b45' ;;
+    armv7) printf '%s\n' 'sha256:f6a774118c6c6eda00a84303f1ce8b0e773a44d624576aa9735ea842a85f3c81' ;;
+    386) printf '%s\n' 'sha256:68f5829ee7b372976bb9adb999b72023d477d1921ed8178dc86899e746e7c5d8' ;;
+    *) return 1 ;;
+  esac
+}
+
+core_fallback_release_json() {
+  local version=$1 arch=$2 asset_name digest
+  digest=$(core_fallback_asset_digest "$version" "$arch") || return 1
+  asset_name="sing-box-${version#v}-linux-${arch}.tar.gz"
+  jq -n --arg tag "v${version#v}" --arg name "$asset_name" \
+    --arg url "https://github.com/SagerNet/sing-box/releases/download/v${version#v}/$asset_name" \
+    --arg digest "$digest" \
+    '{tag_name:$tag,assets:[{name:$name,browser_download_url:$url,digest:$digest}]}'
 }
 core_current_version() {
   local output
@@ -196,7 +237,17 @@ core_prune_cached_versions() {
 core_download_version() {
   local version=$1 arch json asset_name asset_url digest checksum_url tmpdir archive target expected found found_dir
   arch=$(sb_arch)
-  json=$(core_release_json "$version") || die "无法获取 sing-box Release 信息。"
+  if [[ "$version" == latest ]]; then
+    version=$(core_latest_version)
+  fi
+  if ! json=$(core_release_json "$version") || ! jq -e 'type == "object" and (.assets | type == "array")' <<<"$json" >/dev/null 2>&1; then
+    if [[ "$version" == "$(core_fallback_version)" ]]; then
+      log_warn "无法获取 sing-box $version 的 Release API 详情，使用内置且已校验的资产信息。"
+      json=$(core_fallback_release_json "$version" "$arch") || die "内置 sing-box fallback 不支持架构：$arch"
+    else
+      die "无法获取 sing-box $version Release 信息。"
+    fi
+  fi
   version=$(jq -r '.tag_name // empty' <<<"$json" | sed 's/^v//')
   [[ -n "$version" ]] || die "sing-box Release 信息缺少版本号。"
   asset_name="sing-box-${version}-linux-${arch}.tar.gz"
@@ -295,12 +346,17 @@ core_switch_to() {
 
 _core_update() {
   local version=${1:-latest} latest current
+  local requested=$version
   if [[ "$version" == latest ]]; then
     latest=$(core_latest_version) || die "无法查询 sing-box 最新官方版本。"
   else
     latest=${version#v}
   fi
   current=$(core_current_version || true)
+  if [[ "$requested" == latest && -n "$current" && "$current" != "$latest" ]] && version_ge "$current" "$latest"; then
+    log_warn "解析到的目标核心 $latest 不高于当前 $current，跳过可能的降级（可能是 Release API 暂时不可用）。"
+    return 0
+  fi
   if [[ "$current" == "$latest" ]]; then log_ok "sing-box 已是目标版本 $latest。"; return 0; fi
   core_download_version "$latest" >/dev/null
   core_switch_to "$latest"
@@ -312,6 +368,10 @@ core_check_update() {
   current=$(core_current_version || true)
   latest=$(core_latest_version) || die "无法查询 sing-box 最新官方版本。"
   printf '当前版本：%s\n最新官方版本：%s\n' "${current:-未安装}" "$latest"
+  if [[ -n "$current" && "$current" != "$latest" ]] && version_ge "$current" "$latest"; then
+    log_warn "当前核心 $current 不低于目标 $latest，跳过可能的降级。"
+    return 0
+  fi
   [[ "$current" == "$latest" ]] || return 10
 }
 
@@ -368,7 +428,7 @@ core_auto_update() {
   policy=$(jq -r '.settings.core_update_policy // "notify"' "$SBM_STATE")
   [[ "$policy" != manual ]] || return 0
   current=$(core_current_version || true)
-  latest=$(core_latest_version) || { log_warn "无法查询 sing-box 最新官方版本。"; return 1; }
+  latest=$(core_latest_version_strict) || { log_warn "无法查询 sing-box 最新官方版本，本次自动更新已跳过。"; return 1; }
   [[ "$current" != "$latest" ]] || return 0
   mkdir -p "$SBM_VAR/updates"
   jq -n --arg now "$(now_iso)" --arg current "$current" --arg latest "$latest" --arg policy "$policy" '{checked_at:$now,current:$current,latest:$latest,policy:$policy}' >"$SBM_VAR/updates/sing-box.json"

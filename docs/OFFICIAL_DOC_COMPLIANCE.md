@@ -2,7 +2,7 @@
 
 ## Reference Set
 
-Development uses the supplied `sing-box-official-docs-cn-2026-08-27.zip`. Its complete `sing-box-official-docs-cn/` extraction contains 89 files; all 88 files listed by `MANIFEST.md` pass SHA-256 verification. The primary tested runtime baseline is `1.14.0-rc.2`; 1.13-compatible output remains covered by the compatibility suite.
+Development uses the supplied `sing-box-official-docs-cn-2026-08-27.zip`. Its complete `sing-box-official-docs-cn/` extraction contains 89 files; all 88 files listed by `MANIFEST.md` pass SHA-256 verification. The primary tested runtime baseline is `1.14.0-rc.4`; 1.13-compatible output remains covered by the compatibility suite.
 
 Every generated server configuration includes the official `$schema` URL and must pass `sing-box check` using the target binary. A documented type is enabled only when its required version, build tag, companion library, operating system, and permissions are present.
 

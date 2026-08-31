@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Resolve the default sing-box version from the newest non-draft GitHub
+  Release at install/update time; use the verified `1.14.0-rc.4` asset map
+  only when the Release API is unavailable.
 - Make Alpine installation default to a disk-friendly `minimal` dependency
   profile; defer Python, nftables, kmod, dcron, Nginx, and other optional
   components until the corresponding feature is used.

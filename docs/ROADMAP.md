@@ -2,7 +2,7 @@
 
 ## Goal and Standards Baseline
 
-The project will evolve from an alpha protocol installer into a dependable, state-driven sing-box server manager. The primary tested baseline is sing-box `1.14.0-rc.2`; 1.13-compatible configurations remain supported where the core permits. Configuration fields must follow the official sing-box documentation and JSON Schema, and every rendered configuration must pass the target core's `sing-box check`.
+The project will evolve from an alpha protocol installer into a dependable, state-driven sing-box server manager. The primary tested baseline is sing-box `1.14.0-rc.4`; 1.13-compatible configurations remain supported where the core permits. Configuration fields must follow the official sing-box documentation and JSON Schema, and every rendered configuration must pass the target core's `sing-box check`.
 
 Opaque generated patches are not accepted as source changes. Work must be reviewable as normal commits, preserve least-privilege services, and keep `state.json` plus protected credentials as the source of truth.
 

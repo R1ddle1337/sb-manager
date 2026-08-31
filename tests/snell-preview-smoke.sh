@@ -39,9 +39,6 @@ jq -e '.inbounds[]|select(.tag=="in-snell-test")|.type=="snell" and .version==5 
 jq -e '.inbounds[]|select(.tag=="in-snell-http-test")|.obfs_mode=="http" and (.obfs_host|not)' "$SBM_CONFIG" >/dev/null
 jq -e '.inbounds[]|select(.tag=="in-snell-v6-test")|(.version==6 and .mode=="unsafe-raw" and (.obfs_mode|not))' "$SBM_CONFIG" >/dev/null
 "$SBM_SING_BOX_BIN" check -c "$SBM_CONFIG"
-node_set snell-v6-test --snell-version 6 --snell-mode default
-[[ $(jq -r '.nodes[]|select(.id=="snell-v6-test")|.snell_mode' "$SBM_STATE") == default ]]
-"$SBM_SING_BOX_BIN" check -c "$SBM_CONFIG"
 "$SBM_SING_BOX_BIN" run -c "$SBM_CONFIG" >"$ROOT/runtime.log" 2>&1 &
 runtime_pid=$!
 for _ in {1..50}; do
@@ -68,6 +65,9 @@ node_client_outbound snell-v6-test | jq -e '.type=="snell" and .version==6 and .
 ob=$(node_client_outbound snell-v6-test)
 jq -n --argjson ob "$ob" --argjson port 20899 '{log:{level:"error"},inbounds:[{type:"mixed",listen:"127.0.0.1",listen_port:$port}],outbounds:[$ob],route:{final:$ob.tag}}' >"$ROOT/client-v6.json"
 "$SBM_SING_BOX_BIN" check -c "$ROOT/client-v6.json"
+node_set snell-v6-test --snell-version 6 --snell-mode default
+[[ $(jq -r '.nodes[]|select(.id=="snell-v6-test")|.snell_mode' "$SBM_STATE") == default ]]
+"$SBM_SING_BOX_BIN" check -c "$SBM_CONFIG"
 node_user_add snell-test alice 'Alice Snell'
 [[ $(jq '.nodes[]|select(.id=="snell-test")|.users|length' "$SBM_STATE") == 2 ]]
 node_rotate snell-test alice

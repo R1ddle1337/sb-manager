@@ -56,7 +56,7 @@ jq -n --argjson ob "$client_ob" \
 core_schema "$ROOT/schema.json"
 jq -e '.properties.inbounds and .properties.outbounds' "$ROOT/schema.json" >/dev/null
 core_capabilities 1 >"$ROOT/capabilities.json"
-jq -e '.version=="1.14.0-rc.2" and .features.quic==true and .features.openvpn==true and .features.openconnect==true' "$ROOT/capabilities.json" >/dev/null
+jq -e '.version=="1.14.0-rc.4" and .features.quic==true and .features.openvpn==true and .features.openconnect==true' "$ROOT/capabilities.json" >/dev/null
 export_client_config "$ROOT/tun-dns.json" tun hijack 192.0.2.53
 jq -e '.inbounds[0].dns_mode=="hijack" and .inbounds[0].dns_address==["192.0.2.53"]' "$ROOT/tun-dns.json" >/dev/null
 printf 'HYSTERIA 1.14 PREVIEW SMOKE PASSED\n'
