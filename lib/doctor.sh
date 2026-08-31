@@ -215,11 +215,11 @@ doctor_network_probe() {
 doctor_probe() {
   local id=${1:-} node failures=0 warnings=0
   [[ -n "$id" ]] || die '用法：sb probe NODE_ID'
+  node=$(state_get_node "$id")
+  [[ -n "$node" ]] || die "节点不存在：$id"
   if ! command_exists ss && declare -F dependency_require_feature >/dev/null 2>&1; then
     dependency_require_feature probe || die '节点探测需要 iproute2/ss；请运行 sb deps install probe。'
   fi
-  node=$(state_get_node "$id")
-  [[ -n "$node" ]] || die "节点不存在：$id"
   printf '%s\n' "---- 节点探测：$id ----"
   doctor_network_probe "$node"
   printf '结果：%s 个失败，%s 个警告。\n' "$failures" "$warnings"
