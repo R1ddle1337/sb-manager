@@ -433,6 +433,8 @@ sb core policy manual
 sb core policy notify
 sb core policy patch
 sb core policy stable
+sb core channel stable
+sb core channel preview
 
 sb cloudflared status
 sb cloudflared install      # 按需下载 Cloudflare Tunnel

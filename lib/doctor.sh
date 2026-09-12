@@ -154,7 +154,7 @@ doctor_service_failure_detail() {
 }
 
 doctor_network_probe() {
-  local node=$1 id protocol address port domain kind mux_route
+  local node=$1 id protocol address port domain kind mux_route tls_probe=0 tcp_probe=1
   id=$(jq -r '.id' <<<"$node")
   protocol=$(jq -r '.protocol' <<<"$node")
   mux_route=''
@@ -199,9 +199,12 @@ doctor_network_probe() {
       failures=$((failures + 1))
     fi
   done < <(node_transport_kinds "$node")
-  if [[ "$protocol" == anytls ]]; then
+  case "$protocol" in anytls|trojan|vless|naive|shadowtls) tls_probe=1;; esac
+  if [[ "$protocol" == naive && "$(jq -r '.network // "tcp"' <<<"$node")" == udp ]]; then tcp_probe=0; fi
+  if (( tls_probe )); then
     domain=$(jq -r '.domain // ""' <<<"$node")
-    if command_exists openssl && [[ -n "$domain" && "$kind" != udp ]]; then
+    [[ "$protocol" == shadowtls ]] && domain=$(jq -r '.handshake_server // ""' <<<"$node")
+    if command_exists openssl && [[ -n "$domain" && "$tcp_probe" == 1 ]]; then
       if timeout 8 openssl s_client -connect "$(format_hostport "$address" "$port")" -servername "$domain" -brief </dev/null >/dev/null 2>&1; then
         check_line PASS "$id TLS 握手成功（本机出口视角）"
       else

@@ -253,8 +253,19 @@ safe_install_file() {
   local src=$1 dst=$2 mode=${3:-0644}
   mkdir -p "$(dirname "$dst")"
   local tmp="${dst}.tmp.$$"
-  install -m "$mode" "$src" "$tmp"
-  mv -f "$tmp" "$dst"
+  must_install -m "$mode" "$src" "$tmp" || { rm -f "$tmp"; return 1; }
+  must_mv -f "$tmp" "$dst" || { rm -f "$tmp"; return 1; }
+}
+
+# Critical filesystem operations must propagate failures explicitly.  Many
+# callers intentionally invoke mutating functions from conditional contexts
+# (for rollback), which disables Bash errexit inside those functions.
+must_install() { install "$@" || { log_error "文件安装失败：$*"; return 1; }; }
+must_mv() { mv "$@" || { log_error "文件替换失败：$*"; return 1; }; }
+must_cp() { cp "$@" || { log_error "文件复制失败：$*"; return 1; }; }
+must_write() {
+  local target=$1; shift
+  cat >"$target" || { log_error "文件写入失败：$target"; return 1; };
 }
 
 group_exists() {

@@ -367,7 +367,7 @@ state_validate() {
       and (.dns_optimistic | type == "boolean")
       and (.dns_optimistic_timeout | type == "string" and test("^[0-9]+(ms|s|m|h|d)$"))
       and (.dns_timeout | type == "string" and test("^[0-9]+(ms|s|m|h|d)$"))
-      and (.core_channel | nonempty)
+      and (.core_channel | IN("stable", "preview"))
       and (.core_update_policy | IN("manual", "notify", "patch", "stable"))
       and (.cloudflared_update_policy | nonempty))
     and (.tunnel | type == "object"
@@ -507,9 +507,9 @@ state_write_user_secret() {
   dir=$(state_user_secret_dir "$node_id"); path=$(state_user_secret_path "$node_id" "$user_id")
   mkdir -p "$dir"; chmod 0700 "$dir"
   tmp=$(mktemp "$dir/.${user_id}.XXXXXX")
-  printf '%s\n' "$json" | jq . >"$tmp"
-  chmod 0600 "$tmp"
-  mv -f "$tmp" "$path"
+  if ! printf '%s\n' "$json" | jq . >"$tmp"; then rm -f "$tmp"; return 1; fi
+  chmod 0600 "$tmp" || { rm -f "$tmp"; return 1; }
+  must_mv -f "$tmp" "$path" || { rm -f "$tmp"; return 1; }
 }
 state_get_user() { jq -c --arg nid "$1" --arg uid "$2" '.nodes[]? | select(.id==$nid) | .users[]? | select(.id==$uid)' "$SBM_STATE"; }
 state_user_exists() { [[ -n $(state_get_user "$1" "$2") ]]; }
@@ -517,9 +517,9 @@ state_write_secret() {
   local id=$1 json=$2 path tmp
   path=$(state_secret_path "$id")
   tmp=$(mktemp "$SBM_SECRETS/nodes/.${id}.XXXXXX")
-  printf '%s\n' "$json" | jq . >"$tmp"
-  chmod 0600 "$tmp"
-  mv "$tmp" "$path"
+  if ! printf '%s\n' "$json" | jq . >"$tmp"; then rm -f "$tmp"; return 1; fi
+  chmod 0600 "$tmp" || { rm -f "$tmp"; return 1; }
+  must_mv "$tmp" "$path" || { rm -f "$tmp"; return 1; }
 }
 
 state_unique_id() {
@@ -532,8 +532,12 @@ state_unique_id() {
 state_update_timestamp() {
   local file=$1 tmp
   tmp=$(mktemp "$SBM_RUN/state.ts.XXXXXX")
-  jq --arg now "$(now_iso)" --arg v "$SBM_VERSION" '.updated_at=$now | .manager_version=$v' "$file" >"$tmp"
-  mv "$tmp" "$file"
+  if ! jq --arg now "$(now_iso)" --arg v "$SBM_VERSION" '.updated_at=$now | .manager_version=$v' "$file" >"$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  chmod 0600 "$tmp" || { rm -f "$tmp"; return 1; }
+  must_mv "$tmp" "$file" || { rm -f "$tmp"; return 1; }
 }
 
 snapshot_create() {
@@ -671,11 +675,15 @@ state_install_candidate() {
   if [[ "$SBM_SKIP_INIT" != "1" ]] && declare -F traffic_checkpoint_unlocked >/dev/null 2>&1; then
     traffic_checkpoint_unlocked || return 1
   fi
-  install -m 0600 "$candidate" "$state_tmp"
-  install -m 0640 "$config" "$config_tmp"
-  set_group_if_exists "$SBM_SERVICE_USER" "$config_tmp"
-  mv -f "$state_tmp" "$SBM_STATE"
-  mv -f "$config_tmp" "$SBM_CONFIG"
+  must_install -m 0600 "$candidate" "$state_tmp" || { rm -f "$state_tmp" "$config_tmp"; return 1; }
+  must_install -m 0640 "$config" "$config_tmp" || { rm -f "$state_tmp" "$config_tmp"; return 1; }
+  set_group_if_exists "$SBM_SERVICE_USER" "$config_tmp" || { rm -f "$state_tmp" "$config_tmp"; return 1; }
+  must_mv -f "$state_tmp" "$SBM_STATE" || { rm -f "$state_tmp" "$config_tmp"; return 1; }
+  must_mv -f "$config_tmp" "$SBM_CONFIG" || {
+    rm -f "$config_tmp"
+    snapshot_restore "$backup" || true
+    return 1
+  }
 
   if [[ "$SBM_SKIP_INIT" != "1" ]] && service_exists "$SBM_SERVICE"; then
     if ! singbox_service_reconcile; then

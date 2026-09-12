@@ -307,8 +307,8 @@ _node_add() {
     node=$(jq --arg source "$address_source" '.server_address_source=$source' <<<"$node")
   fi
   user_secret_path=$(state_user_secret_path "$id" default)
-  state_write_user_secret "$id" default "$secret"
-  [[ -z "$node_secret" ]] || state_write_secret "$id" "$node_secret"
+  state_write_user_secret "$id" default "$secret" || return 1
+  [[ -z "$node_secret" ]] || state_write_secret "$id" "$node_secret" || return 1
   candidate=$(state_candidate)
   jq --argjson node "$node" '.nodes += [$node]' "$SBM_STATE" >"$candidate"
   if ! apply_candidate_state "$candidate" "add-$id"; then rm -f "$candidate" "$user_secret_path"; return 1; fi
@@ -388,7 +388,7 @@ _node_rotate() {
     shadowtls) new=$(jq -n --arg password "$(random_password 24)" '{password:$password}') ;;
     snell) new=$(jq -n --arg userkey "$(random_password 24)" '{userkey:$userkey}') ;;
   esac
-  state_write_user_secret "$id" "$user_id" "$new"
+  state_write_user_secret "$id" "$user_id" "$new" || return 1
   candidate=$(state_candidate); cp "$SBM_STATE" "$candidate"
   if ! apply_candidate_state "$candidate" "rotate-$id"; then cp -a "$backup" "$path"; rm -f "$candidate" "$backup"; return 1; fi
   rm -f "$candidate" "$backup"
@@ -494,7 +494,7 @@ _node_user_add() {
   node=$(state_get_node "$node_id"); [[ -n "$node" ]] || die "节点不存在：$node_id"
   state_user_exists "$node_id" "$user_id" && die "用户已存在：$node_id/$user_id"
   secret=$(node_user_generate_secret "$node" "$user_id")
-  state_write_user_secret "$node_id" "$user_id" "$secret"
+  state_write_user_secret "$node_id" "$user_id" "$secret" || return 1
   candidate=$(state_candidate)
   jq --arg nid "$node_id" --arg uid "$user_id" --arg name "$name" --arg now "$(now_iso)" '
     (.nodes[] | select(.id==$nid) | .users) += [{id:$uid,name:$name,enabled:true,created_at:$now}]
@@ -502,7 +502,7 @@ _node_user_add() {
   protocol=$(jq -r '.protocol' <<<"$node")
   if [[ "$protocol" == shadowsocks && $(jq -r '.credential_mode // "legacy"' <<<"$node") == legacy ]]; then
     node_secret=$(jq -n --arg server_password "$(ss2022_key "$(jq -r '.method' <<<"$node")")" '{server_password:$server_password}')
-    state_write_secret "$node_id" "$node_secret"
+    state_write_secret "$node_id" "$node_secret" || return 1
     jq --arg nid "$node_id" '(.nodes[] | select(.id==$nid) | .credential_mode)="multi"' "$candidate" >"$candidate.tmp"
     mv "$candidate.tmp" "$candidate"
     log_warn "Shadowsocks 节点已切换到 2022 多用户模式；原单用户分享链接需要重新导出。"

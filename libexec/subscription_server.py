@@ -4,8 +4,9 @@
 import argparse
 import hashlib
 import json
-import os
 import re
+import socket
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -15,6 +16,8 @@ TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{32,128}$")
 
 class Handler(BaseHTTPRequestHandler):
     root: Path
+    # Bound request line/header processing and idle keep-alive sockets.
+    timeout = 10
 
     def log_message(self, fmt: str, *args: object) -> None:
         # Never log request paths because they contain bearer tokens.
@@ -27,6 +30,9 @@ class Handler(BaseHTTPRequestHandler):
         self._serve(True)
 
     def _serve(self, include_body: bool) -> None:
+        if len(self.path) > 512:
+            self.send_error(414)
+            return
         prefix = "/sub/"
         if not self.path.startswith(prefix):
             self.send_error(404)
@@ -60,6 +66,31 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(data)
 
 
+class LimitedThreadingHTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
+    request_queue_size = 32
+
+    def __init__(self, *args: object, max_workers: int = 32, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)
+        self._slots = threading.BoundedSemaphore(max_workers)
+
+    def process_request(self, request: socket.socket, client_address: object) -> None:
+        if not self._slots.acquire(blocking=False):
+            request.close()
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self._slots.release()
+            raise
+
+    def process_request_thread(self, request: socket.socket, client_address: object) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._slots.release()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True)
@@ -69,7 +100,8 @@ def main() -> None:
     if args.listen not in {"127.0.0.1", "::1"}:
         raise SystemExit("subscription server may only bind loopback")
     Handler.root = Path(args.root).resolve(strict=True)
-    server = ThreadingHTTPServer((args.listen, args.port), Handler)
+    server = LimitedThreadingHTTPServer((args.listen, args.port), Handler)
+    server.timeout = 10
     server.serve_forever()
 
 

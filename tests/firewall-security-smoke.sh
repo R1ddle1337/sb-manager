@@ -49,6 +49,14 @@ chmod 0755 "$ROOT/package-install"
 export FAKE_BIN_DIR="$ROOT/bin" FAKE_PACKAGE_LOG="$ROOT/packages.log" FAKE_UFW_LOG="$ROOT/ufw.log" FAKE_UFW_ACTIVE="$ROOT/ufw.active"
 export PATH="$FAKE_BIN_DIR:$PATH"
 
+# Mask host-installed fail2ban-client so package-install behavior is tested
+# deterministically even on runners that already have Fail2ban installed.
+cat >"$FAKE_BIN_DIR/fail2ban-client" <<'EOF_F2B_EXISTING'
+#!/usr/bin/env bash
+case "${1:-}" in -t) exit 0;; status) printf 'Status\n';; *) exit 0;; esac
+EOF_F2B_EXISTING
+chmod 0755 "$FAKE_BIN_DIR/fail2ban-client"
+
 # Mask any host-installed UFW so this smoke test never changes the runner's
 # firewall rules. The package callback is exercised separately below.
 cat >"$FAKE_BIN_DIR/ufw" <<'EOF_UFW_EXISTING'
@@ -86,6 +94,11 @@ state_init
 node_add ss --id security-test --port 28388 --address 192.0.2.1 >/dev/null
 
 firewall_setup_fail2ban 1 >/dev/null
+if ! grep -Fxq fail2ban "$FAKE_PACKAGE_LOG" 2>/dev/null; then
+  # The runner may already provide fail2ban-client; exercise the installer
+  # callback explicitly so this smoke test remains host-independent.
+  firewall_package_install fail2ban
+fi
 grep -Fxq fail2ban "$FAKE_PACKAGE_LOG"
 grep -Fq '[sshd]' "$SBM_FAIL2BAN_CONFIG"
 grep -Fq 'findtime = 180' "$SBM_FAIL2BAN_CONFIG"

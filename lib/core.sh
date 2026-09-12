@@ -86,9 +86,13 @@ core_fallback_version() {
 }
 
 core_latest_version_strict() {
-  local json tag
+  local channel=${1:-stable} json tag
   json=$(github_api 'https://api.github.com/repos/SagerNet/sing-box/releases?per_page=20') || return 1
-  tag=$(jq -r 'map(select(.draft == false)) | first.tag_name // empty' <<<"$json")
+  case "$channel" in
+    stable) tag=$(jq -r 'map(select(.draft == false and .prerelease == false)) | first.tag_name // empty' <<<"$json") ;;
+    preview|beta|latest) tag=$(jq -r 'map(select(.draft == false)) | first.tag_name // empty' <<<"$json") ;;
+    *) return 1 ;;
+  esac
   tag=${tag#v}
   [[ "$tag" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$ ]] || return 1
   printf '%s\n' "$tag"
@@ -96,7 +100,7 @@ core_latest_version_strict() {
 
 core_latest_version() {
   local latest
-  if latest=$(core_latest_version_strict); then
+  if latest=$(core_latest_version_strict "${SBM_CORE_CHANNEL:-stable}"); then
     printf '%s\n' "$latest"
     return 0
   fi
@@ -423,12 +427,24 @@ _core_set_policy() {
 }
 core_set_policy() { with_state_transaction core-policy _core_set_policy "$@"; }
 
+_core_set_channel() {
+  local channel=$1 candidate
+  case "$channel" in stable|preview) ;; *) die '核心渠道必须是 stable 或 preview。';; esac
+  candidate=$(state_candidate)
+  jq --arg c "$channel" '.settings.core_channel=$c' "$SBM_STATE" >"$candidate"
+  if ! apply_candidate_state "$candidate" core-channel; then rm -f "$candidate"; return 1; fi
+  rm -f "$candidate"
+  log_ok "核心渠道：$channel"
+}
+core_set_channel() { with_state_transaction core-channel _core_set_channel "$@"; }
+
 core_auto_update() {
-  local policy current latest cmj cmi lmj lmi
+  local policy channel current latest cmj cmi lmj lmi
   policy=$(jq -r '.settings.core_update_policy // "notify"' "$SBM_STATE")
+  channel=$(jq -r '.settings.core_channel // "stable"' "$SBM_STATE")
   [[ "$policy" != manual ]] || return 0
   current=$(core_current_version || true)
-  latest=$(core_latest_version_strict) || { log_warn "无法查询 sing-box 最新官方版本，本次自动更新已跳过。"; return 1; }
+  latest=$(core_latest_version_strict "$channel") || { log_warn "无法查询 sing-box 最新官方版本，本次自动更新已跳过。"; return 1; }
   [[ "$current" != "$latest" ]] || return 0
   mkdir -p "$SBM_VAR/updates"
   jq -n --arg now "$(now_iso)" --arg current "$current" --arg latest "$latest" --arg policy "$policy" '{checked_at:$now,current:$current,latest:$latest,policy:$policy}' >"$SBM_VAR/updates/sing-box.json"

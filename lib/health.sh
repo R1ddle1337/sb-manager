@@ -9,6 +9,13 @@ health_issue() {
 health_resource_metrics_json() {
   local disk_used disk_avail disk_pct inode_pct mem_total mem_available mem_pct load cores fd_used fd_max fd_pct banned restarts
   disk_used=0; disk_avail=0; disk_pct=0; inode_pct=0
+  # A missing data directory must not be reported as 0% usage (healthy).
+  # State initialization normally creates it, but diagnostics may run during
+  # a partial install or after an operator removes the directory.
+  if [[ ! -d "$SBM_VAR" ]]; then
+    jq -n '{disk_used_percent:null,inode_used_percent:null,memory_used_percent:null,load_1m:null,cpu_cores:null,file_descriptors:{used:null,max:null,used_percent:null},fail2ban_banned:null,service_restarts:null}'
+    return 0
+  fi
   disk_pct=$(df -Pk "$SBM_VAR" 2>/dev/null | awk 'NR==2 {print $5}')
   disk_pct=${disk_pct%%%}; [[ "$disk_pct" =~ ^[0-9]+$ ]] || disk_pct=0
   inode_pct=$(df -Pi "$SBM_VAR" 2>/dev/null | awk 'NR==2 {print $5}')
@@ -42,6 +49,11 @@ health_resource_metrics_json() {
 health_resource_issues() {
   local metrics disk_min inode_max mem_max load_max fd_max banned_max restart_max load cores
   metrics=$(health_resource_metrics_json)
+  # Metrics can be unavailable during a partial installation; emit no
+  # threshold alerts rather than treating null as zero or aborting arithmetic.
+  if ! jq -e '.disk_used_percent|numbers' <<<"$metrics" >/dev/null 2>&1; then
+    return 0
+  fi
   disk_min=$(jq -r '.health.resources.disk_min_free_percent' "$SBM_STATE")
   inode_max=$(jq -r '.health.resources.inode_max_percent' "$SBM_STATE")
   mem_max=$(jq -r '.health.resources.memory_max_percent' "$SBM_STATE")

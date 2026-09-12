@@ -7,7 +7,7 @@ _api_enable() {
   case "$dashboard" in true|false) ;; *) die 'Dashboard 参数必须是 true 或 false。';; esac
   version_ge "$(core_current_version)" 1.14.0-rc.1 || die 'API/Dashboard 是 1.14+ 功能；当前核心不支持。'
   secret=$(random_password 36)
-  state_write_secret api "$(jq -n --arg secret "$secret" '{secret:$secret}')"
+  state_write_secret api "$(jq -n --arg secret "$secret" '{secret:$secret}')" || return 1
   mkdir -p "$SBM_VAR/dashboard"
   chown "$SBM_SERVICE_USER":"$SBM_SERVICE_USER" "$SBM_VAR/dashboard" 2>/dev/null || true
   chmod 0750 "$SBM_VAR/dashboard"
