@@ -61,6 +61,13 @@ setup_fail_if_requested() {
   fi
 }
 
+setup_acquire_lock() {
+  command_exists flock || return 0
+  ensure_runtime_dirs
+  exec 8>"$SBM_RUN/setup.lock"
+  flock -n 8 || die '已有安装或脚本更新正在进行，请稍后重试。'
+}
+
 prune_runtime_payload() {
   # Documentation, tests and release-only assets are useful in the checkout
   # but never needed by the installed CLI.  Keeping them out of /usr/local is
@@ -386,6 +393,7 @@ scheduler_reconcile() {
 
 printf '[1/7] 安装依赖…\n'
 [[ "$TEST_MODE" == 1 ]] || install_dependencies
+setup_acquire_lock
 
 printf '[2/7] 安装程序文件…\n'
 mkdir -p "$TARGET_LIB" "$TARGET_BIN"
