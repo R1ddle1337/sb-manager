@@ -40,6 +40,10 @@ elif [[ ${SBM_ALLOW_MUTABLE_REF:-0} != 1 && "$REF" =~ ^(main|master|develop|deve
 fi
 ARCHIVE_URL=${SBM_INSTALL_ARCHIVE_URL:-https://github.com/${REPOSITORY}/archive/${REF}.tar.gz}
 ARCHIVE_SHA256=${SBM_INSTALL_SHA256:-}
+if [[ ${SBM_REQUIRE_INSTALL_SHA256:-0} == 1 && -z "$ARCHIVE_SHA256" ]]; then
+  echo '已启用 SBM_REQUIRE_INSTALL_SHA256，但未提供源码归档 SHA-256。' >&2
+  exit 1
+fi
 
 TMPDIR_INSTALL=$(mktemp -d)
 cleanup() { rm -rf "$TMPDIR_INSTALL"; }
@@ -59,7 +63,7 @@ if [[ -n "$ARCHIVE_SHA256" ]]; then
   [[ "$ACTUAL" == "$ARCHIVE_SHA256" ]] || { echo '源码归档 SHA-256 校验失败，已拒绝执行。' >&2; exit 1; }
   printf '源码归档 SHA-256 校验通过：%s\n' "$ACTUAL"
 else
-  printf '%s\n' '警告：未设置 SBM_INSTALL_SHA256；生产环境请固定 commit/ref 并提供摘要。' >&2
+  printf '%s\n' '警告：未设置 SBM_INSTALL_SHA256；生产环境请固定 commit/ref 并提供摘要（或设置 SBM_REQUIRE_INSTALL_SHA256=1 强制校验）。' >&2
 fi
 
 tar -xzf "$ARCHIVE" -C "$TMPDIR_INSTALL"

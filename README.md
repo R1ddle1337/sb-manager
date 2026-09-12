@@ -16,6 +16,7 @@
 - acme.sh + Cloudflare DNS-01 证书申请、部署与续期
 - sing-box 核心检查、自动更新策略、版本切换与回滚
 - 默认安装和 `sb core update` 自动解析 GitHub 最新 sing-box Release（API 暂不可用时使用已校验 fallback）；需要复现时仍可用 `--core-version VERSION` 固定版本
+- 生产环境可设置 `SBM_REQUIRE_INSTALL_SHA256=1`，强制 bootstrap 安装提供 `SBM_INSTALL_SHA256` 后才会执行源码归档
 - Hysteria2 官方 UDP 缓冲区优化的一键开启、状态查看和恢复
 - Cloudflare Tunnel 按需安装与独立更新（默认不下载 cloudflared）
 - 节点添加、编辑、启停、删除和凭据轮换
