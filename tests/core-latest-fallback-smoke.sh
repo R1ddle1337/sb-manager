@@ -5,13 +5,13 @@ ROOT=$(mktemp -d)
 trap 'rm -rf "$ROOT"' EXIT
 PROJECT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 ARCHIVE="$ROOT/fallback.tar.gz"
-mkdir -p "$ROOT/archive/sing-box-1.14.0-rc.4-linux-amd64"
-cat >"$ROOT/archive/sing-box-1.14.0-rc.4-linux-amd64/sing-box" <<'EOF_CORE'
+mkdir -p "$ROOT/archive/sing-box-1.14.0-linux-amd64"
+cat >"$ROOT/archive/sing-box-1.14.0-linux-amd64/sing-box" <<'EOF_CORE'
 #!/usr/bin/env bash
-if [[ ${1:-} == version ]]; then printf 'sing-box version 1.14.0-rc.4\n'; fi
+if [[ ${1:-} == version ]]; then printf 'sing-box version 1.14.1\n'; fi
 EOF_CORE
-chmod 0755 "$ROOT/archive/sing-box-1.14.0-rc.4-linux-amd64/sing-box"
-tar -C "$ROOT/archive" -czf "$ARCHIVE" sing-box-1.14.0-rc.4-linux-amd64
+chmod 0755 "$ROOT/archive/sing-box-1.14.0-linux-amd64/sing-box"
+tar -C "$ROOT/archive" -czf "$ARCHIVE" sing-box-1.14.0-linux-amd64
 
 export SBM_LIB="$PROJECT" SBM_PREFIX="$ROOT/usr/local" SBM_BIN_DIR="$ROOT/usr/local/bin"
 export SBM_ETC="$ROOT/etc/sb-manager" SBM_VAR="$ROOT/var/lib/sb-manager" SBM_RUN="$ROOT/run/sb-manager"
@@ -56,8 +56,8 @@ github_api() { return 1; }
 core_fallback_asset_digest() { printf 'sha256:%s\n' "$(sha256sum "$SBM_FALLBACK_ARCHIVE" | awk '{print $1}')"; }
 export SBM_FALLBACK_ARCHIVE="$ARCHIVE"
 latest=$(core_latest_version 2>"$ROOT/fallback.log")
-[[ "$latest" == 1.14.0-rc.4 ]]
-grep -Fq '回退到 1.14.0-rc.4' "$ROOT/fallback.log"
+[[ "$latest" == 1.14.0 ]]
+grep -Fq '回退到 1.14.0' "$ROOT/fallback.log"
 if core_latest_version_strict >/dev/null 2>&1; then
   echo 'strict latest lookup unexpectedly succeeded' >&2
   exit 1
@@ -65,21 +65,21 @@ fi
 
 target=$(core_download_version latest 2>"$ROOT/download.log")
 [[ -x "$target" ]]
-"$target" version | grep -Fq '1.14.0-rc.4'
+"$target" version | grep -Fq '1.14.0'
 grep -Fq '内置且已校验的资产信息' "$ROOT/download.log"
 
-(source "$PROJECT/lib/core.sh"; [[ $(core_fallback_asset_digest 1.14.0-rc.4 amd64) == sha256:3d745827f1e7e2b6caf5788e2f94b7957ecea0b7a68f27e52ef90fdb9be6b4f8 ]])
+(source "$PROJECT/lib/core.sh"; [[ $(core_fallback_asset_digest 1.14.0 amd64) == sha256:2375de6999f4f56ab46b4fc5ddf26a6aba1d3e61a0f4e7ddec2f4690457d5f63 ]])
 
-mkdir -p "$SBM_CORE_DIR/sing-box/1.14.0"
-cat >"$SBM_CORE_DIR/sing-box/1.14.0/sing-box" <<'EOF_STABLE'
+mkdir -p "$SBM_CORE_DIR/sing-box/1.14.1"
+cat >"$SBM_CORE_DIR/sing-box/1.14.1/sing-box" <<'EOF_STABLE'
 #!/usr/bin/env bash
-[[ ${1:-} == version ]] && printf 'sing-box version 1.14.0\n'
+[[ ${1:-} == version ]] && printf 'sing-box version 1.14.1\n'
 EOF_STABLE
-chmod 0755 "$SBM_CORE_DIR/sing-box/1.14.0/sing-box"
+chmod 0755 "$SBM_CORE_DIR/sing-box/1.14.1/sing-box"
 mkdir -p "$SBM_BIN_DIR"
-ln -sfn "$SBM_CORE_DIR/sing-box/1.14.0/sing-box" "$SBM_SING_BOX_BIN"
+ln -sfn "$SBM_CORE_DIR/sing-box/1.14.1/sing-box" "$SBM_SING_BOX_BIN"
 _core_update latest >"$ROOT/no-downgrade.log" 2>&1
 grep -Fq '跳过可能的降级' "$ROOT/no-downgrade.log"
-[[ $(readlink -f "$SBM_SING_BOX_BIN") == "$SBM_CORE_DIR/sing-box/1.14.0/sing-box" ]]
+[[ $(readlink -f "$SBM_SING_BOX_BIN") == "$SBM_CORE_DIR/sing-box/1.14.1/sing-box" ]]
 
 printf 'CORE LATEST FALLBACK SMOKE PASSED\n'

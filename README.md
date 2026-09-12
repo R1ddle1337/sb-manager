@@ -124,7 +124,7 @@ apk add --no-cache bash curl ca-certificates
 bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/install.sh)
 ```
 
-安装器默认使用 `minimal` 依赖档位：只补齐管理器和 sing-box 所需的 Bash、curl、证书、jq、OpenSSL、基础文本工具，以及 Alpine 运行官方 glibc ABI 核心所需的 `gcompat`。sing-box 版本默认实时解析 GitHub 最新的非 draft Release，不在安装器里固定版本；只有 Release API 不可用时才回退到内置、已校验的 `1.14.0-rc.4`。OpenRC 使用 root 运行 sing-box，以兼容 Alpine 容器和部分 VPS 内核禁用文件能力的情况；不会默认下载 Cloudflared，也不会预装 Python、nftables、kmod、dcron 或 Nginx。
+安装器默认使用 `minimal` 依赖档位：只补齐管理器和 sing-box 所需的 Bash、curl、证书、jq、OpenSSL、基础文本工具，以及 Alpine 运行官方 glibc ABI 核心所需的 `gcompat`。sing-box 版本默认实时解析 GitHub 最新的非 draft Release，不在安装器里固定版本；只有 Release API 不可用时才回退到内置、已校验的 `1.14.0`。OpenRC 使用 root 运行 sing-box，以兼容 Alpine 容器和部分 VPS 内核禁用文件能力的情况；不会默认下载 Cloudflared，也不会预装 Python、nftables、kmod、dcron 或 Nginx。
 
 Cloudflare Tunnel 和高级功能都是按需安装：
 

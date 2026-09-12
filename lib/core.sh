@@ -79,7 +79,7 @@ core_release_json() {
 }
 
 core_fallback_version() {
-  local version=${SBM_CORE_FALLBACK_VERSION:-1.14.0-rc.4}
+  local version=${SBM_CORE_FALLBACK_VERSION:-1.14.0}
   version=${version#v}
   [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$ ]] || die "无效的 sing-box fallback 版本：$version"
   printf '%s\n' "$version"
@@ -113,10 +113,10 @@ core_fallback_asset_digest() {
   local version=${1#v} arch=$2
   [[ "$version" == "$(core_fallback_version)" ]] || return 1
   case "$arch" in
-    amd64) printf '%s\n' 'sha256:3d745827f1e7e2b6caf5788e2f94b7957ecea0b7a68f27e52ef90fdb9be6b4f8' ;;
-    arm64) printf '%s\n' 'sha256:6ec92b22359c1eed7aa36e3dd5f9d2fce9796b56838744840953b8bdb79a8b45' ;;
-    armv7) printf '%s\n' 'sha256:f6a774118c6c6eda00a84303f1ce8b0e773a44d624576aa9735ea842a85f3c81' ;;
-    386) printf '%s\n' 'sha256:68f5829ee7b372976bb9adb999b72023d477d1921ed8178dc86899e746e7c5d8' ;;
+    amd64) printf '%s\n' 'sha256:2375de6999f4f56ab46b4fc5ddf26a6aba1d3e61a0f4e7ddec2f4690457d5f63' ;;
+    arm64) printf '%s\n' 'sha256:04d9b40bc98dc55b6f509ce3292145c65478f65866bea64826ebb2f382385088' ;;
+    armv7) printf '%s\n' 'sha256:1a8a205e9429c6317f30c5ec112d13345966a91348ae942c9c1645d4b6140063' ;;
+    386) printf '%s\n' 'sha256:543efac8f7aa3821a57da3fa394e7c47f383602a9592e674b5eaabb0cedc0d2c' ;;
     *) return 1 ;;
   esac
 }

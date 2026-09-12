@@ -68,7 +68,7 @@ SBM_CLOUDFLARED_RETENTION="${SBM_CLOUDFLARED_RETENTION:-1}"
 SBM_PROGRAM_BACKUP_RETENTION="${SBM_PROGRAM_BACKUP_RETENTION:-2}"
 # Used only when GitHub's Release API cannot be queried.  Normal installs and
 # updates still resolve the newest non-draft Release dynamically.
-SBM_CORE_FALLBACK_VERSION="${SBM_CORE_FALLBACK_VERSION:-1.14.0-rc.4}"
+SBM_CORE_FALLBACK_VERSION="${SBM_CORE_FALLBACK_VERSION:-1.14.0}"
 
 if [[ -t 1 && "${NO_COLOR:-}" == "" ]]; then
   C_RESET=$'\033[0m'; C_BOLD=$'\033[1m'; C_RED=$'\033[31m'; C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'; C_BLUE=$'\033[34m'; C_CYAN=$'\033[36m'
