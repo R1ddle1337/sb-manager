@@ -21,7 +21,9 @@ while (($#)); do
   esac
 done
 if [[ "$url" == *'/commits/main' ]]; then
-  printf '%s\n' '{"sha":"1111111111111111111111111111111111111111","tree":{"sha":"2222222222222222222222222222222222222222"}}'
+  # Include nested SHA values so the extraction must select the first match
+  # without relying on a head|grep pipeline that can SIGPIPE on BusyBox.
+  printf '%s\n' '{"sha":"1111111111111111111111111111111111111111","tree":{"sha":"2222222222222222222222222222222222222222"},"parents":[{"sha":"3333333333333333333333333333333333333333"}]}'
 elif [[ "$url" == *'/archive/1111111111111111111111111111111111111111.tar.gz' ]]; then
   cp "$SBM_BOOTSTRAP_FIXTURE" "$out"
 else

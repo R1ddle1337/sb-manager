@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fix Alpine/BusyBox bootstrap installs exiting while resolving the latest
+  commit because `grep|head` could trigger a SIGPIPE under `pipefail`.
+
 - Resolve the default sing-box version from the newest non-draft GitHub
   Release at install/update time; use the verified `1.14.0-rc.4` asset map
   only when the Release API is unavailable.
