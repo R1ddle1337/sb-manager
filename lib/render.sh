@@ -56,6 +56,11 @@ validate_state_semantics() {
     validate_port "$port" || die "节点 $id 的端口无效：$port"
     case "$protocol" in vmess-ws-cf|shadowsocks|anytls|hysteria2|trojan|tuic|vless|naive|shadowtls|snell) ;; *) die "节点 $id 使用未知协议：$protocol" ;; esac
     if [[ $(jq -r '.enabled' <<<"$node") == true ]]; then
+      if [[ "$protocol" != vmess-ws-cf ]]; then
+        local endpoint_address
+        endpoint_address=$(jq -r '.server_address // ""' <<<"$node")
+        validate_address "$endpoint_address" || die "节点 $id 的客户端服务器地址无效或为空。"
+      fi
       if [[ "$protocol" == snell ]]; then
         version_ge "$(core_current_version)" 1.14.0-rc.1 || die 'Snell 需要 sing-box 1.14.0-rc.1 或更高版本核心。'
         if [[ $(jq -r '.snell_version // 5' <<<"$node") == 6 ]]; then
