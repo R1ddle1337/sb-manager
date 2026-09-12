@@ -6,6 +6,8 @@
   commit because `grep|head` could trigger a SIGPIPE under `pipefail`.
 - Fix Alpine/OpenRC services failing to bind port 443 on VPS/container kernels
   that expose file capabilities but do not apply them to unprivileged users.
+- Fix Alpine status checks missing listeners whose `ss -p` process name is the
+  gcompat dynamic loader (`ld-musl`/`ld-linux`).
 
 - Resolve the default sing-box version from the newest non-draft GitHub
   Release at install/update time; use the verified `1.14.0-rc.4` asset map

@@ -63,8 +63,11 @@ singbox_port_in_use() {
   local kind=$1 port=$2 flags
   command_exists ss || return 1
   [[ "$kind" == tcp ]] && flags=-ltnp || flags=-lunp
+  # Alpine's gcompat launcher reports the process name as ld-musl/ld-linux
+  # in `ss -p`, even though the command is sing-box.  Accept that launcher
+  # name so status and health checks do not report healthy listeners as down.
   ss -H "$flags" 2>/dev/null | awk -v p="$port" '
-    $0 ~ /sing-box/ {
+    $0 ~ /sing-box|ld-(musl|linux)/ {
       address = ($1 == "udp" || $1 == "tcp") ? $5 : $4
       if (address ~ (":" p "$")) found=1
     }
