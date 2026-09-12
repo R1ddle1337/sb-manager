@@ -116,7 +116,7 @@ sb-manager：状态驱动的 sing-box 多协议管理器
 
   sb core check|update [VERSION]|rollback|schema [文件]|capabilities [--json]|policy <manual|notify|patch|stable>|channel <stable|preview>|auto
   sb update [--check]             更新脚本本身（保留核心、节点、密钥和证书）
-  sb cloudflared status|install|update
+  sb cloudflared status|install|update|policy <manual|notify|patch|stable>
   sb deps status [--json]|install <low-port|traffic|subscription|bbr|probe|scheduler|logrotate>
   sb acme update
   sb doctor [--repair|--network]
@@ -487,7 +487,8 @@ main() {
           ;;
         install) (($# == 2)) || usage_die '用法：sb cloudflared install'; cloudflared_install ;;
         update) (($# == 2)) || usage_die '用法：sb cloudflared update'; cloudflared_update ;;
-        *) usage_die '用法：sb cloudflared status|install|update' ;;
+        policy) (($# == 3)) || usage_die '用法：sb cloudflared policy <manual|notify|patch|stable>'; cloudflared_set_policy "$3" ;;
+        *) usage_die '用法：sb cloudflared status|install|update|policy <manual|notify|patch|stable>' ;;
       esac
       ;;
     deps)

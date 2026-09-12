@@ -462,6 +462,32 @@ core_auto_update() {
       fi
       ;;
   esac
+  cloudflared_auto_update || log_warn 'cloudflared 自动更新检查未完成。'
+}
+
+cloudflared_auto_update() {
+  local policy current latest current_series latest_series
+  policy=$(jq -r '.settings.cloudflared_update_policy // "notify"' "$SBM_STATE" 2>/dev/null || printf 'notify')
+  [[ "$policy" != manual ]] || return 0
+  [[ -x "$SBM_CLOUDFLARED_BIN" ]] || return 0
+  [[ $(jq -r '.tunnel.mode // "none"' "$SBM_STATE") != none ]] || return 0
+  current=$(cloudflared_current_version || true)
+  latest=$(cloudflared_latest_version) || return 1
+  [[ -n "$current" && -n "$latest" && "$current" != "$latest" ]] || return 0
+  mkdir -p "$SBM_VAR/updates"
+  jq -n --arg now "$(now_iso)" --arg current "$current" --arg latest "$latest" --arg policy "$policy" \
+    '{checked_at:$now,current:$current,latest:$latest,policy:$policy}' >"$SBM_VAR/updates/cloudflared.json"
+  case "$policy" in
+    notify) log_warn "发现 cloudflared 更新：$current → $latest。运行 sb cloudflared update。" ;;
+    patch|stable)
+      current_series=${current%%.*}; latest_series=${latest%%.*}
+      if [[ "$policy" == patch && "$current_series" == "$latest_series" ]] || [[ "$policy" == stable && "$current_series" == "$latest_series" ]]; then
+        cloudflared_install
+      else
+        log_warn "发现跨系列 cloudflared 更新 $latest；请手动运行 sb cloudflared update。"
+      fi
+      ;;
+  esac
 }
 
 core_rollback() {
@@ -625,3 +651,14 @@ _cloudflared_update() {
   _cloudflared_install
 }
 cloudflared_update() { with_lock _cloudflared_update; }
+
+_cloudflared_set_policy() {
+  local policy=$1 candidate
+  case "$policy" in manual|notify|patch|stable) ;; *) die 'cloudflared 更新策略必须是 manual、notify、patch 或 stable。';; esac
+  candidate=$(state_candidate)
+  jq --arg p "$policy" '.settings.cloudflared_update_policy=$p' "$SBM_STATE" >"$candidate"
+  if ! apply_candidate_state "$candidate" cloudflared-policy; then rm -f "$candidate"; return 1; fi
+  rm -f "$candidate"
+  log_ok "cloudflared 自动更新策略：$policy"
+}
+cloudflared_set_policy() { with_state_transaction cloudflared-policy _cloudflared_set_policy "$@"; }

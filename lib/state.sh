@@ -369,7 +369,7 @@ state_validate() {
       and (.dns_timeout | type == "string" and test("^[0-9]+(ms|s|m|h|d)$"))
       and (.core_channel | IN("stable", "preview"))
       and (.core_update_policy | IN("manual", "notify", "patch", "stable"))
-      and (.cloudflared_update_policy | nonempty))
+      and (.cloudflared_update_policy | IN("manual", "notify", "patch", "stable")))
     and (.tunnel | type == "object"
       and (.mode | IN("none", "fixed", "quick"))
       and ((.node_id | type) == "string" or (.node_id | type) == "null")
