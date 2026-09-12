@@ -89,7 +89,7 @@ core_latest_version_strict() {
   local channel=${1:-stable} json tag
   json=$(github_api 'https://api.github.com/repos/SagerNet/sing-box/releases?per_page=20') || return 1
   case "$channel" in
-    stable) tag=$(jq -r 'map(select(.draft == false and .prerelease == false)) | first.tag_name // empty' <<<"$json") ;;
+    stable) tag=$(jq -r 'map(select(.draft == false and (.prerelease // false) == false)) | first.tag_name // empty' <<<"$json") ;;
     preview|beta|latest) tag=$(jq -r 'map(select(.draft == false)) | first.tag_name // empty' <<<"$json") ;;
     *) return 1 ;;
   esac
