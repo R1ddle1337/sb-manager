@@ -6,13 +6,16 @@ trap 'rm -rf "$ROOT"' EXIT
 PROJECT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 REAL=${SBM_TEST_SING_BOX:?Set SBM_TEST_SING_BOX}
 
-mkdir -p "$ROOT/bin" "$ROOT/fixture"
-tar -C "$PROJECT" -czf "$ROOT/fixture/source.tar.gz" \
-  --exclude='./.git' --exclude='./sing-box-official-docs-cn' --exclude='./sing-box-official-docs-cn-*.zip' .
+mkdir -p "$ROOT/bin" "$ROOT/fixture/payload/sb-manager"
+tar -C "$PROJECT" -cf - \
+  --exclude='./.git' --exclude='./sing-box-official-docs-cn' --exclude='./sing-box-official-docs-cn-*.zip' . \
+  | tar -C "$ROOT/fixture/payload/sb-manager" -xf -
+tar -C "$ROOT/fixture/payload" -czf "$ROOT/fixture/source.tar.gz" sb-manager
 cat >"$ROOT/bin/curl" <<'EOF_CURL'
 #!/usr/bin/env bash
 set -Eeuo pipefail
-url=${*: -1}
+url=''
+for arg in "$@"; do [[ "$arg" == https://* ]] && url=$arg; done
 out=''
 while (($#)); do
   case "$1" in
@@ -41,7 +44,7 @@ export SBM_PREFIX="$prefix" SBM_LIB="$prefix/lib/sb-manager" SBM_BIN_DIR="$prefi
 export SBM_ETC="$ROOT/etc/sb-manager" SBM_VAR="$ROOT/var/lib/sb-manager" SBM_RUN="$ROOT/run/sb-manager"
 export SBM_SYSTEMD_DIR="$ROOT/etc/systemd/system" SBM_OPENRC_DIR="$ROOT/etc/init.d" SBM_PERIODIC_DIR="$ROOT/etc/periodic" SBM_LOG_DIR="$ROOT/var/log/sb-manager"
 export SBM_SKIP_INIT=1 SBM_SKIP_SYSTEMD=1 SBM_SERVICE_USER=daemon NO_COLOR=1
-bash "$PROJECT/install.sh" --no-menu --no-start >/dev/null
+bash <(cat "$PROJECT/install.sh") --no-menu --no-start >/dev/null
 [[ -x "$prefix/bin/sb" ]]
 [[ $(find "$prefix/lib/sb-manager/protocols" -maxdepth 1 -type f -name '*.sh' | wc -l) == 10 ]]
 printf 'BOOTSTRAP LATEST SMOKE PASSED\n'
