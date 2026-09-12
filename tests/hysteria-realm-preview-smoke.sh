@@ -42,6 +42,13 @@ node_client_outbound hy2-realm | jq -e '.realm.server_url=="http://127.0.0.1:190
 node_share_uri hy2-realm | grep -Fq 'realm-server=http%3A%2F%2F127.0.0.1%3A19091'
 "$SBM_SING_BOX_BIN" check -c "$SBM_CONFIG"
 
+# Realm slot IDs are unique among enabled Hysteria2 nodes.
+if node_add hy2 --id hy2-realm-dup --name 'Realm duplicate' --port 24544 --domain edge.example.com --address 192.0.2.1 --realm-id slot1 >/dev/null 2>&1; then
+  echo 'duplicate Realm ID unexpectedly accepted' >&2
+  exit 1
+fi
+! state_node_exists hy2-realm-dup
+
 node_disable hy2-realm
 realm_disable
 [[ $(jq -r '.realm.enabled' "$SBM_STATE") == false && ! -e "$SBM_REALM_SECRET" ]]

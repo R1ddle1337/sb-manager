@@ -43,7 +43,7 @@ validate_state_semantics() {
     fi
   fi
 
-  declare -A occupied=()
+  declare -A occupied=() realm_ids=()
   while IFS= read -r node; do
     [[ -n "$node" ]] || continue
     id=$(jq -r '.id' <<<"$node")
@@ -69,6 +69,8 @@ validate_state_semantics() {
         [[ $(jq -r '.realm.enabled // false' "$state") == true ]] || die "节点 $id 启用了 Hysteria Realm，但全局 Realm 服务未启用。"
         realm_id=$(jq -r '.realm_id // ""' <<<"$node")
         [[ "$realm_id" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$ ]] || die "节点 $id 的 Realm ID 无效：$realm_id"
+        [[ -z ${realm_ids[$realm_id]+x} ]] || die "Realm ID 重复：$realm_id（节点 ${realm_ids[$realm_id]} 与 $id）"
+        realm_ids[$realm_id]=$id
       fi
     fi
     user_ids=$(jq -r '.users[].id' <<<"$node" | sort)
