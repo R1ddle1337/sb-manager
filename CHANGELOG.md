@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add `sb update --check` and `sb update` for self-updating the manager while
+  preserving nodes, secrets, certificates, backups, and the current core.
+- Make repeated installs reuse the existing core by default when the requested
+  version is unchanged, and add the internal `--keep-core` upgrade path.
+- Record the immutable source commit and repository during bootstrap so update
+  checks are reproducible.
+
 - Fix Alpine/BusyBox bootstrap installs exiting while resolving the latest
   commit because `grep|head` could trigger a SIGPIPE under `pipefail`.
 - Fix Alpine/OpenRC services failing to bind port 443 on VPS/container kernels
