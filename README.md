@@ -122,7 +122,7 @@ apk add --no-cache bash curl ca-certificates
 bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/install.sh)
 ```
 
-安装器默认使用 `minimal` 依赖档位：只补齐管理器和 sing-box 所需的 Bash、curl、证书、jq、OpenSSL、基础文本工具，以及 Alpine 运行官方 glibc ABI 核心所需的 `gcompat`。sing-box 版本默认实时解析 GitHub 最新的非 draft Release，不在安装器里固定版本；只有 Release API 不可用时才回退到内置、已校验的 `1.14.0-rc.4`。OpenRC 低端口能力使用轻量的 `libcap-utils`；不会默认下载 Cloudflared，也不会预装 Python、nftables、kmod、dcron 或 Nginx。
+安装器默认使用 `minimal` 依赖档位：只补齐管理器和 sing-box 所需的 Bash、curl、证书、jq、OpenSSL、基础文本工具，以及 Alpine 运行官方 glibc ABI 核心所需的 `gcompat`。sing-box 版本默认实时解析 GitHub 最新的非 draft Release，不在安装器里固定版本；只有 Release API 不可用时才回退到内置、已校验的 `1.14.0-rc.4`。OpenRC 使用 root 运行 sing-box，以兼容 Alpine 容器和部分 VPS 内核禁用文件能力的情况；不会默认下载 Cloudflared，也不会预装 Python、nftables、kmod、dcron 或 Nginx。
 
 Cloudflare Tunnel 和高级功能都是按需安装：
 
@@ -152,7 +152,7 @@ sb deps status
 
 其中 `cloudflared.log` 和 `cloudflared.err.log` 只有安装并启用 Tunnel 后才会创建。
 
-官方 sing-box Linux 核心使用 glibc ABI，Alpine 由 `gcompat` 提供运行时兼容。AnyTLS/Hysteria2 使用 443 等低位端口时，安装器会为 sing-box 核心设置最小的 `cap_net_bind_service` 文件能力，服务本身仍以 `sbmanager` 低权限用户运行。自动更新和 ACME 续期使用 Alpine `dcron` 的 `/etc/periodic` 任务（未安装 dcron 时任务文件仍会保留，安装 `sb deps install scheduler` 后即可启用）。
+官方 sing-box Linux 核心使用 glibc ABI，Alpine 由 `gcompat` 提供运行时兼容。OpenRC 服务以 root 运行以确保 443 等低位端口在受限 VPS/容器内可用；systemd 仍以 `sbmanager` 低权限用户运行并通过 unit capability 绑定低位端口。自动更新和 ACME 续期使用 Alpine `dcron` 的 `/etc/periodic` 任务（未安装 dcron 时任务文件仍会保留，安装 `sb deps install scheduler` 后即可启用）。
 
 对于只有 1GB 磁盘的 Alpine VPS，建议保持 `minimal` 档位并按需启用组件。安装器会在下载/解压核心前检查空间（默认至少预留约 260MB，覆盖下载、解压和安装的瞬时峰值），默认只保留当前核心和一个回滚核心、两份程序升级备份；下载压缩包在校验和安装后立即删除。官方 1.14 amd64 核心（含 `libcronet.so`）安装后约占 90MB，Cloudflared 约占 40MB，因此不安装 Tunnel 可以直接省下这一大块空间。可通过 `SBM_CORE_RETENTION`、`SBM_PROGRAM_BACKUP_RETENTION` 调整保留数量。
 如果不希望功能命令自动调用包管理器，可设置 `SBM_AUTO_INSTALL_DEPENDENCIES=0`，然后按 `sb deps status` 提示手工安装；磁盘预检查阈值可用 `SBM_CORE_MIN_FREE_BYTES`（Cloudflared 对应 `SBM_CLOUDFLARED_MIN_FREE_BYTES`）调整。
@@ -506,8 +506,7 @@ sb --help
 
 - 状态、Token、节点密码、私钥及导出文件不会提交到仓库。
 - Tunnel Token 使用受限文件保存，不直接写入 systemd `ExecStart` 或 OpenRC 脚本。
-- sing-box 以独立的 `sbmanager` 低权限用户运行。
-- systemd 通过 unit 的 ambient capability 提供低端口绑定能力；OpenRC 只在托管的 sing-box/Nginx 可执行文件上设置 `cap_net_bind_service`。
+- systemd 以独立的 `sbmanager` 低权限用户运行，并通过 unit 的 ambient capability 提供低端口绑定能力；OpenRC 的 sing-box 服务以 root 运行以兼容受限内核环境。
 - 脚本安装时不会自动启用 UFW 或 Fail2ban；防火墙变更只能通过显式的 `sb firewall` 操作执行。`sb firewall ufw --yes` 会启用 UFW 并放行 22/80/443 及启用协议端口，`sb firewall fail2ban --yes` 会启用永久 SSH 封禁策略。
 - 直连协议的安全组和防火墙端口由管理员明确开放。
 

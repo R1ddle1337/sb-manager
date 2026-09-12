@@ -69,7 +69,7 @@ sb service API ─────┤
 
 All lifecycle operations use a shared service abstraction: existence, enable/disable, start/stop/restart, active-state checks, logs, repair, and failure reporting. Logical names retain their systemd suffix for state compatibility; the OpenRC backend maps `sb-sing-box.service` to `/etc/init.d/sb-sing-box` and `sb-cloudflared.service` to `/etc/init.d/sb-cloudflared`.
 
-On OpenRC, sing-box (and, when explicitly installed, cloudflared) run under the `sbmanager` account through `supervise-daemon`. The sing-box binary receives only the `cap_net_bind_service` file capability so the unprivileged process can bind ports below 1024. OpenRC logs are stored under `/var/log/sb-manager/`; the Cloudflared directory and logs are created only when the optional component is installed.
+On OpenRC, sing-box runs through `supervise-daemon` as root so low ports remain usable on VPS/container kernels that do not apply file capabilities to unprivileged users. OpenRC logs are stored under `/var/log/sb-manager/`; the Cloudflared directory and logs are created only when the optional component is installed.
 
 ## Minimal installation and optional dependencies
 
@@ -115,7 +115,7 @@ The feature is off by default. On systemd it uses a hardened unit; on OpenRC it 
 
 ## Update model
 
-Each sing-box version is kept under `cores/sing-box/<version>/`. `/usr/local/bin/sing-box` is an atomic symlink. A candidate binary must validate the current configuration before the symlink is switched. Service failure restores the previous target. On OpenRC, the capability required for low ports is applied to every candidate before activation.
+Each sing-box version is kept under `cores/sing-box/<version>/`. `/usr/local/bin/sing-box` is an atomic symlink. A candidate binary must validate the current configuration before the symlink is switched. Service failure restores the previous target.
 
 Every switch records a known-good core/config/secret/certificate snapshot in
 `/var/lib/sb-manager/backups/snapshots/` and appends a paired entry to

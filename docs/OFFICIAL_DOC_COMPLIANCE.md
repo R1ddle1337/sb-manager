@@ -27,7 +27,9 @@ Every generated server configuration includes the official `$schema` URL and mus
 - Public listeners require authentication; VMess Tunnel origins stay on loopback.
 - TLS certificate names, keys, expiry, and permissions are validated before reload.
 - TCP and UDP may share a numeric port; equal transport kinds may not.
-- Services run as `sbmanager` with the minimum low-port capability.
+- systemd services run as `sbmanager` with the minimum low-port capability; the
+  OpenRC sing-box service runs as root for compatibility with restricted VPS
+  and container kernels.
 - Secrets, exports, and backups remain outside generated topology state.
 - Updates preserve a known-good core/config pair and do not automatically cross a minor version.
 - Host firewall and cloud security-group changes remain explicit operator actions. The firewall panel can explicitly install/configure UFW and Fail2ban; installation itself does not enable either component.

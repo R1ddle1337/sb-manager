@@ -4,6 +4,8 @@
 
 - Fix Alpine/BusyBox bootstrap installs exiting while resolving the latest
   commit because `grep|head` could trigger a SIGPIPE under `pipefail`.
+- Fix Alpine/OpenRC services failing to bind port 443 on VPS/container kernels
+  that expose file capabilities but do not apply them to unprivileged users.
 
 - Resolve the default sing-box version from the newest non-draft GitHub
   Release at install/update time; use the verified `1.14.0-rc.4` asset map

@@ -315,7 +315,7 @@ write_openrc_runtime() {
   write_openrc_supervised_service \
     "$SBM_OPENRC_DIR/$(service_native_name "$SBM_SERVICE")" \
     'sb-manager sing-box' 'sb-manager managed sing-box service' \
-    "$SBM_SING_BOX_BIN" "run -c $SBM_CONFIG" "$SBM_SERVICE_USER" \
+    "$SBM_SING_BOX_BIN" "run -c $SBM_CONFIG" root \
     "$SBM_SINGBOX_LOG" "$SBM_SINGBOX_ERROR_LOG" 'after firewall'
   write_periodic_job daily sb-core-update "$SBM_BIN_DIR/sb core auto"
   write_periodic_job daily sb-acme-renew "$SBM_BIN_DIR/sb cert renew --quiet"
