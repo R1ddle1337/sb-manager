@@ -7,6 +7,11 @@
 多用户凭据、真实 TCP/UDP 监听、分享链接、客户端 outbound 和配置校验，结果为
 `ALL TESTS PASSED`。
 
+将 1.14.0-rc.4 与 1.15.0-alpha.2 的核心 schema 做递归比较后，当前版本只有
+`CacheFileOptions` 从 `rdrc_timeout` 调整为 `buffer_size`、`flush_interval`。
+sb-manager 生成配置没有使用 cache-file 字段，因此现有 state、renderer 和导出
+格式无需迁移；以后若引入缓存文件配置，必须按核心版本分别渲染。
+
 适配策略：
 
 1. 稳定安装默认仍跟随 GitHub 最新非 prerelease Release；1.15 alpha 只通过
