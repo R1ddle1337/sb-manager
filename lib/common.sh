@@ -260,9 +260,18 @@ safe_install_file() {
 # Critical filesystem operations must propagate failures explicitly.  Many
 # callers intentionally invoke mutating functions from conditional contexts
 # (for rollback), which disables Bash errexit inside those functions.
-must_install() { install "$@" || { log_error "文件安装失败：$*"; return 1; }; }
-must_mv() { mv "$@" || { log_error "文件替换失败：$*"; return 1; }; }
-must_cp() { cp "$@" || { log_error "文件复制失败：$*"; return 1; }; }
+must_install() {
+  [[ ${SBM_TEST_FAIL_FS_OP:-} != install ]] || { log_error '测试注入：install 失败。'; return 1; }
+  install "$@" || { log_error "文件安装失败：$*"; return 1; }
+}
+must_mv() {
+  [[ ${SBM_TEST_FAIL_FS_OP:-} != mv ]] || { log_error '测试注入：mv 失败。'; return 1; }
+  mv "$@" || { log_error "文件替换失败：$*"; return 1; }
+}
+must_cp() {
+  [[ ${SBM_TEST_FAIL_FS_OP:-} != cp ]] || { log_error '测试注入：cp 失败。'; return 1; }
+  cp "$@" || { log_error "文件复制失败：$*"; return 1; }
+}
 must_write() {
   local target=$1; shift
   cat >"$target" || { log_error "文件写入失败：$target"; return 1; };

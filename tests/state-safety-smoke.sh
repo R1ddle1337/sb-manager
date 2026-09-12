@@ -74,6 +74,17 @@ fi
 [[ $(sha256sum "$SBM_STATE" | awk '{print $1}') == "$state_hash" ]]
 [[ $(sha256sum "$SBM_CONFIG" | awk '{print $1}') == "$config_hash" ]]
 
+# Filesystem replacement failures must also roll back the complete pair.
+node_add ss --id fs-test --port 28389 --address 192.0.2.2 >/dev/null
+before_fs_hash=$(sha256sum "$SBM_STATE" | awk '{print $1}')
+export SBM_TEST_FAIL_FS_OP=mv
+if node_set fs-test --name 'should-fail' >/dev/null 2>&1; then
+  echo 'filesystem failure unexpectedly succeeded' >&2; exit 1
+fi
+unset SBM_TEST_FAIL_FS_OP
+[[ $(sha256sum "$SBM_STATE" | awk '{print $1}') == "$before_fs_hash" ]]
+node_delete fs-test >/dev/null
+
 # Strict state validation must reject invalid enum values.
 bad=$(state_candidate)
 jq '.settings.log_level="verbose"' "$SBM_STATE" >"$bad"
