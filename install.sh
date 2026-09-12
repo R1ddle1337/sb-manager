@@ -3,7 +3,7 @@ set -Eeuo pipefail
 umask 027
 
 # Local checkout: install directly from the checked-out source tree.
-SCRIPT_PATH=${BASH_SOURCE[0]}
+SCRIPT_PATH=${BASH_SOURCE[0]:-}
 if [[ -f "$SCRIPT_PATH" ]]; then
   SCRIPT_DIR=$(cd -- "$(dirname -- "$SCRIPT_PATH")" 2>/dev/null && pwd || true)
   if [[ -n ${SCRIPT_DIR:-} && -f "$SCRIPT_DIR/setup.sh" ]]; then
@@ -15,6 +15,7 @@ fi
 # current immutable commit before downloading; explicit refs may pin a tag or
 # commit. Mutable branch refs require an explicit development opt-in.
 REPOSITORY=${SBM_INSTALL_REPOSITORY:-R1ddle1337/sb-manager}
+[[ "$REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo '无效的 GitHub 仓库名。' >&2; exit 1; }
 DEFAULT_INSTALL_REF=latest
 REF=${SBM_INSTALL_REF:-$DEFAULT_INSTALL_REF}
 command -v curl >/dev/null 2>&1 || { echo '缺少 curl，无法下载安装包。' >&2; exit 1; }
@@ -64,4 +65,8 @@ fi
 tar -xzf "$ARCHIVE" -C "$TMPDIR_INSTALL"
 SETUP=$(find "$TMPDIR_INSTALL" -mindepth 2 -maxdepth 2 -type f -name setup.sh -print -quit)
 [[ -n "$SETUP" ]] || { echo '下载的源码包中没有找到 setup.sh。' >&2; exit 1; }
+if [[ "$REF" =~ ^[0-9a-fA-F]{40}$ ]]; then
+  printf '%s\n' "$REF" >"$(dirname "$SETUP")/INSTALL_COMMIT"
+fi
+printf '%s\n' "$REPOSITORY" >"$(dirname "$SETUP")/INSTALL_REPOSITORY"
 bash "$SETUP" "$@"

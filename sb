@@ -28,6 +28,7 @@ source "$SBM_LIB/protocols/shadowtls.sh"
 source "$SBM_LIB/protocols/snell.sh"
 source "$SBM_LIB/lib/render.sh"
 source "$SBM_LIB/lib/core.sh"
+source "$SBM_LIB/lib/manager.sh"
 source "$SBM_LIB/lib/node.sh"
 source "$SBM_LIB/lib/traffic.sh"
 source "$SBM_LIB/lib/firewall.sh"
@@ -114,6 +115,7 @@ sb-manager：状态驱动的 sing-box 多协议管理器
   sb probe NODE_ID                探测节点 DNS、监听和 TLS/UDP 可达性
 
   sb core check|update [VERSION]|rollback|schema [文件]|capabilities [--json]|policy <manual|notify|patch|stable>|auto
+  sb update [--check]             更新脚本本身（保留核心、节点、密钥和证书）
   sb cloudflared status|install|update
   sb deps status [--json]|install <low-port|traffic|subscription|bbr|probe|scheduler|logrotate>
   sb acme update
@@ -151,6 +153,7 @@ main() {
   case "$cmd" in
     -h|--help|help) sb_help; return 0;;
     -V|--version|version) printf 'sb-manager %s\n' "$SBM_VERSION"; return 0;;
+    update) shift; manager_update "$@"; return $? ;;
     uninstall)
       [[ ${SBM_TEST_MODE:-0} == 1 ]] || require_root
       local purge=0 assume_yes=${SBM_ASSUME_YES:-0} arg

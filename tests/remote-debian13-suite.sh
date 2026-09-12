@@ -46,6 +46,7 @@ for test in \
   tests/minimal-install-smoke.sh \
   tests/install-smoke.sh \
   tests/bootstrap-latest-smoke.sh \
+  tests/update-smoke.sh \
   tests/download-retry-smoke.sh \
   tests/acme-install-smoke.sh \
   tests/core-download-smoke.sh; do

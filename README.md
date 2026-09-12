@@ -175,6 +175,15 @@ bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/i
 
 `install.sh` 默认先解析 `main` 的最新 commit SHA，再按该不可变 commit 下载源码；也可设置 `SBM_INSTALL_REF=v0.1.0-alpha.29` 固定版本。显式指定 `main` 等可变分支仍需 `SBM_ALLOW_MUTABLE_REF=1`。离线发布包可使用 `build-release.sh` 生成，并核验 `SHA256SUMS`、`PROVENANCE-SHA256SUMS` 及可选的 GPG 签名文件。
 
+同一台服务器可以重复执行安装器。重复安装会保留 `/etc/sb-manager` 下的节点、密钥、证书和备份，并重新生成服务定义；默认会复用已安装的 sing-box 核心。升级管理器脚本时可直接执行：
+
+```bash
+sb update --check
+sb update
+```
+
+`sb update` 只更新管理器脚本和服务定义，不删除节点、密钥、证书或当前核心；失败时会恢复上一版程序。`sb core update` 是独立的 sing-box 核心升级命令。首次使用 `sb update` 前，如果是很早版本的安装，先重新执行一次上面的安装器以安装更新命令。
+
 安装完成后：
 
 ```bash

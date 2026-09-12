@@ -12,6 +12,7 @@ PROGRAM_BACKUP_ROOT=${SBM_BACKUPS:-${SBM_VAR:-/var/lib/sb-manager}/backups}
 NO_MENU=0
 NO_START=0
 CORE_VERSION=latest
+KEEP_CORE=0
 INSTALL_PROFILE=${SBM_INSTALL_PROFILE:-minimal}
 INSTALL_CLOUDFLARED=${SBM_INSTALL_CLOUDFLARED:-0}
 TEST_MODE=${SBM_TEST_MODE:-0}
@@ -90,6 +91,7 @@ usage() {
   --no-menu             安装后不打开交互面板
   --no-start            不启动/启用 systemd 或 OpenRC 服务和定时任务
   --core-version VER    安装指定 sing-box 版本（默认 latest）
+  --keep-core           更新管理器脚本时保留当前 sing-box 核心
   --profile PROFILE     安装依赖档位：minimal（默认）或 full
   --full                --profile full 的快捷方式（会预装高级功能依赖）
   --with-cloudflared    同时安装可选的 Cloudflare Tunnel 客户端
@@ -101,6 +103,7 @@ while (($#)); do
     --no-menu) NO_MENU=1; shift ;;
     --no-start) NO_START=1; shift ;;
     --core-version) CORE_VERSION=${2:?}; shift 2 ;;
+    --keep-core) KEEP_CORE=1; shift ;;
     --profile) INSTALL_PROFILE=${2:?}; shift 2 ;;
     --full) INSTALL_PROFILE=full; shift ;;
     --with-cloudflared) INSTALL_CLOUDFLARED=1; shift ;;
@@ -481,7 +484,10 @@ if [[ "$TEST_MODE" == 1 ]]; then
   fi
   sb_binary="$SBM_CORE_DIR/sing-box/$test_version/sing-box"
 else
-  if [[ "$CORE_VERSION" == latest ]]; then
+  if [[ "$KEEP_CORE" == 1 ]]; then
+    sb_binary=$(readlink -f "$SBM_SING_BOX_BIN" 2>/dev/null || true)
+    [[ -x "$sb_binary" ]] || die '--keep-core 需要已有 sing-box 核心；请重新运行普通安装。'
+  elif [[ "$CORE_VERSION" == latest ]]; then
     CORE_VERSION=$(core_latest_version) || die '无法查询 sing-box 最新官方版本。'
     if [[ -n "$current_core_version" && "$current_core_version" != "$CORE_VERSION" ]] && version_ge "$current_core_version" "$CORE_VERSION"; then
       log_warn "解析到的目标核心 $CORE_VERSION 不高于当前 $current_core_version，保留现有核心以避免意外降级。"
