@@ -62,10 +62,31 @@ setup_fail_if_requested() {
 }
 
 setup_acquire_lock() {
+  local lock_file inherited_lock=''
   command_exists flock || return 0
   ensure_runtime_dirs
-  exec 8>"$SBM_RUN/setup.lock"
+  lock_file="$SBM_RUN/setup.lock"
+  # setup may have launched the interactive `sb` panel after installation.
+  # That child inherits descriptor 8, so a manager update started from the
+  # panel must reuse the same open file description instead of reopening the
+  # lock and deadlocking against its own parent installer.
+  if [[ -e /proc/$$/fd/8 ]]; then
+    inherited_lock=$(readlink -f "/proc/$$/fd/8" 2>/dev/null || true)
+  elif [[ -e /dev/fd/8 ]]; then
+    inherited_lock=$(readlink -f /dev/fd/8 2>/dev/null || true)
+  fi
+  if [[ -n "$inherited_lock" && "$inherited_lock" == "$(readlink -m "$lock_file")" ]]; then
+    flock -n 8 || die '已有安装或脚本更新正在进行，请稍后重试。'
+    return 0
+  fi
+  exec 8>"$lock_file"
   flock -n 8 || die '已有安装或脚本更新正在进行，请稍后重试。'
+}
+
+setup_release_lock() {
+  command_exists flock || return 0
+  flock -u 8 2>/dev/null || true
+  exec 8>&- 2>/dev/null || true
 }
 
 prune_runtime_payload() {
@@ -627,4 +648,5 @@ fi
 printf '\n注意：脚本不会关闭防火墙，也不会自动开放直连协议端口。\n'
 
 trap - ERR
+setup_release_lock
 if [[ "$NO_MENU" == 0 && -t 0 ]]; then "$SBM_BIN_DIR/sb"; fi

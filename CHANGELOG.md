@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fix manager self-updates started from an installer-launched interactive panel
+  failing against the setup lock inherited from their own parent installer.
+
 - Add `sb update --check` and `sb update` for self-updating the manager while
   preserving nodes, secrets, certificates, backups, and the current core.
 - Make repeated installs reuse the existing core by default when the requested

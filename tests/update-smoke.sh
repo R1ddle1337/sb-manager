@@ -44,7 +44,13 @@ printf '%s\n' R1ddle1337/sb-manager >"$SBM_LIB/INSTALL_REPOSITORY"
 before=$(readlink "$SBM_SING_BOX_BIN")
 "$SBM_BIN_DIR/sb" update --check | grep -Fq '可更新至 commit：aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 [[ $(jq '.nodes|length' "$SBM_STATE") == 1 ]]
+# Simulate a panel inherited from the installer: descriptor 8 still owns the
+# setup lock when the panel starts a nested manager update.
+exec 8>"$SBM_RUN/setup.lock"
+flock -n 8
 "$SBM_BIN_DIR/sb" update >/dev/null
+flock -u 8
+exec 8>&-
 [[ $(jq '.nodes|length' "$SBM_STATE") == 1 ]]
 [[ $(readlink "$SBM_SING_BOX_BIN") == "$before" ]]
 [[ $(cat "$SBM_LIB/INSTALL_COMMIT") == aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ]]
