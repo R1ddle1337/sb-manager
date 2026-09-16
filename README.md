@@ -296,6 +296,8 @@ sb traffic set hk-01 --quota 100G --dry-run
 
 Snell 需要 sing-box `1.14.0-rc.1` 或更高版本核心。新建节点默认使用 Snell v5（服务端 v5、客户端使用兼容的 v4），分享链接可直接导入 Surge、mihomo 和 sing-box；可按需设置 `--obfs http --obfs-host example.com`。单用户 v5 节点不启用 sing-box 专属多用户扩展，因此三端可以使用同一组 PSK。为 Snell v5 添加第二个启用用户后会切换为 sing-box 多用户模式，此时 Surge/mihomo 不支持，应使用导出的 sing-box outbound。Snell v6 使用 traffic shaping，可选 `default`、`unshaped` 或 `unsafe-raw`，需要 `1.14.0-rc.2` 或更高版本；最新 Surge Beta 支持 v6，mihomo 仍不支持 v6。v6 单用户节点会导出 Surge 配置，v6 多用户节点仍仅适合 sing-box。
 
+Surge 使用 Snell v6 时需要 `6.7.0 (11520)` 或更新的 Beta/TestFlight。若显示延迟为 0，先运行 `sb probe <节点ID>`：该命令会通过正在运行的入站完成一次本机 Snell 端到端握手和转发。本机测试通过但公网客户端仍失败时，应检查云厂商安全组和主机防火墙是否放行节点的 TCP 端口；管理器不会自动修改防火墙。
+
 ```bash
 sb core update 1.14.0-rc.4
 sb node add snell --id snell-main --address YOUR_SERVER_IP --port 6160 --snell-version 5

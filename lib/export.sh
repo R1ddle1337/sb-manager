@@ -97,6 +97,9 @@ node_share() {
   node_secret='{}'; [[ ! -r $(state_secret_path "$id") ]] || node_secret=$(state_get_secret "$id")
   protocol=$(jq -r '.protocol' <<<"$node")
   if [[ "$protocol" == snell ]]; then
+    if [[ $(jq -r '.snell_version // 5' <<<"$node") == 6 ]]; then
+      log_warn "Snell v6 需要 Surge 6.7.0 (11520) 或更新的 Beta/TestFlight；并请确认云安全组已放行 $(jq -r '.port' <<<"$node")/TCP。"
+    fi
     if native=$(protocol_snell_surge_share "$node" "$secret" "$node_secret"); then
       printf '%s\n' "$native" >"$out_dir/surge.conf"; chmod 0600 "$out_dir/surge.conf"
     else

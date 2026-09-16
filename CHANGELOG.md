@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add a real local Snell end-to-end handshake to `sb probe` and print the
+  required Surge Beta/TestFlight version and cloud TCP-port reminder for v6.
 - Fix manager self-updates started from an installer-launched interactive panel
   failing against the setup lock inherited from their own parent installer.
 

@@ -215,6 +215,67 @@ doctor_network_probe() {
   fi
 }
 
+doctor_snell_handshake() (
+  set -Eeuo pipefail
+  local node=$1 id user_id runtime_node listen server port client_port origin_port stage outbound client_config
+  local origin_pid='' client_pid=''
+  id=$(jq -r '.id' <<<"$node")
+  user_id=$(jq -r 'first(.users[] | select(.enabled==true) | .id) // empty' <<<"$node")
+  [[ -n "$user_id" && -x "$SBM_SING_BOX_BIN" ]] || return 1
+  command_exists curl && command_exists openssl || return 1
+  runtime_node=$node
+  if declare -F nginx_stream_effective_node >/dev/null 2>&1; then
+    runtime_node=$(nginx_stream_effective_node "$SBM_STATE" "$node")
+  fi
+  port=$(jq -r '.port' <<<"$runtime_node")
+  listen=$(jq -r '.listen // "::"' <<<"$runtime_node")
+  case "$listen" in
+    *:*) server='::1' ;;
+    *) server='127.0.0.1' ;;
+  esac
+  client_port=$(node_choose_port tcp)
+  origin_port=$(node_choose_port tcp)
+  while [[ "$origin_port" == "$client_port" ]]; do origin_port=$(node_choose_port tcp); done
+  stage=$(mktemp -d "$SBM_RUN/snell-probe.XXXXXX")
+  cleanup() {
+    [[ -z "$client_pid" ]] || kill "$client_pid" 2>/dev/null || true
+    [[ -z "$origin_pid" ]] || kill "$origin_pid" 2>/dev/null || true
+    [[ -z "$client_pid" ]] || wait "$client_pid" 2>/dev/null || true
+    [[ -z "$origin_pid" ]] || wait "$origin_pid" 2>/dev/null || true
+    rm -rf -- "$stage"
+  }
+  trap cleanup EXIT
+  openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=localhost' \
+    -keyout "$stage/key.pem" -out "$stage/cert.pem" >/dev/null 2>&1
+  openssl s_server -quiet -www -4 -accept "$origin_port" -cert "$stage/cert.pem" -key "$stage/key.pem" \
+    >"$stage/origin.log" 2>&1 &
+  origin_pid=$!
+  outbound=$(node_client_outbound "$id" "$user_id")
+  outbound=$(jq --arg server "$server" --argjson port "$port" '.server=$server | .server_port=$port' <<<"$outbound")
+  client_config="$stage/client.json"
+  jq -n --argjson outbound "$outbound" --argjson port "$client_port" '{
+    log:{level:"warn"},
+    inbounds:[{type:"mixed",tag:"probe-in",listen:"127.0.0.1",listen_port:$port}],
+    outbounds:[$outbound],
+    route:{final:$outbound.tag}
+  }' >"$client_config"
+  "$SBM_SING_BOX_BIN" check -c "$client_config" >/dev/null 2>"$stage/check.log"
+  "$SBM_SING_BOX_BIN" run -c "$client_config" >"$stage/client.log" 2>&1 &
+  client_pid=$!
+  for _ in {1..30}; do
+    kill -0 "$client_pid" 2>/dev/null || return 1
+    host_port_in_use tcp "$client_port" && break
+    sleep 0.1
+  done
+  host_port_in_use tcp "$client_port" || return 1
+  if ! curl --fail --silent --show-error --insecure --max-time 10 \
+    --proxy "socks5h://127.0.0.1:$client_port" "https://127.0.0.1:$origin_port/" >/dev/null 2>"$stage/curl.log"; then
+    sed -n '1,20p' "$stage/client.log" >&2 || true
+    sed -n '1,10p' "$stage/curl.log" >&2 || true
+    return 1
+  fi
+)
+
 doctor_probe() {
   local id=${1:-} node failures=0 warnings=0
   [[ -n "$id" ]] || die '用法：sb probe NODE_ID'
@@ -225,6 +286,16 @@ doctor_probe() {
   fi
   printf '%s\n' "---- 节点探测：$id ----"
   doctor_network_probe "$node"
+  if [[ $(jq -r '.protocol' <<<"$node") == snell ]]; then
+    if doctor_snell_handshake "$node"; then
+      check_line PASS "$id Snell 本机端到端握手与转发成功"
+      check_line WARN "请另外确认云厂商安全组已放行 $(jq -r '.port' <<<"$node")/TCP；本机握手无法验证公网入站"
+      warnings=$((warnings + 1))
+    else
+      check_line FAIL "$id Snell 本机端到端握手失败；请检查核心版本、mode、PSK 与 sing-box 日志"
+      failures=$((failures + 1))
+    fi
+  fi
   printf '结果：%s 个失败，%s 个警告。\n' "$failures" "$warnings"
   (( failures == 0 ))
 }

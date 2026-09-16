@@ -22,6 +22,7 @@ source "$PROJECT/lib/render.sh"
 source "$PROJECT/lib/core.sh"
 source "$PROJECT/lib/node.sh"
 source "$PROJECT/lib/export.sh"
+source "$PROJECT/lib/doctor.sh"
 
 version_ge "$(core_current_version)" 1.14.0-rc.2
 state_init
@@ -51,6 +52,9 @@ done
 ss -H -ltn 2>/dev/null | grep -q ':24616[[:space:]]'
 ss -H -ltn 2>/dev/null | grep -q ':24617[[:space:]]'
 ss -H -ltn 2>/dev/null | grep -q ':24618[[:space:]]'
+probe_output=$(doctor_probe snell-v6-test 2>&1)
+grep -Fq 'Snell 本机端到端握手与转发成功' <<<"$probe_output"
+grep -Fq '请另外确认云厂商安全组已放行 24618/TCP' <<<"$probe_output"
 kill "$runtime_pid"; wait "$runtime_pid" 2>/dev/null || true; runtime_pid=''
 
 for id in snell-test snell-http-test snell-default-test; do
