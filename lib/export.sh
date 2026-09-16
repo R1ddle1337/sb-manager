@@ -51,15 +51,37 @@ node_client_outbound() {
 }
 
 node_share() {
-  local id=$1 qr=${2:-0} user_id=${3:-} uri out_dir outbound
+  local id=$1 qr=${2:-0} user_id=${3:-} uri out_dir outbound node user secret node_secret protocol native
   [[ -n "$user_id" ]] || user_id=$(jq -r --arg id "$id" 'first(.nodes[] | select(.id==$id) | .users[] | select(.enabled==true) | .id) // empty' "$SBM_STATE")
   uri=$(node_share_uri "$id" "$user_id") || return 1
   out_dir="$SBM_EXPORTS/nodes/$id/$user_id"; mkdir -p "$out_dir"; chmod 0700 "$out_dir" 2>/dev/null || true
   printf '%s\n' "$uri" >"$out_dir/share.txt"; chmod 0600 "$out_dir/share.txt"
   outbound=$(node_client_outbound "$id" "$user_id")
   printf '%s\n' "$outbound" | jq . >"$out_dir/outbound.json"; chmod 0600 "$out_dir/outbound.json"
+  rm -f "$out_dir/surge.conf" "$out_dir/mihomo.json" "$out_dir/mihomo.yaml"
+  node=$(state_get_node "$id")
+  if declare -F nginx_stream_public_node >/dev/null 2>&1; then node=$(nginx_stream_public_node "$node"); fi
+  user=$(state_get_user "$id" "$user_id")
+  secret=$(jq -s '.[0]+.[1]' <(printf '%s\n' "$user") <(state_get_user_secret "$id" "$user_id"))
+  node_secret='{}'; [[ ! -r $(state_secret_path "$id") ]] || node_secret=$(state_get_secret "$id")
+  protocol=$(jq -r '.protocol' <<<"$node")
+  if [[ "$protocol" == snell ]]; then
+    if native=$(protocol_snell_surge_share "$node" "$secret" "$node_secret"); then
+      printf '%s\n' "$native" >"$out_dir/surge.conf"; chmod 0600 "$out_dir/surge.conf"
+    else
+      log_warn '该 Snell 节点启用了 v6 或多用户模式，无法生成 Surge 兼容配置；请使用 sing-box outbound。'
+    fi
+    if native=$(protocol_snell_mihomo_share "$node" "$secret" "$node_secret"); then
+      printf '{"proxies":[%s]}\n' "$native" | jq . >"$out_dir/mihomo.json"; chmod 0600 "$out_dir/mihomo.json"
+      cp "$out_dir/mihomo.json" "$out_dir/mihomo.yaml"; chmod 0600 "$out_dir/mihomo.yaml"
+    else
+      log_warn '该 Snell 节点启用了 v6 或多用户模式，无法生成 mihomo 兼容配置；请使用 sing-box outbound。'
+    fi
+  fi
   printf '\n%s节点/用户：%s/%s%s\n\n%s\n\n' "$C_BOLD" "$id" "$user_id" "$C_RESET" "$uri"
   printf 'sing-box 客户端 outbound：%s\n' "$out_dir/outbound.json"
+  if [[ -r "$out_dir/surge.conf" ]]; then printf 'Surge 配置片段：%s\n' "$out_dir/surge.conf"; fi
+  if [[ -r "$out_dir/mihomo.yaml" ]]; then printf 'mihomo 配置：%s\n' "$out_dir/mihomo.yaml"; fi
   if [[ "$qr" == 1 ]]; then
     if command_exists qrencode; then qrencode -t ANSIUTF8 "$uri"; else log_warn "未安装 qrencode，无法显示二维码。"; fi
   fi

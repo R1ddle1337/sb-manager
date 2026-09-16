@@ -28,14 +28,16 @@ state_init
 node_add snell --id snell-test --name 'Snell v5 test' --port 24616 --address 192.0.2.1 --snell-version 5
 node_add snell --id snell-http-test --name 'Snell v5 HTTP test' --port 24617 --address 192.0.2.1 --snell-version 5 --obfs http --obfs-host example.com
 node_add snell --id snell-v6-test --name 'Snell v6 test' --port 24618 --address 192.0.2.1 --snell-version 6 --snell-mode unsafe-raw
+node_add snell --id snell-default-test --name 'Snell default test' --port 24619 --address 192.0.2.1
 
-[[ $(jq '.nodes|length' "$SBM_STATE") == 3 ]]
+[[ $(jq '.nodes|length' "$SBM_STATE") == 4 ]]
+[[ $(jq -r '.nodes[]|select(.id=="snell-default-test")|.snell_version' "$SBM_STATE") == 5 ]]
 [[ $(jq -r '.nodes[]|select(.id=="snell-test")|.obfs_mode' "$SBM_STATE") == none ]]
 [[ $(jq -r '.nodes[]|select(.id=="snell-http-test")|.obfs_mode' "$SBM_STATE") == http ]]
 [[ $(jq -r '.nodes[]|select(.id=="snell-http-test")|.obfs_host' "$SBM_STATE") == example.com ]]
 [[ $(jq -r '.nodes[]|select(.id=="snell-v6-test")|.snell_version' "$SBM_STATE") == 6 ]]
 [[ $(jq -r '.nodes[]|select(.id=="snell-v6-test")|.snell_mode' "$SBM_STATE") == unsafe-raw ]]
-jq -e '.inbounds[]|select(.tag=="in-snell-test")|.type=="snell" and .version==5 and (.psk|length)>=24 and .users[0].userkey' "$SBM_CONFIG" >/dev/null
+jq -e '.inbounds[]|select(.tag=="in-snell-test")|.type=="snell" and .version==5 and (.psk|length)>=24 and (.users|not)' "$SBM_CONFIG" >/dev/null
 jq -e '.inbounds[]|select(.tag=="in-snell-http-test")|.obfs_mode=="http" and (.obfs_host|not)' "$SBM_CONFIG" >/dev/null
 jq -e '.inbounds[]|select(.tag=="in-snell-v6-test")|(.version==6 and .mode=="unsafe-raw" and (.obfs_mode|not))' "$SBM_CONFIG" >/dev/null
 "$SBM_SING_BOX_BIN" check -c "$SBM_CONFIG"
@@ -51,15 +53,21 @@ ss -H -ltn 2>/dev/null | grep -q ':24617[[:space:]]'
 ss -H -ltn 2>/dev/null | grep -q ':24618[[:space:]]'
 kill "$runtime_pid"; wait "$runtime_pid" 2>/dev/null || true; runtime_pid=''
 
-for id in snell-test snell-http-test; do
-  node_share_uri "$id" | grep -Eq '^snell://.*version=4&userkey='
-  node_client_outbound "$id" | jq -e '.type=="snell" and .version==4 and .reuse==false and .network=="tcp" and (.psk|length)>=24 and (.userkey|length)>=24' >/dev/null
+for id in snell-test snell-http-test snell-default-test; do
+  node_share_uri "$id" | grep -Eq '^snell://.*version=4&reuse=false(\&obfs=http\&obfs-host=.*)?#'
+  node_client_outbound "$id" | jq -e '.type=="snell" and .version==4 and .reuse==false and .network=="tcp" and (.psk|length)>=24 and (.userkey|not)' >/dev/null
   ob=$(node_client_outbound "$id")
   cfg="$ROOT/client-$id.json"
   jq -n --argjson ob "$ob" --argjson port "$((20800 + RANDOM % 1000))" \
     '{log:{level:"error"},inbounds:[{type:"mixed",tag:"mixed-in",listen:"127.0.0.1",listen_port:$port}],outbounds:[$ob],route:{final:$ob.tag}}' >"$cfg"
   "$SBM_SING_BOX_BIN" check -c "$cfg"
 done
+node_share snell-test >/dev/null
+grep -Fq ' = snell, 192.0.2.1, 24616, psk=' "$SBM_EXPORTS/nodes/snell-test/default/surge.conf"
+jq -e '.proxies[0] | .type=="snell" and .version==4 and .reuse==false and .server=="192.0.2.1"' "$SBM_EXPORTS/nodes/snell-test/default/mihomo.json" >/dev/null
+node_share snell-http-test >/dev/null
+grep -Fq ', obfs=http, obfs-host=example.com' "$SBM_EXPORTS/nodes/snell-http-test/default/surge.conf"
+jq -e '.proxies[0]["obfs-opts"] == {mode:"http",host:"example.com"}' "$SBM_EXPORTS/nodes/snell-http-test/default/mihomo.json" >/dev/null
 node_share_uri snell-v6-test | grep -Eq '^snell://.*version=6&userkey=.*&mode=unsafe-raw'
 node_client_outbound snell-v6-test | jq -e '.type=="snell" and .version==6 and .mode=="unsafe-raw" and (.obfs_mode|not)' >/dev/null
 ob=$(node_client_outbound snell-v6-test)

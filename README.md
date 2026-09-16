@@ -294,13 +294,15 @@ sb traffic set hk-01 --quota 100G --dry-run
 
 ### Snell v5/v6
 
-Snell 需要 sing-box `1.14.0-rc.1` 或更高版本核心。新建节点默认使用 Snell v6（traffic shaping），可选 `default`、`unshaped` 或 `unsafe-raw`；v6 需要 `1.14.0-rc.2` 或更高版本。Snell v5 仍可用于兼容旧客户端，服务端使用 v5、客户端 outbound 使用兼容的 v4，并可按需设置 `--obfs http --obfs-host example.com`。v6 不支持 HTTP obfs。
+Snell 需要 sing-box `1.14.0-rc.1` 或更高版本核心。新建节点默认使用 Snell v5（服务端 v5、客户端使用兼容的 v4），分享链接可直接导入 Surge、mihomo 和 sing-box；可按需设置 `--obfs http --obfs-host example.com`。单用户 v5 节点不启用 sing-box 专属多用户扩展，因此三端可以使用同一组 PSK。为 Snell v5 添加第二个启用用户后会切换为 sing-box 多用户模式，此时 Surge/mihomo 不支持，应使用导出的 sing-box outbound。Snell v6 使用 traffic shaping，可选 `default`、`unshaped` 或 `unsafe-raw`，需要 `1.14.0-rc.2` 或更高版本，且 mihomo 不支持 v6。
 
 ```bash
 sb core update 1.14.0-rc.4
-sb node add snell --id snell-main --address YOUR_SERVER_IP --port 6160 --snell-version 6 --snell-mode default
+sb node add snell --id snell-main --address YOUR_SERVER_IP --port 6160 --snell-version 5
 sb share snell-main
 ```
+
+`sb share` 会同时保存 sing-box outbound、Surge 配置片段和 mihomo JSON/YAML 配置（位于 `exports/nodes/<节点>/<用户>/`）。
 
 ### Hysteria2（sing-box 1.14）
 
