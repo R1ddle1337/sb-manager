@@ -62,8 +62,11 @@ for id in snell-test snell-http-test snell-default-test; do
     '{log:{level:"error"},inbounds:[{type:"mixed",tag:"mixed-in",listen:"127.0.0.1",listen_port:$port}],outbounds:[$ob],route:{final:$ob.tag}}' >"$cfg"
   "$SBM_SING_BOX_BIN" check -c "$cfg"
 done
-node_share snell-test >/dev/null
+node_share snell-test >"$ROOT/snell-share.out"
 grep -Fq ' = snell, 192.0.2.1, 24616, psk=' "$SBM_EXPORTS/nodes/snell-test/default/surge.conf"
+cmp "$SBM_EXPORTS/nodes/snell-test/default/surge.conf" "$SBM_EXPORTS/nodes/snell-test/default/substore.txt"
+grep -Fq 'Sub-Store 单节点内容（复制下面这一行到本地订阅）' "$ROOT/snell-share.out"
+grep -Fq 'Snell v5 test = snell, 192.0.2.1, 24616, psk=' "$ROOT/snell-share.out"
 jq -e '.proxies[0] | .type=="snell" and .version==4 and .reuse==false and .server=="192.0.2.1"' "$SBM_EXPORTS/nodes/snell-test/default/mihomo.json" >/dev/null
 node_share snell-http-test >/dev/null
 grep -Fq ', obfs=http, obfs-host=example.com' "$SBM_EXPORTS/nodes/snell-http-test/default/surge.conf"

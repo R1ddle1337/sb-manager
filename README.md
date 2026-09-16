@@ -302,7 +302,7 @@ sb node add snell --id snell-main --address YOUR_SERVER_IP --port 6160 --snell-v
 sb share snell-main
 ```
 
-`sb share` 会同时保存 sing-box outbound、Surge 配置片段和 mihomo JSON/YAML 配置（位于 `exports/nodes/<节点>/<用户>/`）。
+`sb share` 会同时保存 sing-box outbound、Surge 配置片段和 mihomo JSON/YAML 配置（位于 `exports/nodes/<节点>/<用户>/`）。对于 Snell，终端还会直接打印一行 Sub-Store 可识别的单节点内容，可复制后在 Sub-Store 的本地订阅中添加；同一内容保存在 `substore.txt`。
 
 如果通过 Sub-Store 管理订阅，请使用 `sb subscription create 24h mixed` 输出的 **Sub-Store URL**（URL 带 `?format=substore`），不要把 sing-box JSON URL 当作普通 URI 订阅。该格式会把 Snell 转成 Sub-Store 能识别的 Surge 单行配置；Snell v6 需要将目标客户端设为支持 v6 的 Surge 或 sing-box，mihomo 仍不支持 v6。
 

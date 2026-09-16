@@ -82,7 +82,7 @@ export_substore_links() {
 }
 
 node_share() {
-  local id=$1 qr=${2:-0} user_id=${3:-} uri out_dir outbound node user secret node_secret protocol native
+  local id=$1 qr=${2:-0} user_id=${3:-} uri out_dir outbound node user secret node_secret protocol native substore_line
   [[ -n "$user_id" ]] || user_id=$(jq -r --arg id "$id" 'first(.nodes[] | select(.id==$id) | .users[] | select(.enabled==true) | .id) // empty' "$SBM_STATE")
   uri=$(node_share_uri "$id" "$user_id") || return 1
   out_dir="$SBM_EXPORTS/nodes/$id/$user_id"; mkdir -p "$out_dir"; chmod 0700 "$out_dir" 2>/dev/null || true
@@ -109,10 +109,18 @@ node_share() {
       log_warn '该 Snell 节点启用了 v6 或多用户模式，无法生成 mihomo 兼容配置；请使用 sing-box outbound。'
     fi
   fi
+  if substore_line=$(node_substore_line "$id" "$user_id" 2>/dev/null); then
+    printf '%s\n' "$substore_line" >"$out_dir/substore.txt"; chmod 0600 "$out_dir/substore.txt"
+  else
+    rm -f "$out_dir/substore.txt"
+  fi
   printf '\n%s节点/用户：%s/%s%s\n\n%s\n\n' "$C_BOLD" "$id" "$user_id" "$C_RESET" "$uri"
   printf 'sing-box 客户端 outbound：%s\n' "$out_dir/outbound.json"
   if [[ -r "$out_dir/surge.conf" ]]; then printf 'Surge 配置片段：%s\n' "$out_dir/surge.conf"; fi
   if [[ -r "$out_dir/mihomo.yaml" ]]; then printf 'mihomo 配置：%s\n' "$out_dir/mihomo.yaml"; fi
+  if [[ -r "$out_dir/substore.txt" ]]; then
+    printf '\nSub-Store 单节点内容（复制下面这一行到本地订阅）：\n%s\n' "$(<"$out_dir/substore.txt")"
+  fi
   if [[ "$qr" == 1 ]]; then
     if command_exists qrencode; then qrencode -t ANSIUTF8 "$uri"; else log_warn "未安装 qrencode，无法显示二维码。"; fi
   fi
