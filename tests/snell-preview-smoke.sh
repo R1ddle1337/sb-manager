@@ -68,11 +68,14 @@ jq -e '.proxies[0] | .type=="snell" and .version==4 and .reuse==false and .serve
 node_share snell-http-test >/dev/null
 grep -Fq ', obfs=http, obfs-host=example.com' "$SBM_EXPORTS/nodes/snell-http-test/default/surge.conf"
 jq -e '.proxies[0]["obfs-opts"] == {mode:"http",host:"example.com"}' "$SBM_EXPORTS/nodes/snell-http-test/default/mihomo.json" >/dev/null
-node_share_uri snell-v6-test | grep -Eq '^snell://.*version=6&userkey=.*&mode=unsafe-raw'
-node_client_outbound snell-v6-test | jq -e '.type=="snell" and .version==6 and .mode=="unsafe-raw" and (.obfs_mode|not)' >/dev/null
+node_share_uri snell-v6-test | grep -Eq '^snell://.*version=6&mode=unsafe-raw&reuse=false#'
+node_client_outbound snell-v6-test | jq -e '.type=="snell" and .version==6 and .mode=="unsafe-raw" and (.userkey|not) and (.obfs_mode|not)' >/dev/null
 ob=$(node_client_outbound snell-v6-test)
 jq -n --argjson ob "$ob" --argjson port 20899 '{log:{level:"error"},inbounds:[{type:"mixed",listen:"127.0.0.1",listen_port:$port}],outbounds:[$ob],route:{final:$ob.tag}}' >"$ROOT/client-v6.json"
 "$SBM_SING_BOX_BIN" check -c "$ROOT/client-v6.json"
+node_share snell-v6-test >/dev/null
+grep -Fq ', version=6, reuse=false, mode=unsafe-raw' "$SBM_EXPORTS/nodes/snell-v6-test/default/surge.conf"
+[[ ! -e "$SBM_EXPORTS/nodes/snell-v6-test/default/mihomo.yaml" ]]
 node_set snell-v6-test --snell-version 6 --snell-mode default
 [[ $(jq -r '.nodes[]|select(.id=="snell-v6-test")|.snell_mode' "$SBM_STATE") == default ]]
 "$SBM_SING_BOX_BIN" check -c "$SBM_CONFIG"

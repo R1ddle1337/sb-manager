@@ -14,7 +14,7 @@ protocol_snell_render() {
   snell_version=$(jq -r '.snell_version // 5' <<<"$node")
   snell_mode=$(jq -r '.snell_mode // "default"' <<<"$node")
   multiuser=false
-  if [[ "$snell_version" == 6 ]] || protocol_snell_multiuser "$node"; then multiuser=true; fi
+  protocol_snell_multiuser "$node" && multiuser=true
   base=$(jq -n \
     --arg tag "in-$(jq -r '.id' <<<"$node")" \
     --arg listen "$(jq -r '.listen // "::"' <<<"$node")" \
@@ -40,9 +40,12 @@ protocol_snell_share() {
   snell_version=$(jq -r '.snell_version // 5' <<<"$node")
   snell_mode=$(jq -r '.snell_mode // "default"' <<<"$node")
   multiuser=false
-  if [[ "$snell_version" == 6 ]] || protocol_snell_multiuser "$node"; then multiuser=true; fi
+  protocol_snell_multiuser "$node" && multiuser=true
   if [[ "$snell_version" == 6 ]]; then
-    uri="snell://$(urlencode "$psk")@${hp}?version=6&userkey=$(urlencode "$userkey")&mode=$(urlencode "$snell_mode")"
+    uri="snell://$(urlencode "$psk")@${hp}?version=6&mode=$(urlencode "$snell_mode")&reuse=false"
+    if [[ "$multiuser" == true ]]; then
+      uri+="&userkey=$(urlencode "$userkey")"
+    fi
   else
     uri="snell://$(urlencode "$psk")@${hp}?version=4&reuse=false"
     if [[ "$multiuser" == true ]]; then
@@ -66,7 +69,7 @@ protocol_snell_client_outbound() {
   client_version=4
   [[ "$snell_version" == 6 ]] && client_version=6
   multiuser=false
-  if [[ "$snell_version" == 6 ]] || protocol_snell_multiuser "$node"; then multiuser=true; fi
+  protocol_snell_multiuser "$node" && multiuser=true
   base=$(jq -n \
     --arg tag "proxy-$(jq -r '.id' <<<"$node")" \
     --arg server "$(jq -r '.server_address // ""' <<<"$node")" \
@@ -85,19 +88,25 @@ protocol_snell_client_outbound() {
 }
 
 protocol_snell_surge_share() {
-  local node=$1 secret=$2 node_secret=${3:-'{}'} address port psk name snell_version obfs_mode obfs_host
+  local node=$1 secret=$2 node_secret=${3:-'{}'} address port psk name snell_version obfs_mode obfs_host client_version snell_mode
   address=$(jq -r '.server_address // ""' <<<"$node")
   port=$(jq -r '.port' <<<"$node")
   psk=$(jq -r '.psk' <<<"$node_secret")
   name=$(jq -r '.name' <<<"$node")
   snell_version=$(jq -r '.snell_version // 5' <<<"$node")
-  [[ "$snell_version" == 5 ]] || return 1
+  [[ "$snell_version" == 5 || "$snell_version" == 6 ]] || return 1
   protocol_snell_multiuser "$node" && return 1
   obfs_mode=$(jq -r '.obfs_mode // "none"' <<<"$node")
   obfs_host=$(jq -r '.obfs_host // "bing.com"' <<<"$node")
-  printf '%s = snell, %s, %s, psk=%s, version=4, reuse=false' "$name" "$address" "$port" "$psk"
-  if [[ "$obfs_mode" == http ]]; then
+  snell_mode=$(jq -r '.snell_mode // "default"' <<<"$node")
+  client_version=4
+  [[ "$snell_version" == 6 ]] && client_version=6
+  printf '%s = snell, %s, %s, psk=%s, version=%s, reuse=false' "$name" "$address" "$port" "$psk" "$client_version"
+  if [[ "$snell_version" == 5 && "$obfs_mode" == http ]]; then
     printf ', obfs=http, obfs-host=%s' "$obfs_host"
+  fi
+  if [[ "$snell_version" == 6 ]]; then
+    printf ', mode=%s' "$snell_mode"
   fi
   printf '\n'
 }

@@ -256,7 +256,7 @@ ui_add_node() {
       ;;
     10)
       prompt_value name '节点名称' 'Snell'; prompt_value address '客户端连接地址（域名或 IP）' "$(ui_client_address_default '')"; ui_prompt_port port tcp 'TCP 端口' 6160 443 8443 9443 10443
-      printf '1. Snell v5（默认，兼容 Surge/mihomo/sing-box，可选 HTTP obfs）\n2. Snell v6（traffic shaping，仅支持新版客户端）\n'; prompt_value snell_version_choice '选择 Snell 版本' '1'
+      printf '1. Snell v5（默认，兼容 Surge/mihomo/sing-box，可选 HTTP obfs）\n2. Snell v6（traffic shaping，Surge Beta/sing-box；mihomo 不支持）\n'; prompt_value snell_version_choice '选择 Snell 版本' '1'
       case "$snell_version_choice" in
         1)
           printf '1. 不启用 HTTP 混淆（默认）\n2. HTTP 混淆\n'; prompt_value snell_obfs_choice '选择混淆' '1'
