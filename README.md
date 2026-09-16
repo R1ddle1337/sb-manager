@@ -304,6 +304,8 @@ sb share snell-main
 
 `sb share` 会同时保存 sing-box outbound、Surge 配置片段和 mihomo JSON/YAML 配置（位于 `exports/nodes/<节点>/<用户>/`）。
 
+如果通过 Sub-Store 管理订阅，请使用 `sb subscription create 24h mixed` 输出的 **Sub-Store URL**（URL 带 `?format=substore`），不要把 sing-box JSON URL 当作普通 URI 订阅。该格式会把 Snell 转成 Sub-Store 能识别的 Surge 单行配置；Snell v6 需要将目标客户端设为支持 v6 的 Surge 或 sing-box，mihomo 仍不支持 v6。
+
 ### Hysteria2（sing-box 1.14）
 
 1.14 核心支持 Gecko QUIC 混淆（可调链路包长）和 Chrome QUIC 指纹伪装开关。面板添加 Hysteria2 时会让你选择无混淆、Salamander 或 Gecko；Gecko 默认包长为 512–1200 字节，也可以通过 CLI 调整：

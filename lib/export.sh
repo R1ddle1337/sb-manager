@@ -50,6 +50,37 @@ node_client_outbound() {
   jq --arg tag "$tag" '.tag=$tag' <<<"$outbound"
 }
 
+node_substore_line() {
+  local id=$1 user_id=${2:-} node user secret node_secret='{}' protocol
+  node=$(state_get_node "$id"); [[ -n "$node" ]] || die "节点不存在：$id"
+  if declare -F nginx_stream_public_node >/dev/null 2>&1; then node=$(nginx_stream_public_node "$node"); fi
+  [[ -n "$user_id" ]] || user_id=$(jq -r 'first(.users[] | select(.enabled==true) | .id) // empty' <<<"$node")
+  [[ -n "$user_id" ]] || die "节点没有启用用户：$id"
+  protocol=$(jq -r '.protocol' <<<"$node")
+  if [[ "$protocol" != snell ]]; then
+    node_share_uri "$id" "$user_id"
+    return
+  fi
+  user=$(state_get_user "$id" "$user_id")
+  secret=$(jq -s '.[0]+.[1]' <(printf '%s\n' "$user") <(state_get_user_secret "$id" "$user_id"))
+  [[ ! -r $(state_secret_path "$id") ]] || node_secret=$(state_get_secret "$id")
+  protocol_snell_surge_share "$node" "$secret" "$node_secret"
+}
+
+export_substore_links() {
+  local output=${1:-$SBM_EXPORTS/substore.txt} node id user_id line tmp
+  mkdir -p "$(dirname "$output")"
+  tmp=$(mktemp "$(dirname "$output")/.substore.XXXXXX")
+  while IFS= read -r node; do
+    id=$(jq -r '.id' <<<"$node")
+    while IFS= read -r user_id; do
+      if line=$(node_substore_line "$id" "$user_id" 2>/dev/null); then printf '%s\n' "$line" >>"$tmp"; fi
+    done < <(jq -r '.users[] | select(.enabled==true) | .id' <<<"$node")
+  done < <(jq -c '.nodes[]? | select(.enabled==true)' "$SBM_STATE")
+  chmod 0600 "$tmp"
+  mv "$tmp" "$output"
+}
+
 node_share() {
   local id=$1 qr=${2:-0} user_id=${3:-} uri out_dir outbound node user secret node_secret protocol native
   [[ -n "$user_id" ]] || user_id=$(jq -r --arg id "$id" 'first(.nodes[] | select(.id==$id) | .users[] | select(.enabled==true) | .id) // empty' "$SBM_STATE")
@@ -88,7 +119,7 @@ node_share() {
 }
 
 node_share_all() {
-  local node id user_id uri file="$SBM_EXPORTS/links.txt" tmp
+  local node id user_id uri file="$SBM_EXPORTS/links.txt" substore_file="$SBM_EXPORTS/substore.txt" tmp
   mkdir -p "$SBM_EXPORTS"; tmp=$(mktemp "$SBM_EXPORTS/.links.XXXXXX")
   while IFS= read -r node; do
     id=$(jq -r '.id' <<<"$node")
@@ -97,8 +128,9 @@ node_share_all() {
     done < <(jq -r '.users[] | select(.enabled==true) | .id' <<<"$node")
   done < <(jq -c '.nodes[]? | select(.enabled==true)' "$SBM_STATE")
   chmod 0600 "$tmp"; mv "$tmp" "$file"
+  export_substore_links "$substore_file"
   cat "$file"
-  printf '\n已保存：%s\n' "$file"
+  printf '\n通用链接已保存：%s\nSub-Store 兼容订阅已保存：%s\n' "$file" "$substore_file"
 }
 
 export_all_outbounds() {

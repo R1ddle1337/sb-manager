@@ -26,6 +26,7 @@ source "$PROJECT/protocols/tuic.sh"
 source "$PROJECT/protocols/vless.sh"
 source "$PROJECT/protocols/naive.sh"
 source "$PROJECT/protocols/shadowtls.sh"
+source "$PROJECT/protocols/snell.sh"
 source "$PROJECT/lib/render.sh"
 source "$PROJECT/lib/core.sh"
 source "$PROJECT/lib/node.sh"
@@ -34,18 +35,24 @@ source "$PROJECT/lib/subscription.sh"
 
 state_init
 node_add ss --id sub-test --port 28388 --address 192.0.2.1 >/dev/null
+node_add snell --id sub-snell-test --name 'SubStore Snell v6' --port 28389 --address 192.0.2.1 --snell-version 6 --snell-mode unshaped >/dev/null
 created=$(subscription_create 24h mixed)
-token=$(sed -n 's#.*127\.0\.0\.1:19080/sub/##p' <<<"$created")
+token=$(sed -n 's#^本机 URL：http://127\.0\.0\.1:19080/sub/##p' <<<"$created")
 [[ "$token" =~ ^[A-Za-z0-9_-]{32,128}$ ]]
 digest=$(printf '%s' "$token" | sha256sum | awk '{print $1}')
-[[ -s "$SBM_SUBSCRIPTIONS/$digest.profile.json" && -s "$SBM_SUBSCRIPTIONS/$digest.meta.json" ]]
+[[ -s "$SBM_SUBSCRIPTIONS/$digest.profile.json" && -s "$SBM_SUBSCRIPTIONS/$digest.substore.txt" && -s "$SBM_SUBSCRIPTIONS/$digest.meta.json" ]]
+grep -Fq 'SubStore Snell v6 = snell, 192.0.2.1, 28389, psk=' "$SBM_SUBSCRIPTIONS/$digest.substore.txt"
+grep -Fq ', version=6, reuse=false, mode=unshaped' "$SBM_SUBSCRIPTIONS/$digest.substore.txt"
 
 python3 "$PROJECT/libexec/subscription_server.py" --root "$SBM_SUBSCRIPTIONS" --listen 127.0.0.1 --port "$SBM_SUBSCRIPTION_PORT" >"$ROOT/server.log" 2>&1 &
 server_pid=$!
 for _ in {1..20}; do curl -fsS "http://127.0.0.1:$SBM_SUBSCRIPTION_PORT/sub/$token" -o "$ROOT/fetched.json" && break; sleep 0.1; done
 cmp "$ROOT/fetched.json" "$SBM_SUBSCRIPTIONS/$digest.profile.json"
 "$SBM_SING_BOX_BIN" check -c "$ROOT/fetched.json"
+curl -fsS "http://127.0.0.1:$SBM_SUBSCRIPTION_PORT/sub/$token?format=substore" -o "$ROOT/fetched-substore.txt"
+cmp "$ROOT/fetched-substore.txt" "$SBM_SUBSCRIPTIONS/$digest.substore.txt"
 ! grep -Fq "$token" "$ROOT/server.log"
 subscription_revoke "$token" >/dev/null
+[[ ! -e "$SBM_SUBSCRIPTIONS/$digest.substore.txt" ]]
 [[ $(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:$SBM_SUBSCRIPTION_PORT/sub/$token") == 404 ]]
 printf 'SUBSCRIPTION SMOKE PASSED\n'

@@ -86,19 +86,21 @@ subscription_reconcile() {
 }
 
 _subscription_create() {
-  local duration=${1:-7d} mode=${2:-mixed} seconds now expires token digest profile meta
+  local duration=${1:-7d} mode=${2:-mixed} seconds now expires token digest profile substore_profile meta
   seconds=$(subscription_duration_seconds "$duration"); now=$(date +%s); expires=$((now + seconds))
   token=$(random_password 36); digest=$(printf '%s' "$token" | sha256sum | awk '{print $1}')
   mkdir -p "$SBM_SUBSCRIPTIONS"
-  profile="$SBM_SUBSCRIPTIONS/$digest.profile.json"; meta="$SBM_SUBSCRIPTIONS/$digest.meta.json"
+  profile="$SBM_SUBSCRIPTIONS/$digest.profile.json"; substore_profile="$SBM_SUBSCRIPTIONS/$digest.substore.txt"; meta="$SBM_SUBSCRIPTIONS/$digest.meta.json"
   export_client_config "$profile" "$mode"
+  export_substore_links "$substore_profile"
   jq -n --arg id "${digest:0:12}" --arg mode "$mode" --argjson created "$now" --argjson expires "$expires" \
     '{schema_version:1,id:$id,mode:$mode,created_at_epoch:$created,expires_at_epoch:$expires}' >"$meta.tmp"
-  chmod 0640 "$profile" "$meta.tmp"
-  chgrp "$SBM_SERVICE_USER" "$profile" "$meta.tmp" 2>/dev/null || true
+  chmod 0640 "$profile" "$substore_profile" "$meta.tmp"
+  chgrp "$SBM_SERVICE_USER" "$profile" "$substore_profile" "$meta.tmp" 2>/dev/null || true
   mv -f "$meta.tmp" "$meta"
   subscription_reconcile 1
-  printf '订阅 ID：%s\n有效期至 epoch：%s\n本机 URL：http://127.0.0.1:%s/sub/%s\n' "${digest:0:12}" "$expires" "$SBM_SUBSCRIPTION_PORT" "$token"
+  printf '订阅 ID：%s\n有效期至 epoch：%s\n本机 URL：http://127.0.0.1:%s/sub/%s\nSub-Store URL：http://127.0.0.1:%s/sub/%s?format=substore\n' \
+    "${digest:0:12}" "$expires" "$SBM_SUBSCRIPTION_PORT" "$token" "$SBM_SUBSCRIPTION_PORT" "$token"
   log_warn '订阅令牌只显示一次。不要直接向公网开放该端口；请使用 SSH 转发或受认证的 TLS 代理。'
 }
 subscription_create() { with_lock _subscription_create "$@"; }
@@ -128,7 +130,7 @@ _subscription_revoke() {
   local token=$1 digest
   digest=$(printf '%s' "$token" | sha256sum | awk '{print $1}')
   [[ -f "$SBM_SUBSCRIPTIONS/$digest.meta.json" ]] || die '订阅令牌不存在。'
-  rm -f "$SBM_SUBSCRIPTIONS/$digest.meta.json" "$SBM_SUBSCRIPTIONS/$digest.profile.json"
+  rm -f "$SBM_SUBSCRIPTIONS/$digest.meta.json" "$SBM_SUBSCRIPTIONS/$digest.profile.json" "$SBM_SUBSCRIPTIONS/$digest.substore.txt"
   log_ok "订阅已撤销：${digest:0:12}"
 }
 subscription_revoke() { with_lock _subscription_revoke "$@"; }

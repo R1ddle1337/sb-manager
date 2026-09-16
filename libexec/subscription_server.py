@@ -10,6 +10,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{32,128}$")
 
@@ -33,17 +34,28 @@ class Handler(BaseHTTPRequestHandler):
         if len(self.path) > 512:
             self.send_error(414)
             return
+        request_url = urlsplit(self.path)
         prefix = "/sub/"
-        if not self.path.startswith(prefix):
+        if not request_url.path.startswith(prefix):
             self.send_error(404)
             return
-        token = self.path[len(prefix) :].split("?", 1)[0]
+        token = request_url.path[len(prefix) :]
         if not TOKEN_RE.fullmatch(token):
             self.send_error(404)
             return
+        formats = parse_qs(request_url.query).get("format", ["sing-box"])
+        if len(formats) != 1 or formats[0] not in {"sing-box", "substore"}:
+            self.send_error(400, "Unsupported subscription format")
+            return
+        output_format = formats[0]
         digest = hashlib.sha256(token.encode()).hexdigest()
         meta_path = self.root / f"{digest}.meta.json"
-        profile_path = self.root / f"{digest}.profile.json"
+        if output_format == "substore":
+            profile_path = self.root / f"{digest}.substore.txt"
+            content_type = "text/plain; charset=utf-8"
+        else:
+            profile_path = self.root / f"{digest}.profile.json"
+            content_type = "application/json; charset=utf-8"
         try:
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
             if int(meta["expires_at_epoch"]) <= int(time.time()):
@@ -57,7 +69,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(500)
             return
         self.send_response(200)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
