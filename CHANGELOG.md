@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.1.0-alpha.30
+
+- Export single-user Snell v5 to Surge, mihomo, sing-box, and Sub-Store, and
+  make v5 the compatibility-first default for newly created nodes.
+- Export single-user Snell v6 to supported Surge Beta/TestFlight and sing-box
+  clients while clearly excluding unsupported mihomo targets.
+- Print copyable Sub-Store single-node entries and serve a dedicated mixed
+  Sub-Store subscription format instead of relying on unsupported `snell://`
+  parsing.
 - Add a real local Snell end-to-end handshake to `sb probe` and print the
   required Surge Beta/TestFlight version and cloud TCP-port reminder for v6.
 - Fix manager self-updates started from an installer-launched interactive panel
