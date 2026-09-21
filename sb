@@ -43,6 +43,8 @@ source "$SBM_LIB/lib/api.sh"
 source "$SBM_LIB/lib/realm.sh"
 source "$SBM_LIB/lib/bbr.sh"
 source "$SBM_LIB/lib/hysteria2_tuning.sh"
+source "$SBM_LIB/lib/tcp_tuning.sh"
+source "$SBM_LIB/lib/network.sh"
 source "$SBM_LIB/lib/backup.sh"
 source "$SBM_LIB/lib/doctor.sh"
 source "$SBM_LIB/lib/uninstall.sh"
@@ -87,6 +89,9 @@ sb-manager：状态驱动的 sing-box 多协议管理器
   sb realm enable PORT PUBLIC_URL [--listen ADDRESS] [--tls-domain DOMAIN] [--max-realms N]
   sb realm disable|status [--json]|show-token
   sb bbr enable|disable|status [--json]
+  sb tcp plan|enable --bandwidth Mbps --rtt MS [--dry-run] [--json]
+  sb tcp status [--json]|disable   TCP 自适应缓冲区、MTU 黑洞探测与恢复
+  sb network ping HOST [--count 1-30] [--ipv4|--ipv6] [--json]
   sb hy2 buffer enable|disable|status [--json]
   sb mux status [--json]|enable [PORT]|disable|route list|route add NODE_ID SNI [BACKEND_PORT]|route remove NODE_ID
   sb traffic status [NODE_ID] [--json]
@@ -153,6 +158,8 @@ main() {
   case "$cmd" in
     -h|--help|help) sb_help; return 0;;
     -V|--version|version) printf 'sb-manager %s\n' "$SBM_VERSION"; return 0;;
+    tcp) shift; require_command jq; tcp_tuning_cli "$@"; return $?;;
+    network) shift; require_command jq; network_cli "$@"; return $?;;
     update) shift; manager_update "$@"; return $? ;;
     uninstall)
       [[ ${SBM_TEST_MODE:-0} == 1 ]] || require_root

@@ -36,6 +36,9 @@ settings_menu=$(ui_settings_menu)
 grep -Fq 'Nginx Stream 443/TCP 多协议复用' <<<"$settings_menu"
 grep -Fq '出站 IP 优先级' <<<"$settings_menu"
 grep -Fq 'Hysteria2 UDP 缓冲区优化' <<<"$settings_menu"
+grep -Fq '按带宽/延迟优化 TCP' <<<"$settings_menu"
+doctor_menu=$(ui_doctor_menu)
+grep -Fq '网络延迟、丢包与抖动检测' <<<"$doctor_menu"
 firewall_menu=$(ui_firewall_menu)
 grep -Fq '查看所有协议端口' <<<"$firewall_menu"
 grep -Fq 'UFW allow' <<<"$firewall_menu"

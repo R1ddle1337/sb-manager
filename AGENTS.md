@@ -31,6 +31,8 @@ Name new tests `tests/<feature>-smoke.sh` or extend `tests/run.sh` for protocol 
 
 Follow the existing Conventional Commit style: `feat:`, `fix:`, `test:`, or `chore:` followed by an imperative summary. Keep commits scoped and reviewable. Pull requests should explain behavior changes, migration or rollback risk, supported distributions, and commands run. Include terminal output for CLI changes and update `README.md`, `CHANGELOG.md`, `VERSION`, or state documentation when relevant.
 
+For every completed change, increment `VERSION`, synchronize the fallback and current-version documentation, update `CHANGELOG.md`, then commit and push to the GitHub repository. Keep Alpine/BusyBox and OpenRC compatibility alongside Debian/systemd. When the designated remote test host is unavailable, use isolated local/container checks and explicitly record the missing remote acceptance.
+
 ## Security & Configuration Tips
 
 Treat backups, exports, API tokens, node credentials, and private keys as secrets. Never commit generated configs or runtime data. Verify downloaded artifacts, retain least-privilege service settings, and do not automatically alter host firewalls.

@@ -411,8 +411,8 @@ ui_realm_menu() {
 }
 
 ui_doctor_menu() {
-  local c
-  printf '1. 运行完整诊断\n2. 自动修复权限、配置与服务\n3. 低风险自动修复（不改防火墙/SSH/内核）\n4. 协调/重启 sing-box 服务\n5. 查看 sing-box 最近日志\n0. 返回\n'
+  local c host count family
+  printf '1. 运行完整诊断\n2. 自动修复权限、配置与服务\n3. 低风险自动修复（不改防火墙/SSH/内核）\n4. 协调/重启 sing-box 服务\n5. 查看 sing-box 最近日志\n6. 网络延迟、丢包与抖动检测\n0. 返回\n'
   prompt_value c '选择操作' '0'
   case "$c" in
     1) doctor_run || true;;
@@ -420,6 +420,12 @@ ui_doctor_menu() {
     3) doctor_run 0 0 1 || true;;
     4) singbox_service_reconcile && status_summary || true;;
     5) show_logs singbox 100;;
+    6)
+      prompt_value host '目标主机名或 IP' ''
+      prompt_value count '探测次数（1–30）' '10'
+      prompt_value family 'IP 协议（auto/4/6）' 'auto'
+      network_ping "$host" "$count" "$family" || true
+      ;;
   esac
 }
 
@@ -481,7 +487,7 @@ ui_nginx_stream_menu() {
 
 ui_settings_menu() {
   local c v strategy_choice dns_choice dns_value
-  printf '1. 设置默认服务器地址\n2. 修改日志级别\n3. Nginx Stream 443/TCP 多协议复用\n4. 出站 IP 优先级\n5. 配置校验与差异预览\n6. sing-box 1.14 DNS 优化\n7. 一键开启/恢复 BBR\n8. Hysteria2 UDP 缓冲区优化\n0. 返回\n'; prompt_value c '选择操作' '0'
+  printf '1. 设置默认服务器地址\n2. 修改日志级别\n3. Nginx Stream 443/TCP 多协议复用\n4. 出站 IP 优先级\n5. 配置校验与差异预览\n6. sing-box 1.14 DNS 优化\n7. 一键开启/恢复 BBR\n8. Hysteria2 UDP 缓冲区优化\n9. 按带宽/延迟优化 TCP\n0. 返回\n'; prompt_value c '选择操作' '0'
   case "$c" in
     1) prompt_value v '域名或 IP' ''; settings_set_default_address "$v";;
     2) prompt_value v '日志级别 (trace/debug/info/warn/error/fatal/panic)' 'info'; settings_set_log_level "$v";;
@@ -514,6 +520,24 @@ ui_settings_menu() {
       printf '1. 开启官方建议值（rmem_max/wmem_max = 16 MiB）\n2. 恢复开启前设置\n0. 返回\n'; prompt_value v '选择 Hysteria2 UDP 缓冲区操作' '0'
       case "$v" in 1) hy2_udp_buffer_enable;; 2) confirm '确认恢复 Hysteria2 UDP 缓冲区启用前的 sysctl？' N && hy2_udp_buffer_disable;; esac
       ;;
+    9) ui_tcp_tuning_menu;;
+  esac
+}
+
+ui_tcp_tuning_menu() {
+  local c bandwidth rtt plan
+  tcp_tuning_status || return
+  printf '\n1. 预览 TCP 调优参数\n2. 预览并应用 TCP 调优\n3. 恢复首次启用前的设置\n0. 返回\n'
+  prompt_value c '选择操作' '0'
+  case "$c" in
+    1|2)
+      prompt_value bandwidth '线路带宽（Mbps，整数）' '500'
+      prompt_value rtt '典型客户端 RTT（ms，整数）' '100'
+      plan=$(tcp_tuning_plan "$bandwidth" "$rtt") || return
+      tcp_tuning_show_plan "$plan"
+      if [[ "$c" == 2 ]] && confirm '应用以上 TCP 参数？' N; then tcp_tuning_enable "$bandwidth" "$rtt"; fi
+      ;;
+    3) confirm '恢复首次 TCP 调优前的 sysctl？' N && tcp_tuning_disable;;
   esac
 }
 

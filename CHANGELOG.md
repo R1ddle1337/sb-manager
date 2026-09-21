@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 0.1.0-alpha.31
+
+- Add bandwidth/RTT-based TCP buffer planning and tuning with memory/cgroup
+  caps, readback verification, protected backups, retryable rollback, restore,
+  conflict reporting, CLI JSON/dry-run output, and panel controls.
+- Add bounded IPv4/IPv6 latency, packet-loss, and RTT-jitter diagnostics using
+  local iputils/BusyBox ping, with JSON output and a panel entry.
+- Keep TCP tuning independent of BBR and Hysteria2 UDP settings; restore its
+  original values before uninstalling. Support Alpine/BusyBox/OpenRC alongside
+  Debian/systemd without changing proxy state or installing another kernel.
+- Add isolated fault-injection tests and an Alpine container smoke suite.
+  Remote Debian acceptance is pending because no test host is available.
+
 ## 0.1.0-alpha.30
 
 - Export single-user Snell v5 to Surge, mihomo, sing-box, and Sub-Store, and

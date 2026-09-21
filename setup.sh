@@ -478,6 +478,8 @@ source "$TARGET_LIB/lib/api.sh"
 source "$TARGET_LIB/lib/realm.sh"
 source "$TARGET_LIB/lib/bbr.sh"
 source "$TARGET_LIB/lib/hysteria2_tuning.sh"
+source "$TARGET_LIB/lib/tcp_tuning.sh"
+source "$TARGET_LIB/lib/network.sh"
 
 if [[ "$TEST_MODE" != 1 ]]; then require_init_system; fi
 BACKEND=$(init_system 2>/dev/null || true)

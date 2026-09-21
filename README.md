@@ -2,7 +2,7 @@
 
 `sb-manager` 是一个面向 systemd/OpenRC Linux 的、状态驱动的 sing-box 多协议管理脚本。安装后输入 `sb` 即可打开中文交互面板，也可以使用完整的非交互 CLI。
 
-> 当前版本：`0.1.0-alpha.30`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
+> 当前版本：`0.1.0-alpha.31`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
 
 ## 功能
 
@@ -175,7 +175,7 @@ sudo bash install.sh
 bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/install.sh)
 ```
 
-`install.sh` 默认先解析 `main` 的最新 commit SHA，再按该不可变 commit 下载源码；也可设置 `SBM_INSTALL_REF=v0.1.0-alpha.30` 固定版本。显式指定 `main` 等可变分支仍需 `SBM_ALLOW_MUTABLE_REF=1`。离线发布包可使用 `build-release.sh` 生成，并核验 `SHA256SUMS`、`PROVENANCE-SHA256SUMS` 及可选的 GPG 签名文件。
+`install.sh` 默认先解析 `main` 的最新 commit SHA，再按该不可变 commit 下载源码；也可设置 `SBM_INSTALL_REF=v0.1.0-alpha.31` 固定版本。显式指定 `main` 等可变分支仍需 `SBM_ALLOW_MUTABLE_REF=1`。离线发布包可使用 `build-release.sh` 生成，并核验 `SHA256SUMS`、`PROVENANCE-SHA256SUMS` 及可选的 GPG 签名文件。
 
 同一台服务器可以重复执行安装器。重复安装会保留 `/etc/sb-manager` 下的节点、密钥、证书和备份，并重新生成服务定义；默认会复用已安装的 sing-box 核心。升级管理器脚本时可直接执行：
 
@@ -225,6 +225,35 @@ sb health enable 21              # 启用定时健康检查，证书提前 21 �
 sb config validate --json        # 校验 state、渲染结果和 sing-box 配置
 sb config diff --json             # 查看脱敏后的已安装配置差异
 ```
+
+### 按带宽与延迟优化 TCP
+
+面板入口：“全局设置 → 按带宽/延迟优化 TCP”。先输入线路带宽和典型客户端 RTT，查看参数预览后应用：
+
+```bash
+sb tcp plan --bandwidth 500 --rtt 200 --json
+sb tcp enable --bandwidth 500 --rtt 200 --dry-run
+sb tcp enable --bandwidth 500 --rtt 200
+sb tcp status --json
+sb tcp disable       # 恢复首次启用前的运行值和配置文件
+```
+
+根据 `2 × 带宽 × RTT` 计算 TCP 自动调节的收发缓冲区上限，向上取整到 MiB，建议下限 4 MiB；随后限制到有效内存的 1/32（向下取整到 MiB）与 64 MiB 两者中的较小值。内存读取 `/proc/meminfo`，并考虑可见的 cgroup v2/v1 内存限额；例如 128 MiB 容器最多建议 4 MiB。保留现有最小值/默认值，启用 `tcp_moderate_rcvbuf=1` 和仅在黑洞检测时启动的 `tcp_mtu_probing=1`。这是每个 socket、每个方向的上限，不是全部连接的总内存预算，不能保证消除 OOM 或提升吞吐。
+
+配置保存在 `/etc/sysctl.d/99-sb-manager-tcp.conf`，原值和事务备份保存在权限为 `0700` 的 `/var/lib/sb-manager/tcp-tuning/`。应用后逐项读回验证；调整失败恢复本次操作前的配置，`disable` 和卸载恢复首次启用前的设置。中断或回滚失败时保留备份，下次启用/停用先重试恢复。其他 sysctl 文件中的重叠配置会在预览中列出，需自行核对启动后的实际值。
+
+此功能独立于 BBR 和 Hysteria2 UDP 缓冲区，不修改它们的参数；支持 Debian/systemd 和 Alpine/BusyBox/OpenRC，持久化由系统已有的 sysctl 启动服务加载。容器需允许修改对应的网络命名空间参数。功能参考 [vps-tcp-tune](https://github.com/Eric86777/vps-tcp-tune) 的带宽/延迟调优思路，评估与验证范围见 [借鉴说明](docs/TCP_NETWORK_TUNING.md)。
+
+### 网络延迟、丢包与抖动检测
+
+面板入口：“诊断与修复 → 网络延迟、丢包与抖动检测”。支持主机名、IPv4、IPv6，输出丢包率、最小/平均/最大 RTT，以及相邻收到的响应之间 RTT 差值绝对值的平均数（抖动）：
+
+```bash
+sb network ping example.com --count 10 --ipv4
+sb network ping 2606:4700:4700::1111 --count 10 --ipv6 --json
+```
+
+使用本机 `ping`（兼容 iputils 和 Alpine BusyBox）与 `timeout`，不下载检测脚本；次数限制为 1–30，并限制整体执行时间。Debian 缺少 `ping` 时可安装 `iputils-ping`；Alpine 使用自带 BusyBox。ICMP 不响应也可能是目标禁用了 ICMP，不能据此判定代理协议故障。以上预览、状态和网络诊断命令支持普通用户运行，不初始化管理器状态。
 
 ### 一键开启 BBR
 

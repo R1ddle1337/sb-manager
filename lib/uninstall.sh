@@ -36,6 +36,10 @@ uninstall_manager() {
   fi
   if [[ "$assume_yes" != 1 ]]; then confirm "$message" N || return 0; fi
 
+  if [[ -e "$SBM_TCP_BACKUP_DIR/original" || -e "$SBM_TCP_BACKUP_DIR/pending" ]] || tcp_tuning_managed; then
+    tcp_tuning_disable || die "无法恢复 TCP 调优前的 sysctl；卸载已取消，请检查 $SBM_TCP_BACKUP_DIR。"
+  fi
+
   if [[ -s "$SBM_BBR_BACKUP_META" ]] || bbr_config_managed; then
     bbr_restore_previous || die "无法恢复 BBR 启用前的 sysctl；卸载已取消，请检查 $SBM_BBR_BACKUP_DIR。"
     log_info '已恢复 BBR 启用前的 sysctl 配置。'

@@ -75,6 +75,18 @@ On OpenRC, sing-box runs through `supervise-daemon` as root so low ports remain 
 
 The default installer uses the `minimal` profile. It installs the manager's small command-line base, the sing-box core and the Alpine `gcompat`/OpenRC runtime, but does not download Cloudflared or install Python, nftables, kmod, dcron or Nginx. Feature modules call the dependency resolver immediately before use (`subscription`, `traffic`, `bbr`, `probe`, `scheduler`, and `logrotate`). This keeps the first boot suitable for a roughly 1GB disk while preserving the full feature set for larger hosts.
 
+TCP tuning is an explicit host operation in `lib/tcp_tuning.sh`, independent of
+proxy state, BBR, and UDP tuning. It manages only `tcp_rmem`, `tcp_wmem`,
+`tcp_moderate_rcvbuf`, and `tcp_mtu_probing`. Under the manager lock, it saves
+the current values and owned file in a durable pending snapshot before
+atomically installing the candidate and verifying all runtime values. A
+separate original snapshot survives successful retuning; failed retuning
+restores the previous active configuration. Pending recovery runs before the
+next mutation. Restore never replays unrelated sysctl keys from a saved file.
+The OS sysctl boot service loads the manager-owned drop-in on both systemd
+and OpenRC. Read-only planning/status and `lib/network.sh` diagnostics bypass
+state initialization, require no root access, and install no dependencies.
+
 ## Exposure model
 
 ```text
