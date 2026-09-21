@@ -159,3 +159,21 @@ still references it, preserving an atomic reachable configuration.
 `SBM_RELEASE_SIGNING_KEY` with a local GPG key to emit detached signatures for
 the manifest and checksums. Remote bootstrap installs require an immutable
 `SBM_INSTALL_REF` (tag or commit) and can enforce a source archive SHA-256.
+
+
+Optional operations in alpha.32 extend the existing lock and state model:
+`lib/expiry.sh` suspends expired nodes through state transactions from the traffic
+maintenance schedule; `lib/traffic_groups.sh` adds shared nft quota objects and
+group counters to the existing usage journal. `lib/shaping.sh` explicitly owns
+one interface's downstream HTB tree, preserves its original qdiscs, and retains
+nft policing for upstream, loopback, and other interfaces. No shaping runs by
+default. `lib/tunnel_routes.sh` renders locally managed Cloudflared ingress from
+state and validates it with the installed binary before activation.
+
+`lib/substore.sh` verifies official backend/frontend Release digests, uses a
+loopback listener with a protected random API path, and manages systemd/OpenRC
+services. Its transaction copies program/data/settings before replacement and
+restores them on failure. Dedicated and full manager backups pause the component
+for a consistent data snapshot. Archive extraction rejects links, special files,
+path traversal and oversized content. `lib/benchmark.sh` runs bounded iperf3
+clients and stores protected JSON history independently of proxy state.

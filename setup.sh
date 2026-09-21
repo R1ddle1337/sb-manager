@@ -462,10 +462,14 @@ source "$TARGET_LIB/protocols/trojan.sh"
 source "$TARGET_LIB/protocols/tuic.sh"
 source "$TARGET_LIB/protocols/vless.sh"
 source "$TARGET_LIB/protocols/naive.sh"
+source "$TARGET_LIB/protocols/proxy.sh"
 source "$TARGET_LIB/protocols/shadowtls.sh"
 source "$TARGET_LIB/protocols/snell.sh"
 source "$TARGET_LIB/lib/render.sh"
 source "$TARGET_LIB/lib/traffic.sh"
+source "$TARGET_LIB/lib/traffic_groups.sh"
+source "$TARGET_LIB/lib/shaping.sh"
+source "$TARGET_LIB/lib/expiry.sh"
 source "$TARGET_LIB/lib/notification.sh"
 source "$TARGET_LIB/lib/health.sh"
 source "$TARGET_LIB/lib/status.sh"
@@ -473,13 +477,16 @@ source "$TARGET_LIB/lib/config.sh"
 source "$TARGET_LIB/lib/template.sh"
 source "$TARGET_LIB/lib/core.sh"
 source "$TARGET_LIB/lib/tunnel.sh"
+source "$TARGET_LIB/lib/tunnel_routes.sh"
 source "$TARGET_LIB/lib/subscription.sh"
+source "$TARGET_LIB/lib/substore.sh"
 source "$TARGET_LIB/lib/api.sh"
 source "$TARGET_LIB/lib/realm.sh"
 source "$TARGET_LIB/lib/bbr.sh"
 source "$TARGET_LIB/lib/hysteria2_tuning.sh"
 source "$TARGET_LIB/lib/tcp_tuning.sh"
 source "$TARGET_LIB/lib/network.sh"
+source "$TARGET_LIB/lib/benchmark.sh"
 
 if [[ "$TEST_MODE" != 1 ]]; then require_init_system; fi
 BACKEND=$(init_system 2>/dev/null || true)
@@ -625,9 +632,11 @@ if [[ "$NO_START" == 0 && "$TEST_MODE" != 1 ]]; then
   fi
   tunnel_reconcile 1 || true
   subscription_reconcile 1 || log_warn '订阅服务协调失败；不会影响代理数据面。'
+  substore_reconcile 1 || log_warn 'Sub-Store 服务协调失败，请运行 sb substore status 检查。'
 else
   tunnel_reconcile 0 || true
   subscription_reconcile 0 || true
+  substore_reconcile 0 || true
 fi
 if [[ -x "$SBM_CLOUDFLARED_BIN" ]] && declare -F cloudflared_prune_cached_versions >/dev/null 2>&1; then
   cloudflared_prune_cached_versions

@@ -12,7 +12,8 @@ traffic_usage_validate() {
     and .schema_version == 1
     and (.updated_at | type == "string")
     and (.nodes | type == "object")
-    and all(.nodes[];
+    and ((.groups // {})|type=="object")
+    and all((.nodes+(.groups // {}))[];
       type == "object"
       and (.cycle_id | type == "number" and floor == . and . >= 1)
       and (.upload_bytes | type == "number" and floor == . and . >= 0 and . <= 9000000000000000)
@@ -129,6 +130,7 @@ traffic_nft_object_exists() {
 traffic_runtime_complete() {
   local node id prefix quota upload_rate download_rate
   traffic_nft_table_exists || return 1
+  if declare -F traffic_groups_runtime_complete >/dev/null 2>&1; then traffic_groups_runtime_complete || return 1; fi
   while IFS= read -r node; do
     [[ -n "$node" ]] || continue
     id=$(jq -r '.id' <<<"$node"); prefix=$(traffic_object_prefix "$id")
@@ -183,6 +185,7 @@ traffic_checkpoint_unlocked() {
   chmod 0600 "$next"
   mv -f "$next" "$SBM_TRAFFIC_USAGE"
   rm -f "$tmp"
+  if declare -F traffic_groups_checkpoint >/dev/null 2>&1; then traffic_groups_checkpoint || return 1; fi
 }
 
 traffic_validate_state() {
@@ -218,6 +221,7 @@ traffic_reset_due_unlocked() {
     fi
   done < <(jq -c '.nodes[]? | select(.traffic.configured==true)' "$SBM_STATE")
   (( changed == 0 )) || chmod 0600 "$SBM_TRAFFIC_USAGE"
+  if declare -F traffic_groups_reset_due >/dev/null 2>&1; then traffic_groups_reset_due || return 1; fi
 }
 
 traffic_active_count() {
@@ -226,16 +230,26 @@ traffic_active_count() {
 
 traffic_emit_match_rules() {
   local chain=$1 kind=$2 direction=$3 port=$4 counter=$5 quota=${6:-} limit=${7:-} loopback=${8:-0}
-  local port_expr match_prefix=''
+  local group_prefix=${9:-} group_mode=${10:-total} port_expr match_prefix='' group_direction
+  [[ "$direction" == upload ]] && group_direction=up || group_direction=down
   if [[ "$direction" == upload ]]; then port_expr="dport $port"; else port_expr="sport $port"; fi
   if [[ "$loopback" == 1 ]]; then match_prefix='oifname "lo" '; fi
   printf 'add rule inet %s %s %smeta l4proto %s %s %s counter name %s\n' \
     "$SBM_TRAFFIC_TABLE" "$chain" "$match_prefix" "$kind" "$kind" "$port_expr" "$counter"
+  if [[ -n "$group_prefix" ]]; then
+    printf 'add rule inet %s %s %smeta l4proto %s %s %s counter name %s_%s\n' "$SBM_TRAFFIC_TABLE" "$chain" "$match_prefix" "$kind" "$kind" "$port_expr" "$group_prefix" "$group_direction"
+    if [[ "$direction" == download || "$group_mode" == total ]]; then
+      printf 'add rule inet %s %s %smeta l4proto %s %s %s quota name %s_quota drop\n' "$SBM_TRAFFIC_TABLE" "$chain" "$match_prefix" "$kind" "$kind" "$port_expr" "$group_prefix"
+    fi
+  fi
   if [[ -n "$quota" ]]; then
     printf 'add rule inet %s %s %smeta l4proto %s %s %s quota name %s drop\n' \
       "$SBM_TRAFFIC_TABLE" "$chain" "$match_prefix" "$kind" "$kind" "$port_expr" "$quota"
   fi
   if [[ -n "$limit" ]]; then
+    if [[ "$direction" == download && "$loopback" == 0 && $(jq -r '.shaping.enabled // false' "$SBM_STATE") == true ]]; then
+      match_prefix="oifname != \"$(jq -r '.shaping.interface' "$SBM_STATE")\" "
+    fi
     printf 'add rule inet %s %s %smeta l4proto %s %s %s limit name %s drop\n' \
       "$SBM_TRAFFIC_TABLE" "$chain" "$match_prefix" "$kind" "$kind" "$port_expr" "$limit"
   fi
@@ -243,12 +257,14 @@ traffic_emit_match_rules() {
 
 traffic_render_nft_script() {
   local table_exists=${1:-0}
+  local group group_prefix group_mode
   local node runtime_node id port prefix upload download total quota quota_mode upload_rate download_rate loopback
   local upload_bytes download_bytes upload_burst download_burst quota_name quota_used upload_limit download_limit kind
   (( table_exists == 0 )) || printf 'delete table inet %s\n' "$SBM_TRAFFIC_TABLE"
   printf 'add table inet %s\n' "$SBM_TRAFFIC_TABLE"
   printf 'add chain inet %s input { type filter hook input priority 10; policy accept; }\n' "$SBM_TRAFFIC_TABLE"
   printf 'add chain inet %s output { type filter hook output priority 10; policy accept; }\n' "$SBM_TRAFFIC_TABLE"
+  if declare -F traffic_groups_render_objects >/dev/null 2>&1; then traffic_groups_render_objects; fi
   while IFS= read -r node; do
     [[ -n "$node" ]] || continue
     id=$(jq -r '.id' <<<"$node"); runtime_node=$node
@@ -256,6 +272,11 @@ traffic_render_nft_script() {
       runtime_node=$(nginx_stream_effective_node "$SBM_STATE" "$node")
     fi
     port=$(jq -r '.port' <<<"$runtime_node"); prefix=$(traffic_object_prefix "$id")
+    group_prefix=''; group_mode=total
+    if declare -F traffic_group_prefix >/dev/null 2>&1; then
+      group=$(jq -c --arg id "$id" '.traffic_groups[]? | select(.nodes|index($id))' "$SBM_STATE")
+      if [[ -n "$group" ]]; then group_prefix=$(traffic_group_prefix "$(jq -r '.id' <<<"$group")"); group_mode=$(jq -r '.quota_mode' <<<"$group"); fi
+    fi
     loopback=0
     if [[ $(jq -r '.listen' <<<"$runtime_node") == 127.0.0.1 ]]; then loopback=1; fi
     upload=$(jq -r --arg id "$id" '.nodes[$id].upload_bytes // 0' "$SBM_TRAFFIC_USAGE")
@@ -288,11 +309,11 @@ traffic_render_nft_script() {
     fi
     while IFS= read -r kind; do
       if (( loopback )); then
-        traffic_emit_match_rules output "$kind" upload "$port" "${prefix}_up" "$([[ "$quota_mode" == total ]] && printf '%s' "$quota_name")" "$upload_limit" 1
+        traffic_emit_match_rules output "$kind" upload "$port" "${prefix}_up" "$([[ "$quota_mode" == total ]] && printf '%s' "$quota_name")" "$upload_limit" 1 "$group_prefix" "$group_mode"
       else
-        traffic_emit_match_rules input "$kind" upload "$port" "${prefix}_up" "$([[ "$quota_mode" == total ]] && printf '%s' "$quota_name")" "$upload_limit"
+        traffic_emit_match_rules input "$kind" upload "$port" "${prefix}_up" "$([[ "$quota_mode" == total ]] && printf '%s' "$quota_name")" "$upload_limit" 0 "$group_prefix" "$group_mode"
       fi
-      traffic_emit_match_rules output "$kind" download "$port" "${prefix}_down" "$([[ -n "$quota_name" ]] && printf '%s' "$quota_name")" "$download_limit" "$loopback"
+      traffic_emit_match_rules output "$kind" download "$port" "${prefix}_down" "$([[ -n "$quota_name" ]] && printf '%s' "$quota_name")" "$download_limit" "$loopback" "$group_prefix" "$group_mode"
     done < <(node_transport_kinds "$runtime_node")
   done < <(jq -c '.nodes[]? | select(.enabled==true and .traffic.enabled==true)' "$SBM_STATE")
 }
@@ -336,6 +357,7 @@ traffic_reconcile_unlocked() {
   local checkpoint=${1:-1}
   [[ "$checkpoint" == 0 ]] || traffic_checkpoint_unlocked
   traffic_reset_due_unlocked
+  if declare -F shaping_reconcile_unlocked >/dev/null 2>&1; then shaping_reconcile_unlocked || return 1; fi
   traffic_apply_unlocked
 }
 
@@ -344,6 +366,8 @@ traffic_checkpoint() { with_lock traffic_checkpoint_unlocked; }
 
 traffic_tick_unlocked() {
   local active table_present=0
+  if declare -F node_expiry_tick_unlocked >/dev/null 2>&1; then node_expiry_tick_unlocked || return 1; fi
+  if declare -F shaping_reconcile_unlocked >/dev/null 2>&1; then shaping_reconcile_unlocked || return 1; fi
   traffic_checkpoint_unlocked
   traffic_reset_due_unlocked
   active=$(traffic_active_count)
@@ -355,6 +379,7 @@ traffic_tick_unlocked() {
   if declare -F notification_traffic_check_unlocked >/dev/null 2>&1; then
     notification_traffic_check_unlocked || true
   fi
+  if declare -F traffic_group_notifications >/dev/null 2>&1; then traffic_group_notifications || true; fi
 }
 
 traffic_usage_rebase_node_unlocked() {

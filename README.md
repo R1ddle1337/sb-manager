@@ -2,7 +2,7 @@
 
 `sb-manager` 是一个面向 systemd/OpenRC Linux 的、状态驱动的 sing-box 多协议管理脚本。安装后输入 `sb` 即可打开中文交互面板，也可以使用完整的非交互 CLI。
 
-> 当前版本：`0.1.0-alpha.31`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
+> 当前版本：`0.1.0-alpha.32`。请先在测试 VPS 验证，不要直接覆盖仍在使用的生产节点。
 
 ## 功能
 
@@ -21,6 +21,11 @@
 - Cloudflare Tunnel 按需安装与独立更新（默认不下载 cloudflared）
 - 节点添加、编辑、启停、删除和凭据轮换
 - 节点级双向流量统计、月配额与独立上/下行速率控制
+- SOCKS5、HTTP 和 mixed 认证代理入口，默认仅监听本机
+- 节点到期停用与续期、多节点共享流量配额、可选 tc 下行平滑限速
+- iperf3 吞吐测速、历史记录及 TCP 调优前后对比
+- Cloudflare 命名 Tunnel 多域名/路径映射到本机 HTTP 服务
+- 可选 Sub-Store 前后端安装、升级、节点同步、备份与恢复
 - 分享 URI 与 sing-box outbound JSON 导出
 - 客户端导出支持 IPv4 优先、IPv6 优先或仅 IPv4 的出站解析策略
 - Naive 分享链接使用与服务端一致的用户账号；ShadowTLS 需使用支持该协议的 sing-box/NekoBox 客户端
@@ -60,7 +65,9 @@ sb traffic remove ss-main        # 删除配置与累计用量
 
 配额单位 `K/M/G/T/P` 按 1024 进制换算；速率单位 `K/M/G` 按 bit/s 的 1000 进制换算。`unlimited` 可单独取消配额或某一方向的限速。每月重置日限制为 1–28，避免短月歧义。
 
-实现使用项目独占的 `inet sb_manager_traffic` nftables 表，不写入 `/etc/nftables.conf`、不开放端口，也不接管网卡根 qdisc。速率上限是 nftables policer：超出瞬时上限的数据包会被丢弃，TCP 会通过拥塞控制回落；它不是 `tc` 的平滑排队整形。计数每 5 分钟（OpenRC 为 15 分钟）落盘并在正常关机时再同步；突然断电最多可能丢失一个同步周期的未落盘用量。
+默认实现使用项目独占的 `inet sb_manager_traffic` nftables 表，不写入 `/etc/nftables.conf`、不开放端口。默认限速为 nftables policer，超额数据包会被丢弃；可显式用 `sb traffic shaping` 为指定网卡的直连节点开启 tc 下行排队整形。计数每 5 分钟（OpenRC 为 15 分钟）落盘并在正常关机时同步；突然断电最多可能丢失一个同步周期的未落盘用量。
+
+新增功能的命令、面板入口和恢复方式见 [可选运维功能](docs/OPERATIONAL_FEATURES.md)：测速对比、节点到期、共享配额、认证代理、Tunnel 多路由、Sub-Store 和 tc 整形。
 
 ## 网络模型
 
@@ -175,7 +182,7 @@ sudo bash install.sh
 bash <(curl -fsSL https://github.com/R1ddle1337/sb-manager/raw/refs/heads/main/install.sh)
 ```
 
-`install.sh` 默认先解析 `main` 的最新 commit SHA，再按该不可变 commit 下载源码；也可设置 `SBM_INSTALL_REF=v0.1.0-alpha.31` 固定版本。显式指定 `main` 等可变分支仍需 `SBM_ALLOW_MUTABLE_REF=1`。离线发布包可使用 `build-release.sh` 生成，并核验 `SHA256SUMS`、`PROVENANCE-SHA256SUMS` 及可选的 GPG 签名文件。
+`install.sh` 默认先解析 `main` 的最新 commit SHA，再按该不可变 commit 下载源码；也可设置 `SBM_INSTALL_REF=v0.1.0-alpha.32` 固定版本。显式指定 `main` 等可变分支仍需 `SBM_ALLOW_MUTABLE_REF=1`。离线发布包可使用 `build-release.sh` 生成，并核验 `SHA256SUMS`、`PROVENANCE-SHA256SUMS` 及可选的 GPG 签名文件。
 
 同一台服务器可以重复执行安装器。重复安装会保留 `/etc/sb-manager` 下的节点、密钥、证书和备份，并重新生成服务定义；默认会复用已安装的 sing-box 核心。升级管理器脚本时可直接执行：
 

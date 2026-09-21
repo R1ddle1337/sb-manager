@@ -345,6 +345,7 @@ tunnel_reconcile() {
   id=$(jq -r '.tunnel.node_id // ""' "$SBM_STATE")
   case "$mode" in
     none) return 0 ;;
+    managed) quick_refresh_disable; write_managed_tunnel_unit || return 1 ;;
     fixed)
       [[ -x "$SBM_CLOUDFLARED_BIN" ]] || { log_warn 'Cloudflare Tunnel 已配置，但 cloudflared 尚未安装；运行 sb cloudflared install。'; return 1; }
       [[ -n "$id" ]] || { log_warn '固定 Tunnel 状态缺少节点 ID。'; return 1; }

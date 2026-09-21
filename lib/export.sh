@@ -18,6 +18,7 @@ node_share_uri() {
     trojan) protocol_trojan_share "$node" "$secret" ;;
     tuic) protocol_tuic_share "$node" "$secret" ;;
     vless) protocol_vless_share "$node" "$secret" "$node_secret" ;;
+    socks|http|mixed) protocol_proxy_share "$node" "$secret" ;;
     naive) protocol_naive_share "$node" "$secret" ;;
     shadowtls) protocol_shadowtls_share "$node" "$secret" ;;
     snell) protocol_snell_share "$node" "$secret" "$node_secret" ;;
@@ -41,6 +42,7 @@ node_client_outbound() {
     trojan) outbound=$(protocol_trojan_client_outbound "$node" "$secret") ;;
     tuic) outbound=$(protocol_tuic_client_outbound "$node" "$secret") ;;
     vless) outbound=$(protocol_vless_client_outbound "$node" "$secret" "$node_secret") ;;
+    socks|http|mixed) outbound=$(protocol_proxy_client_outbound "$node" "$secret") ;;
     naive) outbound=$(protocol_naive_client_outbound "$node" "$secret") ;;
     shadowtls) outbound=$(protocol_shadowtls_client_outbound "$node" "$secret") ;;
     snell) outbound=$(protocol_snell_client_outbound "$node" "$secret" "$node_secret") ;;

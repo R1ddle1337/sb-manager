@@ -64,6 +64,7 @@ node_template_add() {
   [[ -n "$address" ]] && args+=(--address "$address")
   [[ -n "$domain" ]] && args+=(--domain "$domain")
   case "$protocol" in
+    socks|http|mixed) args+=(--listen "$(jq -r '.listen' <<<"$defaults")");;
     vmess-ws-cf) [[ -n $(jq -r '.ws_path // ""' <<<"$defaults") ]] && args+=(--path "$(jq -r '.ws_path' <<<"$defaults")");;
     shadowsocks) args+=(--method "$(jq -r '.method' <<<"$defaults")" --network "$(jq -r '.network' <<<"$defaults")"); [[ $(jq -r '.multiplex' <<<"$defaults") == true ]] || args+=(--no-mux);;
     hysteria2) [[ -n $(jq -r '.obfs // ""' <<<"$defaults") ]] && args+=(--obfs "$(jq -r '.obfs' <<<"$defaults")"); [[ $(jq -r '.obfs' <<<"$defaults") == gecko ]] && args+=(--obfs-min-packet-size "$(jq -r '.obfs_min_packet_size' <<<"$defaults")" --obfs-max-packet-size "$(jq -r '.obfs_max_packet_size' <<<"$defaults")"); [[ $(jq -r '.disable_chrome_parrot' <<<"$defaults") == true ]] && args+=(--disable-chrome-parrot); [[ -n $(jq -r '.bbr_profile' <<<"$defaults") ]] && args+=(--bbr-profile "$(jq -r '.bbr_profile' <<<"$defaults")"); [[ $(jq -r '.brutal_debug' <<<"$defaults") == true ]] && args+=(--brutal-debug); [[ -n $(jq -r '.masquerade // ""' <<<"$defaults") ]] && args+=(--masquerade "$(jq -r '.masquerade' <<<"$defaults")");;
@@ -84,6 +85,7 @@ node_template_add() {
   args=("$protocol" --id "$id" --name "$node_name" --port "$port")
   [[ -n "$address" ]] && args+=(--address "$address"); [[ -n "$domain" ]] && args+=(--domain "$domain")
   case "$protocol" in
+    socks|http|mixed) args+=(--listen "$(jq -r '.listen' <<<"$defaults")");;
     vmess-ws-cf) args+=(--path "$(jq -r '.ws_path' <<<"$defaults")");; shadowsocks) args+=(--method "$(jq -r '.method' <<<"$defaults")" --network "$(jq -r '.network' <<<"$defaults")"); [[ $(jq -r '.multiplex' <<<"$defaults") == true ]] || args+=(--no-mux);;
     hysteria2) [[ -n $(jq -r '.obfs' <<<"$defaults") ]] && args+=(--obfs "$(jq -r '.obfs' <<<"$defaults")"); [[ $(jq -r '.obfs' <<<"$defaults") == gecko ]] && args+=(--obfs-min-packet-size "$(jq -r '.obfs_min_packet_size' <<<"$defaults")" --obfs-max-packet-size "$(jq -r '.obfs_max_packet_size' <<<"$defaults")"); [[ $(jq -r '.disable_chrome_parrot' <<<"$defaults") == true ]] && args+=(--disable-chrome-parrot); [[ -n $(jq -r '.bbr_profile' <<<"$defaults") ]] && args+=(--bbr-profile "$(jq -r '.bbr_profile' <<<"$defaults")"); [[ $(jq -r '.brutal_debug' <<<"$defaults") == true ]] && args+=(--brutal-debug); [[ -n $(jq -r '.masquerade' <<<"$defaults") ]] && args+=(--masquerade "$(jq -r '.masquerade' <<<"$defaults")");;
     vless) args+=(--security "$(jq -r '.security' <<<"$defaults")"); [[ -n $(jq -r '.flow // ""' <<<"$defaults") ]] && args+=(--flow "$(jq -r '.flow' <<<"$defaults")"); [[ $(jq -r '.security' <<<"$defaults") != reality ]] || args+=(--handshake-server "$(jq -r '.handshake_server' <<<"$defaults")" --handshake-port "$(jq -r '.handshake_port' <<<"$defaults")");;

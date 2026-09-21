@@ -17,6 +17,12 @@ for test in \
   tests/bbr-smoke.sh \
   tests/tcp-tuning-smoke.sh \
   tests/network-smoke.sh \
+  tests/benchmark-smoke.sh \
+  tests/proxy-expiry-smoke.sh \
+  tests/traffic-groups-smoke.sh \
+  tests/shaping-smoke.sh \
+  tests/tunnel-routes-smoke.sh \
+  tests/substore-smoke.sh \
   tests/hy2-udp-buffer-smoke.sh \
   tests/operations-smoke.sh \
   tests/ui-menu-smoke.sh \

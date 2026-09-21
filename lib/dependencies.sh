@@ -31,6 +31,12 @@ dependency_package_hint() {
   case "$feature:$distro" in
     base:alpine) printf 'apk add --no-cache bash curl ca-certificates jq openssl coreutils findutils flock gcompat libcap-utils\n' ;;
     base:debian) printf 'apt-get install --no-install-recommends bash curl ca-certificates jq openssl coreutils findutils util-linux\n' ;;
+    benchmark:alpine) printf 'apk add --no-cache iperf3\n' ;;
+    benchmark:debian) printf 'apt-get install --no-install-recommends iperf3\n' ;;
+    shaping:alpine) printf 'apk add --no-cache iproute2-tc\n' ;;
+    shaping:debian) printf 'apt-get install --no-install-recommends iproute2\n' ;;
+    substore:alpine) printf 'apk add --no-cache nodejs python3\n' ;;
+    substore:debian) printf 'apt-get install --no-install-recommends nodejs python3\n' ;;
     low-port:alpine) printf 'apk add --no-cache libcap-utils\n' ;;
     low-port:debian) printf 'apt-get install --no-install-recommends libcap2-bin\n' ;;
     traffic:alpine) printf 'apk add --no-cache nftables\n' ;;
@@ -152,6 +158,10 @@ dependency_feature_packages() {
   local feature=$1 distro
   distro=$(dependency_distro)
   case "$feature:$distro" in
+    benchmark:*) printf '%s\n' iperf3 ;;
+    shaping:alpine) printf '%s\n' iproute2-tc ;;
+    shaping:debian) printf '%s\n' iproute2 ;;
+    substore:*) printf '%s\n' nodejs python3 ;;
     low-port:alpine) printf '%s\n' libcap-utils ;;
     low-port:debian) printf '%s\n' libcap2-bin ;;
     low-port:dnf|low-port:yum) printf '%s\n' libcap ;;
@@ -177,6 +187,9 @@ dependency_feature_packages() {
 
 dependency_feature_commands() {
   case "$1" in
+    benchmark) printf '%s\n' iperf3 ;;
+    shaping) printf '%s\n' tc ;;
+    substore) printf '%s\n' "${SBM_SUBSTORE_NODE:-/usr/bin/node}" python3 ;;
     low-port) printf '%s\n' setcap getcap ;;
     traffic) printf '%s\n' nft ;;
     subscription)
@@ -248,7 +261,7 @@ dependency_require_feature() {
 
 dependency_status() {
   local json=${1:-0} feature command available
-  local -a features=(low-port traffic subscription bbr probe scheduler logrotate)
+  local -a features=(low-port traffic subscription bbr probe scheduler logrotate benchmark shaping substore)
   if [[ "$json" == 1 ]]; then
     {
       for feature in "${features[@]}"; do

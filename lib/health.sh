@@ -103,6 +103,9 @@ health_collect_json() {
       if [[ "$mode" != none ]] && ! service_active "$SBM_TUNNEL_SERVICE"; then
         health_issue error tunnel_inactive cloudflared 'Cloudflare Tunnel 已配置但服务未运行。'
       fi
+      if [[ $(jq -r '.substore.enabled // false' "$SBM_STATE") == true ]] && ! service_active "$SBM_SUBSTORE_SERVICE"; then
+        health_issue error substore_inactive substore 'Sub-Store 已启用但服务未运行。'
+      fi
     fi
 
     warn_days=$(jq -r '.health.certificate_warn_days // 21' "$SBM_STATE")

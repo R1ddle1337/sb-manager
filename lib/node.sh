@@ -10,6 +10,9 @@ node_protocol_label() {
     trojan) printf 'Trojan TLS' ;;
     tuic) printf 'TUIC' ;;
     vless) printf 'VLESS' ;;
+    socks) printf 'SOCKS5' ;;
+    http) printf 'HTTP Proxy' ;;
+    mixed) printf 'SOCKS5 + HTTP' ;;
     naive) printf 'NaiveProxy' ;;
     shadowtls) printf 'ShadowTLS v3' ;;
     snell) printf 'Snell' ;;
@@ -125,9 +128,10 @@ node_show() {
 _node_add() {
   local type=$1; shift
   local id='' name='' port='' domain='' address='' address_supplied=0 address_source=auto path='' method='2022-blake3-aes-256-gcm' network='tcp' mux=true enabled=true obfs='' obfs_host='' obfs_min_packet_size=512 obfs_max_packet_size=1200 disable_chrome_parrot=false bbr_profile='' brutal_debug=false masquerade='' security='tls' flow='' handshake_server='' handshake_port=443 congestion_control='cubic' strict_mode=true wildcard_sni='off' snell_version=5 snell_mode=default realm_id='' realm_ip_version=0 realm_port_mapping=false
-  local remark='' region='' purpose='' line='' tags=''
+  local remark='' region='' purpose='' line='' tags='' proxy_listen='127.0.0.1' proxy_listen_supplied=0
   while (($#)); do
     case "$1" in
+      --listen) proxy_listen=${2:?}; proxy_listen_supplied=1; shift 2;;
       --id) id=${2:?}; shift 2;; --name) name=${2:?}; shift 2;; --port) port=${2:?}; shift 2;;
       --domain) domain=${2:?}; shift 2;; --address) address=${2:?}; address_supplied=1; address_source=manual; shift 2;; --path) path=${2:?}; shift 2;;
       --method) method=${2:?}; shift 2;; --network) network=${2:?}; shift 2;; --no-mux) mux=false; shift;;
@@ -144,6 +148,9 @@ _node_add() {
   done
   if [[ "$SBM_SKIP_INIT" != 1 ]] && ! command_exists ss && declare -F dependency_require_feature >/dev/null 2>&1; then
     dependency_require_feature probe || die '节点端口探测需要 iproute2/ss；请运行 sb deps install probe。'
+  fi
+  if [[ "$proxy_listen_supplied" == 1 ]]; then
+    case "$type" in socks|socks5|http|mixed) ;; *) usage_die '--listen 目前仅用于 socks/http/mixed 代理入口。';; esac
   fi
   local protocol base transport secret node_secret='' node candidate user_secret_path default_address created_at reality_secret='' snell_obfs_mode snell_obfs_host
   default_address=$(jq -r '.settings.default_server_address // ""' "$SBM_STATE")
@@ -218,6 +225,13 @@ _node_add() {
       ;;
     shadowtls)
       protocol=shadowtls; base=shadowtls; transport=tcp; port=${port:-443}; handshake_server=${handshake_server:?ShadowTLS 必须指定 --handshake-server。}; validate_domain "$handshake_server" || die "无效握手域名：$handshake_server"; validate_port "$handshake_port" || die "无效握手端口：$handshake_port"; case "$strict_mode" in true|false) ;; *) die 'strict-mode 必须是 true 或 false。';; esac; case "$wildcard_sni" in off|authed|all) ;; *) die 'wildcard-sni 必须是 off、authed 或 all。';; esac; name=${name:-ShadowTLS}; address=${address:-${default_address:-$handshake_server}}; domain=$handshake_server; secret=$(jq -n --arg password "$(random_password 24)" '{password:$password}')
+      ;;
+    socks|socks5|http|mixed)
+      protocol=$type; [[ "$protocol" != socks5 ]] || protocol=socks
+      base=$protocol; transport=tcp; port=${port:-1080}; name=${name:-$protocol}
+      case "$proxy_listen" in 127.0.0.1|::1|0.0.0.0|::) ;; *) die '代理监听仅支持 127.0.0.1、::1、0.0.0.0、::。';; esac
+      secret=$(jq -n --arg username "$(random_hex 12)" --arg password "$(random_password 24)" '{username:$username,password:$password}')
+      if [[ "$address_supplied" == 0 && ( "$proxy_listen" == 127.0.0.1 || "$proxy_listen" == ::1 ) ]]; then address=$proxy_listen; address_supplied=1; address_source=manual; fi
       ;;
     snell)
       [[ "$enabled" != true ]] || version_ge "$(core_current_version)" 1.14.0-rc.1 || die 'Snell 需要 sing-box 1.14.0-rc.1 或更高版本核心。'
@@ -295,6 +309,9 @@ _node_add() {
     shadowtls)
       node=$(jq -n --arg id "$id" --arg name "$name" --argjson port "$port" --arg address "$address" --arg hs "$handshake_server" --argjson hp "$handshake_port" --argjson strict "$strict_mode" --arg wildcard "$wildcard_sni" --arg now "$created_at" --argjson enabled "$enabled" '{id:$id,name:$name,protocol:"shadowtls",enabled:$enabled,listen:"::",port:$port,server_address:$address,handshake_server:$hs,handshake_port:$hp,strict_mode:$strict,wildcard_sni:$wildcard,created_at:$now,users:[{id:"default",name:$name,enabled:true,created_at:$now}]}')
       ;;
+    socks|http|mixed)
+      node=$(jq -n --arg id "$id" --arg name "$name" --arg protocol "$protocol" --arg listen "$proxy_listen" --argjson port "$port" --arg address "$address" --arg now "$created_at" --argjson enabled "$enabled" '{id:$id,name:$name,protocol:$protocol,enabled:$enabled,listen:$listen,port:$port,server_address:$address,created_at:$now,users:[{id:"default",name:$name,enabled:true,created_at:$now}]}')
+      ;;
     snell)
       node=$(jq -n --arg id "$id" --arg name "$name" --argjson port "$port" --arg address "$address" --argjson snell_version "$snell_version" --arg snell_mode "$snell_mode" --arg obfs_mode "$snell_obfs_mode" --arg obfs_host "$snell_obfs_host" --arg now "$created_at" --argjson enabled "$enabled" '{id:$id,name:$name,protocol:"snell",enabled:$enabled,listen:"::",port:$port,server_address:$address,snell_version:$snell_version,snell_mode:$snell_mode,obfs_mode:$obfs_mode,obfs_host:$obfs_host,created_at:$now,users:[{id:"default",name:$name,enabled:true,created_at:$now}]}')
       ;;
@@ -324,8 +341,9 @@ _node_set_enabled() {
   if [[ "$value" == true && "$SBM_SKIP_INIT" != 1 ]] && ! command_exists ss && declare -F dependency_require_feature >/dev/null 2>&1; then
     dependency_require_feature probe || die '节点端口探测需要 iproute2/ss；请运行 sb deps install probe。'
   fi
+  if [[ "$value" == true ]] && jq -e --arg id "$id" --argjson now "$(date +%s)" '.nodes[]|select(.id==$id)|.expiry.at!=null and .expiry.at<=$now' "$SBM_STATE" >/dev/null; then die '节点已到期，请先续期或清除到期策略。'; fi
   candidate=$(state_candidate)
-  jq --arg id "$id" --argjson value "$value" '(.nodes[] | select(.id==$id) | .enabled)=$value' "$SBM_STATE" >"$candidate"
+  jq --arg id "$id" --argjson value "$value" '(.nodes[] | select(.id==$id)) |= (.enabled=$value | if $value==false and .expiry.suspended==true then .expiry.resume_enabled=false else . end)' "$SBM_STATE" >"$candidate"
   if ! apply_candidate_state "$candidate" "${value}-$(printf '%s' "$id")"; then rm -f "$candidate"; return 1; fi
   rm -f "$candidate"
 }
@@ -338,7 +356,8 @@ _node_batch_set_enabled() {
   candidate=$(state_candidate)
   count=$(jq --arg tag "$tag" --arg region "$region" '[.nodes[] | select(($tag=="" or (.metadata.tags|index($tag))!=null) and ($region=="" or .metadata.region==$region))] | length' "$SBM_STATE")
   (( count > 0 )) || die '没有匹配的节点。'
-  jq --arg tag "$tag" --arg region "$region" --argjson value "$value" '.nodes |= map(if ($tag=="" or (.metadata.tags|index($tag))!=null) and ($region=="" or .metadata.region==$region) then .enabled=$value else . end)' "$SBM_STATE" >"$candidate"
+  if [[ "$value" == true ]] && jq -e --arg tag "$tag" --arg region "$region" --argjson now "$(date +%s)" 'any(.nodes[]; ($tag=="" or (.metadata.tags|index($tag))!=null) and ($region=="" or .metadata.region==$region) and .expiry.at!=null and .expiry.at<=$now)' "$SBM_STATE" >/dev/null; then die '匹配节点包含已到期节点，请先续期。'; fi
+  jq --arg tag "$tag" --arg region "$region" --argjson value "$value" '.nodes |= map(if ($tag=="" or (.metadata.tags|index($tag))!=null) and ($region=="" or .metadata.region==$region) then .enabled=$value | if $value==false and .expiry.suspended==true then .expiry.resume_enabled=false else . end else . end)' "$SBM_STATE" >"$candidate"
   if [[ ${SBM_DRY_RUN:-0} == 1 ]]; then config_preview_candidate "$candidate"; rm -f "$candidate"; return 0; fi
   if ! apply_candidate_state "$candidate" "node-batch-$action"; then rm -f "$candidate"; return 1; fi
   rm -f "$candidate"
@@ -384,7 +403,7 @@ _node_rotate() {
     trojan) new=$(jq -n --arg password "$(random_password 24)" '{password:$password}') ;;
     tuic) new=$(jq -n --arg uuid "$(random_uuid)" --arg password "$(random_password 24)" '{uuid:$uuid,password:$password}') ;;
     vless) new=$(jq -n --arg uuid "$(random_uuid)" '{uuid:$uuid}') ;;
-    naive) new=$(jq -n --arg username "$(random_hex 12)" --arg password "$(random_password 24)" '{username:$username,password:$password}') ;;
+    socks|http|mixed|naive) new=$(jq -n --arg username "$(random_hex 12)" --arg password "$(random_password 24)" '{username:$username,password:$password}') ;;
     shadowtls) new=$(jq -n --arg password "$(random_password 24)" '{password:$password}') ;;
     snell) new=$(jq -n --arg userkey "$(random_password 24)" '{userkey:$userkey}') ;;
   esac
@@ -472,7 +491,7 @@ node_user_generate_secret() {
     anytls|hysteria2|trojan) jq -n --arg password "$(random_password 24)" '{password:$password}' ;;
     tuic) jq -n --arg uuid "$(random_uuid)" --arg password "$(random_password 24)" '{uuid:$uuid,password:$password}' ;;
     vless) jq -n --arg uuid "$(random_uuid)" '{uuid:$uuid}' ;;
-    naive) jq -n --arg username "$(random_hex 12)" --arg password "$(random_password 24)" '{username:$username,password:$password}' ;;
+    socks|http|mixed|naive) jq -n --arg username "$(random_hex 12)" --arg password "$(random_password 24)" '{username:$username,password:$password}' ;;
     shadowtls) jq -n --arg password "$(random_password 24)" '{password:$password}' ;;
     snell) jq -n --arg userkey "$(random_password 24)" '{userkey:$userkey}' ;;
     *) die "协议暂不支持多用户：$protocol" ;;

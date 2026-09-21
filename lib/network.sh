@@ -62,6 +62,7 @@ network_ping() {
 }
 
 network_cli() {
+  case "${1:-}" in speed|history|compare) network_benchmark_cli "$@"; return $?;; esac
   [[ ${1:-} == ping && $# -ge 2 ]] || usage_die '用法：sb network ping HOST [--count 1-30] [--ipv4|--ipv6] [--json]'
   local host=$2 count=10 family=auto json=${SBM_OUTPUT_JSON:-0}
   shift 2

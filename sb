@@ -24,6 +24,7 @@ source "$SBM_LIB/protocols/trojan.sh"
 source "$SBM_LIB/protocols/tuic.sh"
 source "$SBM_LIB/protocols/vless.sh"
 source "$SBM_LIB/protocols/naive.sh"
+source "$SBM_LIB/protocols/proxy.sh"
 source "$SBM_LIB/protocols/shadowtls.sh"
 source "$SBM_LIB/protocols/snell.sh"
 source "$SBM_LIB/lib/render.sh"
@@ -31,6 +32,9 @@ source "$SBM_LIB/lib/core.sh"
 source "$SBM_LIB/lib/manager.sh"
 source "$SBM_LIB/lib/node.sh"
 source "$SBM_LIB/lib/traffic.sh"
+source "$SBM_LIB/lib/traffic_groups.sh"
+source "$SBM_LIB/lib/shaping.sh"
+source "$SBM_LIB/lib/expiry.sh"
 source "$SBM_LIB/lib/firewall.sh"
 source "$SBM_LIB/lib/notification.sh"
 source "$SBM_LIB/lib/health.sh"
@@ -38,13 +42,16 @@ source "$SBM_LIB/lib/status.sh"
 source "$SBM_LIB/lib/export.sh"
 source "$SBM_LIB/lib/cert.sh"
 source "$SBM_LIB/lib/tunnel.sh"
+source "$SBM_LIB/lib/tunnel_routes.sh"
 source "$SBM_LIB/lib/subscription.sh"
+source "$SBM_LIB/lib/substore.sh"
 source "$SBM_LIB/lib/api.sh"
 source "$SBM_LIB/lib/realm.sh"
 source "$SBM_LIB/lib/bbr.sh"
 source "$SBM_LIB/lib/hysteria2_tuning.sh"
 source "$SBM_LIB/lib/tcp_tuning.sh"
 source "$SBM_LIB/lib/network.sh"
+source "$SBM_LIB/lib/benchmark.sh"
 source "$SBM_LIB/lib/backup.sh"
 source "$SBM_LIB/lib/doctor.sh"
 source "$SBM_LIB/lib/uninstall.sh"
@@ -61,7 +68,8 @@ sb-manager：状态驱动的 sing-box 多协议管理器
   sb [--json] [--yes] [--dry-run] [--quiet] <命令>  通用选项可放在命令前
   sb status [--json]              查看统一状态
   sb node list [--json] [--tag TAG] [--region REGION] 列出节点
-  sb node add <vmess|ss|anytls|hy2|trojan|tuic|vless|naive|shadowtls|snell> [参数]
+  sb node add <vmess|ss|anytls|hy2|trojan|tuic|vless|naive|shadowtls|snell|socks|http|mixed> [参数]
+  sb node expiry ID [--days N|--at UTC_TIMESTAMP|--clear]
   sb node show <ID>
   sb node enable|disable|delete|rotate <ID>
   sb node enable-all|disable-all --tag TAG|--region REGION
@@ -92,8 +100,13 @@ sb-manager：状态驱动的 sing-box 多协议管理器
   sb tcp plan|enable --bandwidth Mbps --rtt MS [--dry-run] [--json]
   sb tcp status [--json]|disable   TCP 自适应缓冲区、MTU 黑洞探测与恢复
   sb network ping HOST [--count 1-30] [--ipv4|--ipv6] [--json]
+  sb network speed HOST [--port N] [--seconds 1-30] [--streams 1-16] [--direction up|down] [--json]
+  sb network history [--json]|compare BEFORE AFTER [--json]
   sb hy2 buffer enable|disable|status [--json]
   sb mux status [--json]|enable [PORT]|disable|route list|route add NODE_ID SNI [BACKEND_PORT]|route remove NODE_ID
+  sb traffic group set ID --nodes NODE1,NODE2 --quota 500G [--reset-day 1] [--quota-mode total|download]
+  sb traffic group status [--json]|remove ID|reset ID
+  sb traffic shaping plan|enable IFACE --capacity 1G | disable | status [--json]
   sb traffic status [NODE_ID] [--json]
   sb traffic set NODE_ID [--quota 100G|unlimited] [--reset-day 1-28]
                  [--rate 50M|unlimited] [--upload-rate RATE] [--download-rate RATE]
@@ -109,6 +122,10 @@ sb-manager：状态驱动的 sing-box 多协议管理器
   sb cert issue <DOMAIN> [EMAIL]
   sb cert list [--json]|renew|inspect <DOMAIN>
 
+  sb substore install|update [--version VERSION] [--frontend-version VERSION] [--port PORT]
+  sb substore enable|disable|status [--json]|access|sync [NAME]|backup FILE|restore FILE
+  sb tunnel managed UUID CREDENTIALS_JSON
+  sb tunnel route list|add ID DOMAIN LOCAL_URL [PATH_REGEX]|remove ID
   sb tunnel fixed <NODE_ID> <DOMAIN> [TOKEN] [CLIENT_ADDRESS]
   sb tunnel quick <NODE_ID>
   sb tunnel refresh|set-token|status [--json]|stop
@@ -122,7 +139,7 @@ sb-manager：状态驱动的 sing-box 多协议管理器
   sb core check|update [VERSION]|rollback|schema [文件]|capabilities [--json]|policy <manual|notify|patch|stable>|channel <stable|preview>|auto
   sb update [--check]             更新脚本本身（保留核心、节点、密钥和证书）
   sb cloudflared status|install|update|policy <manual|notify|patch|stable>
-  sb deps status [--json]|install <low-port|traffic|subscription|bbr|probe|scheduler|logrotate>
+  sb deps status [--json]|install <low-port|traffic|subscription|bbr|probe|scheduler|logrotate|benchmark|shaping|substore>
   sb acme update
   sb doctor [--repair|--network]
   sb repair                      修复权限、配置与服务状态
@@ -141,6 +158,7 @@ sb-manager：状态驱动的 sing-box 多协议管理器
   Snell: --snell-version 5|6 --snell-mode default|unshaped|unsafe-raw
          v5 可用 --obfs none|http [--obfs-host DOMAIN]；v6 需要 sing-box 1.14 rc.2+
   Hysteria2 Realm: --realm-id ID [--realm-ip-version 0|4|6] [--realm-port-mapping]
+  SOCKS5/HTTP/mixed: --listen 127.0.0.1|::1|0.0.0.0|::（默认本机，自动生成认证）
   通用:  --disabled --remark TEXT --region REGION --purpose PURPOSE --line LINE --tags a,b
 EOF_HELP
 }
@@ -181,6 +199,7 @@ main() {
 
   case "$cmd" in
     menu) ui_main ;;
+    substore) shift; substore_cli "$@" ;;
     status)
       local json=${SBM_OUTPUT_JSON:-0} arg
       shift
@@ -202,6 +221,7 @@ main() {
           done
           node_list "$json" "$tag" "$region"
           ;;
+        expiry) node_expiry_cli "$@" ;;
         add) (($# >= 1)) || die '缺少协议'; node_add "$@" ;;
         show) [[ $# == 1 || ( $# == 2 && $2 == --json ) ]] || usage_die '用法：sb node show ID [--json]'; node_show "$1" "$([[ ${2:-} == --json || ${SBM_OUTPUT_JSON:-0} == 1 ]] && echo 1 || echo 0)" ;;
         enable) node_enable "${1:?缺少节点 ID}" ;;
@@ -303,6 +323,7 @@ main() {
       esac
       ;;
     tunnel)
+      if [[ ${2:-} == managed || ${2:-} == route ]]; then shift; tunnel_routes_cli "$@"; return $?; fi
       local action=${2:-status}
       case "$action" in
         fixed) tunnel_setup_fixed "${3:?缺少节点 ID}" "${4:?缺少域名}" "${5:-}" "${6:-}" ;;
@@ -396,6 +417,8 @@ main() {
       esac
       ;;
     traffic)
+      if [[ ${2:-} == shaping ]]; then shift 2; shaping_cli "$@"; return $?; fi
+      if [[ ${2:-} == group ]]; then shift 2; traffic_group_cli "$@"; return $?; fi
       local action=${2:-status}
       case "$action" in
         status)

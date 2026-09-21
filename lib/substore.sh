@@ -1,0 +1,309 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+
+SBM_SUBSTORE_DIR="${SBM_SUBSTORE_DIR:-$SBM_VAR/substore}"
+SBM_SUBSTORE_SECRET="${SBM_SUBSTORE_SECRET:-$SBM_SECRETS/substore.json}"
+SBM_SUBSTORE_SERVICE="${SBM_SUBSTORE_SERVICE:-sb-substore.service}"
+SBM_SUBSTORE_NODE="${SBM_SUBSTORE_NODE:-/usr/bin/node}"
+
+substore_validate_state() {
+  jq -e '(.substore // {enabled:false,port:3001,version:"",frontend_version:""}) |
+    (.enabled|type=="boolean") and (.port|type=="number" and floor==. and .>=1024 and .<=65535) and
+    (.version|type=="string" and test("^[0-9A-Za-z._-]*$")) and (.frontend_version|type=="string" and test("^[0-9A-Za-z._-]*$"))' "$1" >/dev/null
+}
+
+substore_access_path() {
+  jq -er '.api_path|select(type=="string" and test("^/[a-f0-9]{48}$"))' "$SBM_SUBSTORE_SECRET"
+}
+
+substore_download_asset() {
+  local repo=$1 version=$2 asset=$3 output=$4 release tag url digest
+  [[ "$version" =~ ^[0-9A-Za-z._-]+$ ]] || usage_die '组件版本无效。'
+  if [[ "$version" == latest ]]; then release=$(github_api "https://api.github.com/repos/$repo/releases/latest") || return 1
+  else release=$(github_api "https://api.github.com/repos/$repo/releases/tags/$version") || return 1; fi
+  tag=$(jq -er '.tag_name|select(test("^[0-9A-Za-z._-]+$"))' <<<"$release") || return 1
+  jq -e --arg asset "$asset" '.assets[]|select(.name==$asset)|.size<=134217728' <<<"$release" >/dev/null || return 1
+  url=$(jq -er --arg asset "$asset" '.assets[]|select(.name==$asset)|.browser_download_url' <<<"$release") || return 1
+  digest=$(jq -er --arg asset "$asset" '.assets[]|select(.name==$asset)|.digest' <<<"$release") || return 1
+  [[ "$url" == "https://github.com/$repo/releases/download/$tag/$asset" && "$digest" =~ ^sha256:[a-f0-9]{64}$ ]] || { log_error '组件下载地址或 SHA-256 摘要无效。'; return 1; }
+  download_file_with_retries "$url" "$output" "$repo/$asset" || return 1
+  verify_asset_digest "$output" "$digest" || { log_error 'Sub-Store 下载校验失败。'; return 1; }
+  jq -n --arg version "$tag" --arg url "$url" --arg sha256 "${digest#sha256:}" '{version:$version,url:$url,sha256:$sha256}'
+}
+
+substore_write_service() {
+  local port=$1 node jqbin launcher="$SBM_SUBSTORE_DIR/run.sh" unit
+  node=$(command -v "$SBM_SUBSTORE_NODE") || return 1
+  jqbin=$(command -v jq) || return 1
+  substore_access_path >/dev/null || return 1
+  cat >"$launcher" <<EOF_LAUNCH
+#!/bin/sh
+set -eu
+export SUB_STORE_BACKEND_API_HOST=127.0.0.1
+export SUB_STORE_BACKEND_API_PORT=$port
+export SUB_STORE_BACKEND_MERGE=true
+export SUB_STORE_BACKEND_PREFIX=true
+export SUB_STORE_FRONTEND_PATH="$SBM_SUBSTORE_DIR/app/frontend"
+export SUB_STORE_DATA_BASE_PATH="$SBM_SUBSTORE_DIR/data"
+SUB_STORE_FRONTEND_BACKEND_PATH=\$("$jqbin" -er '.api_path' "$SBM_SUBSTORE_SECRET")
+export SUB_STORE_FRONTEND_BACKEND_PATH
+cd "$SBM_SUBSTORE_DIR/data"
+exec "$node" --max-old-space-size=192 "$SBM_SUBSTORE_DIR/app/sub-store.bundle.js"
+EOF_LAUNCH
+  chmod 0755 "$launcher" || return 1
+  if [[ $(effective_init_system) == systemd ]]; then
+    mkdir -p "$SBM_SYSTEMD_DIR" || return 1
+    unit="$SBM_SYSTEMD_DIR/$SBM_SUBSTORE_SERVICE"
+    cat >"$unit" <<EOF_UNIT
+[Unit]
+Description=sb-manager Sub-Store
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=$SBM_SERVICE_USER
+Group=$SBM_SERVICE_USER
+ExecStart=$launcher
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=$SBM_SUBSTORE_DIR/data
+MemoryMax=384M
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
+EOF_UNIT
+    chmod 0644 "$unit"
+  else
+    write_openrc_supervised_service "$SBM_OPENRC_DIR/${SBM_SUBSTORE_SERVICE%.service}" \
+      'sb-manager Sub-Store' 'sb-manager Sub-Store' "$launcher" '' "$SBM_SERVICE_USER" \
+      "$SBM_LOG_DIR/substore.log" "$SBM_LOG_DIR/substore.err.log" 'after firewall'
+  fi
+}
+
+substore_permissions() {
+  chmod 0750 "$SBM_SUBSTORE_DIR" || return 1
+  set_group_if_exists "$SBM_SERVICE_USER" "$SBM_SUBSTORE_DIR" || return 1
+  find "$SBM_SUBSTORE_DIR/app" -type d -exec chmod 0755 {} + || return 1
+  find "$SBM_SUBSTORE_DIR/app" -type f -exec chmod 0644 {} + || return 1
+  chmod 0700 "$SBM_SUBSTORE_DIR/data" || return 1
+  if id "$SBM_SERVICE_USER" >/dev/null 2>&1; then chown -R "$SBM_SERVICE_USER:$SBM_SERVICE_USER" "$SBM_SUBSTORE_DIR/data" || return 1; fi
+  chmod 0640 "$SBM_SUBSTORE_SECRET" && set_group_if_exists "$SBM_SERVICE_USER" "$SBM_SUBSTORE_SECRET"
+}
+
+substore_health() {
+  local port=$1 path i
+  [[ "$SBM_SKIP_INIT" == 1 ]] && return 0
+  path=$(substore_access_path) || return 1
+  for ((i=0;i<20;i++)); do
+    if curl --fail --silent --max-time 2 --noproxy '*' "http://127.0.0.1:$port$path/api/subs" >/dev/null; then return 0; fi
+    sleep 1
+  done
+  return 1
+}
+
+substore_reconcile() {
+  local start=${1:-1} enabled port
+  enabled=$(jq -r '.substore.enabled // false' "$SBM_STATE"); port=$(jq -r '.substore.port // 3001' "$SBM_STATE")
+  if [[ "$enabled" == false ]]; then
+    if [[ "$SBM_SKIP_INIT" != 1 && "$start" == 1 ]] && service_exists "$SBM_SUBSTORE_SERVICE"; then
+      service_disable "$SBM_SUBSTORE_SERVICE" && service_stop "$SBM_SUBSTORE_SERVICE" || return 1
+    fi
+    return 0
+  fi
+  [[ -f "$SBM_SUBSTORE_DIR/app/manifest.json" ]] || { [[ "$enabled" == false ]]; return; }
+  substore_permissions && substore_write_service "$port" || return 1
+  [[ "$SBM_SKIP_INIT" == 1 || "$start" == 0 ]] && return 0
+  service_reload_manager || return 1
+  if [[ "$enabled" == true ]]; then
+    service_enable "$SBM_SUBSTORE_SERVICE" && service_restart "$SBM_SUBSTORE_SERVICE" && substore_health "$port"
+  else service_disable "$SBM_SUBSTORE_SERVICE" && service_stop "$SBM_SUBSTORE_SERVICE"; fi
+}
+
+substore_backup_payload() {
+  local output=$1 active=0 rc=0
+  [[ -d "$SBM_SUBSTORE_DIR/app" ]] || return 0
+  if [[ "$SBM_SKIP_INIT" != 1 ]] && service_active "$SBM_SUBSTORE_SERVICE"; then
+    active=1; service_stop "$SBM_SUBSTORE_SERVICE" || return 1
+  fi
+  mkdir -p "$output" && cp -a "$SBM_SUBSTORE_DIR/app" "$SBM_SUBSTORE_DIR/data" "$output/" || rc=$?
+  if (( active )); then service_start "$SBM_SUBSTORE_SERVICE" || rc=1; fi
+  return "$rc"
+}
+
+_substore_transaction() {
+  local fn=$1 backup rc=0 existed=0 secret=0
+  shift
+  backup=$(mktemp -d "$SBM_RUN/substore-rollback.XXXXXX") || return 1
+  if [[ "$SBM_SKIP_INIT" != 1 ]] && service_exists "$SBM_SUBSTORE_SERVICE"; then service_stop "$SBM_SUBSTORE_SERVICE" || return 1; fi
+  if ! cp -p "$SBM_STATE" "$backup/state.json"; then substore_reconcile || true; rm -rf "$backup"; return 1; fi
+  if [[ -d "$SBM_SUBSTORE_DIR" ]]; then
+    existed=1
+    if ! cp -a "$SBM_SUBSTORE_DIR" "$backup/store"; then substore_reconcile || true; rm -rf "$backup"; return 1; fi
+  fi
+  if [[ -f "$SBM_SUBSTORE_SECRET" ]]; then
+    secret=1
+    if ! cp -p "$SBM_SUBSTORE_SECRET" "$backup/access.json"; then substore_reconcile || true; rm -rf "$backup"; return 1; fi
+  fi
+  if ("$fn" "$@"); then rm -rf "$backup"; return 0; else rc=$?; fi
+  log_error 'Sub-Store 操作失败，恢复原程序、数据与设置。'
+  rm -rf "$SBM_SUBSTORE_DIR"
+  [[ "$existed" == 0 ]] || cp -a "$backup/store" "$SBM_SUBSTORE_DIR" || return 1
+  cp -p "$backup/state.json" "$SBM_STATE" || return 1
+  if [[ "$secret" == 1 ]]; then cp -p "$backup/access.json" "$SBM_SUBSTORE_SECRET" || return 1; else rm -f "$SBM_SUBSTORE_SECRET"; fi
+  if [[ "$existed" == 1 ]]; then substore_reconcile || { log_error "恢复服务失败，保留快照：$backup"; return 1; }
+  else
+    [[ "$SBM_SKIP_INIT" == 1 ]] || { service_disable "$SBM_SUBSTORE_SERVICE" || true; service_stop "$SBM_SUBSTORE_SERVICE" || true; }
+    rm -f "$SBM_SYSTEMD_DIR/$SBM_SUBSTORE_SERVICE" "$SBM_OPENRC_DIR/${SBM_SUBSTORE_SERVICE%.service}"
+    service_reload_manager || true
+  fi
+  rm -rf "$backup"
+  return "$rc"
+}
+
+substore_save_settings() {
+  local settings=$1 tmp
+  tmp=$(state_candidate) || return 1
+  jq --argjson settings "$settings" '.substore=$settings' "$SBM_STATE" >"$tmp" || return 1
+  state_validate "$tmp" && state_update_timestamp "$tmp" && chmod 0600 "$tmp" && mv "$tmp" "$SBM_STATE"
+}
+
+_substore_install_candidate() {
+  local stage=$1 port=$2 settings
+  mkdir -p "$SBM_SUBSTORE_DIR/data" || return 1
+  rm -rf "$SBM_SUBSTORE_DIR/app"
+  cp -a "$stage" "$SBM_SUBSTORE_DIR/app" || return 1
+  if [[ ! -f "$SBM_SUBSTORE_SECRET" ]]; then
+    jq -n --arg path "/$(random_hex 24)" '{api_path:$path}' >"$SBM_SUBSTORE_SECRET" || return 1
+  fi
+  settings=$(jq --argjson port "$port" '{enabled:true,port:$port,version:.backend.version,frontend_version:.frontend.version}' "$stage/manifest.json") || return 1
+  substore_save_settings "$settings" && substore_reconcile
+}
+
+substore_install() {
+  local version=${1:-latest} frontend=${2:-latest} port=${3:-3001} stage backend_meta frontend_meta rc=0
+  [[ "$port" =~ ^[1-9][0-9]{3,4}$ ]] && (( port >= 1024 && port <= 65535 )) || usage_die 'Sub-Store 端口必须为 1024–65535。'
+  dependency_require_feature substore || return 1
+  stage=$(mktemp -d "$SBM_RUN/substore-download.XXXXXX") || return 1
+  if ! backend_meta=$(substore_download_asset sub-store-org/Sub-Store "$version" sub-store.bundle.js "$stage/sub-store.bundle.js") ||
+    ! frontend_meta=$(substore_download_asset sub-store-org/Sub-Store-Front-End "$frontend" dist.zip "$stage/frontend.zip") ||
+    ! "$SBM_SUBSTORE_NODE" --check "$stage/sub-store.bundle.js" ||
+    ! python3 "$SBM_LIB/libexec/component_archive.py" "$stage/frontend.zip" "$stage/extracted"; then rm -rf "$stage"; return 1; fi
+  if [[ -f "$stage/extracted/index.html" ]]; then mv "$stage/extracted" "$stage/frontend" || return 1
+  elif [[ -f "$stage/extracted/dist/index.html" ]]; then mv "$stage/extracted/dist" "$stage/frontend" || return 1
+  else rm -rf "$stage"; log_error 'Sub-Store 前端缺少 index.html。'; return 1; fi
+  rm -rf "$stage/extracted" "$stage/frontend.zip"
+  jq -n --argjson backend "$backend_meta" --argjson frontend "$frontend_meta" '{backend:$backend,frontend:$frontend}' >"$stage/manifest.json" || return 1
+  with_lock _substore_transaction _substore_install_candidate "$stage" "$port" || rc=$?
+  rm -rf "$stage"
+  (( rc == 0 )) && log_ok 'Sub-Store 已安装；运行 sb substore access 查看本机访问地址。'
+  return "$rc"
+}
+
+_substore_enable() {
+  local enabled=$1 settings
+  [[ -f "$SBM_SUBSTORE_DIR/app/manifest.json" ]] || usage_die 'Sub-Store 尚未安装。'
+  settings=$(jq --argjson enabled "$enabled" '.substore|.enabled=$enabled' "$SBM_STATE") || return 1
+  substore_save_settings "$settings" && substore_reconcile
+}
+
+_substore_backup() {
+  local output=$1 stage tmp enabled
+  [[ -d "$SBM_SUBSTORE_DIR/app" ]] || usage_die 'Sub-Store 尚未安装。'
+  mkdir -p "$(dirname "$output")" || return 1
+  stage=$(mktemp -d "$SBM_RUN/substore-backup.XXXXXX") || return 1
+  tmp=$(mktemp "$(dirname "$output")/.substore-backup.XXXXXX") || return 1
+  enabled=$(jq -r '.substore.enabled' "$SBM_STATE")
+  if [[ "$SBM_SKIP_INIT" != 1 && "$enabled" == true ]]; then service_stop "$SBM_SUBSTORE_SERVICE" || return 1; fi
+  local rc=0
+  cp -a "$SBM_SUBSTORE_DIR/app" "$SBM_SUBSTORE_DIR/data" "$stage/" &&
+    cp -p "$SBM_SUBSTORE_SECRET" "$stage/access.json" && jq '.substore' "$SBM_STATE" >"$stage/settings.json" &&
+    tar -C "$stage" -czf "$tmp" . && chmod 0600 "$tmp" && mv "$tmp" "$output" || rc=$?
+  if [[ "$SBM_SKIP_INIT" != 1 && "$enabled" == true ]]; then service_restart "$SBM_SUBSTORE_SERVICE" || rc=1; fi
+  rm -rf "$stage"; rm -f "$tmp"
+  (( rc == 0 )) && log_ok "Sub-Store 备份已创建（包含凭据）：$output"
+  return "$rc"
+}
+
+_substore_restore_candidate() {
+  local stage=$1 settings
+  settings=$(jq -c . "$stage/settings.json") || return 1
+  rm -rf "$SBM_SUBSTORE_DIR/app" "$SBM_SUBSTORE_DIR/data"
+  mkdir -p "$SBM_SUBSTORE_DIR" || return 1
+  cp -a "$stage/app" "$stage/data" "$SBM_SUBSTORE_DIR/" && cp -p "$stage/access.json" "$SBM_SUBSTORE_SECRET" || return 1
+  substore_save_settings "$settings" && substore_reconcile
+}
+
+substore_restore() {
+  local archive=$1 stage rc=0 sha
+  dependency_require_feature substore || return 1
+  [[ -f "$archive" && $(wc -c <"$archive") -le 134217728 ]] || usage_die 'Sub-Store 备份不存在或超过 128 MiB。'
+  stage=$(mktemp -d "$SBM_RUN/substore-restore.XXXXXX") || return 1
+  if ! python3 "$SBM_LIB/libexec/component_archive.py" "$archive" "$stage" ||
+    ! jq -e '.api_path|test("^/[a-f0-9]{48}$")' "$stage/access.json" >/dev/null ||
+    ! "$SBM_SUBSTORE_NODE" --check "$stage/app/sub-store.bundle.js" ||
+    [[ ! -f "$stage/app/frontend/index.html" || ! -d "$stage/data" ]]; then rm -rf "$stage"; return 1; fi
+  sha=$(jq -er '.backend.sha256|select(test("^[a-f0-9]{64}$"))' "$stage/app/manifest.json") || { rm -rf "$stage"; return 1; }
+  verify_asset_digest "$stage/app/sub-store.bundle.js" "sha256:$sha" || { rm -rf "$stage"; return 1; }
+  with_lock _substore_transaction _substore_restore_candidate "$stage" || rc=$?
+  rm -rf "$stage"
+  return "$rc"
+}
+
+substore_api() {
+  local method=$1 path=$2 body=${3:-} config url rc=0
+  local -a args
+  url="http://127.0.0.1:$(jq -r '.substore.port' "$SBM_STATE")$(substore_access_path)$path" || return 1
+  config=$(mktemp "$SBM_RUN/substore-curl.XXXXXX") || return 1
+  printf 'url = %s\n' "$(jq -Rn --arg url "$url" '$url')" >"$config"
+  chmod 0600 "$config" || return 1
+  args=(--fail --silent --show-error --max-time 15 --noproxy '*' --config "$config" -X "$method")
+  [[ -z "$body" ]] || args+=(-H 'Content-Type: application/json' --data-binary "@$body")
+  curl "${args[@]}" || rc=$?
+  rm -f "$config"
+  return "$rc"
+}
+
+_substore_sync() {
+  local name=${1:-sb-manager} links body method=POST path=/api/subs result
+  validate_node_id "$name" || usage_die 'Sub-Store 订阅名称无效。'
+  [[ $(jq -r '.substore.enabled // false' "$SBM_STATE") == true ]] || usage_die '请先启用 Sub-Store。'
+  links=$(mktemp "$SBM_RUN/substore-links.XXXXXX") || return 1
+  body=$(mktemp "$SBM_RUN/substore-body.XXXXXX") || { rm -f "$links"; return 1; }
+  export_substore_links "$links" || { rm -f "$links" "$body"; return 1; }
+  jq -n --arg name "$name" --rawfile content "$links" '{name:$name,source:"local",content:$content}' >"$body" || return 1
+  chmod 0600 "$body" || return 1
+  if substore_api GET "/api/sub/$name" >/dev/null 2>&1; then method=PATCH; path="/api/sub/$name"; fi
+  if ! result=$(substore_api "$method" "$path" "$body") || ! jq -e '.status=="success"' <<<"$result" >/dev/null; then
+    rm -f "$links" "$body"; log_error 'Sub-Store 同步失败，请检查本机服务。'; return 1
+  fi
+  rm -f "$links" "$body"
+  log_ok "已同步启用节点到 Sub-Store 本地订阅：$name"
+}
+
+substore_cli() {
+  local action=${1:-status} version=latest frontend=latest port path
+  (($# == 0)) || shift
+  port=$(jq -r '.substore.port // 3001' "$SBM_STATE")
+  [[ ${SBM_DRY_RUN:-0} == 0 ]] || usage_die 'Sub-Store 命令不接受 --dry-run。'
+  case "$action" in
+    install|update)
+      while (($#)); do
+        [[ $# -ge 2 ]] || usage_die "参数 $1 缺少值"
+        case "$1" in --version) version=$2;; --frontend-version) frontend=$2;; --port) port=$2;; *) usage_die "未知参数：$1";; esac
+        shift 2
+      done
+      substore_install "$version" "$frontend" "$port";;
+    enable|disable) [[ $# == 0 ]] || usage_die '参数过多'; [[ "$action" == enable ]] && action=true || action=false; with_lock _substore_transaction _substore_enable "$action";;
+    status) [[ $# == 0 || ( $# == 1 && "$1" == --json ) ]] || usage_die '用法：sb substore status [--json]'; jq '.substore // {enabled:false,port:3001,version:"",frontend_version:""}' "$SBM_STATE";;
+    access) [[ $# == 0 ]] || usage_die '参数过多'; path=$(substore_access_path) || return 1; printf '前端：http://127.0.0.1:%s/\n后端：http://127.0.0.1:%s%s\n' "$port" "$port" "$path";;
+    backup) [[ $# == 1 ]] || usage_die '用法：sb substore backup FILE'; with_lock _substore_backup "$1";;
+    restore) [[ $# == 1 ]] || usage_die '用法：sb substore restore FILE'; substore_restore "$1";;
+    sync) [[ $# -le 1 ]] || usage_die '用法：sb substore sync [NAME]'; with_lock _substore_sync "${1:-sb-manager}";;
+    *) usage_die '用法：sb substore install|update|enable|disable|status|access|backup|restore|sync';;
+  esac
+}

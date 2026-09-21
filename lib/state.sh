@@ -261,6 +261,11 @@ state_migrate_v1_to_v2() {
 
 state_validate() {
   local f=$1
+  if declare -F shaping_validate_state >/dev/null 2>&1; then shaping_validate_state "$f" || die '整形设置无效。'; fi
+  if declare -F substore_validate_state >/dev/null 2>&1; then substore_validate_state "$f" || die 'Sub-Store 状态无效。'; fi
+  if declare -F tunnel_routes_validate >/dev/null 2>&1; then tunnel_routes_validate "$f" || die 'Tunnel 路由状态无效。'; fi
+  if declare -F traffic_groups_validate >/dev/null 2>&1; then traffic_groups_validate "$f" || die '共享配额状态无效。'; fi
+  if declare -F node_expiry_validate_state >/dev/null 2>&1; then node_expiry_validate_state "$f" || die '到期策略状态无效。'; fi
   jq -e '
     def string: type == "string";
     def nonempty: string and length > 0;
@@ -282,7 +287,7 @@ state_validate() {
       type == "object"
       and (.id | string and test("^[a-z0-9][a-z0-9._-]{0,47}$"))
       and (.name | nonempty and (explode | all(.[]; . >= 32 and . != 127)))
-      and (.protocol | IN("vmess-ws-cf", "shadowsocks", "anytls", "hysteria2", "trojan", "tuic", "vless", "naive", "shadowtls", "snell"))
+      and (.protocol | IN("vmess-ws-cf", "shadowsocks", "anytls", "hysteria2", "trojan", "tuic", "vless", "naive", "shadowtls", "snell", "socks", "http", "mixed"))
       and (.enabled | type == "boolean")
       and (.listen | nonempty)
       and (.port | port)
@@ -343,6 +348,8 @@ state_validate() {
         and (.handshake_port | port)
         and (.strict_mode | type == "boolean")
         and (.wildcard_sni | IN("off", "authed", "all"))
+      elif (.protocol | IN("socks", "http", "mixed")) then
+        (.server_address | nonempty) and (.listen | IN("127.0.0.1", "::1", "0.0.0.0", "::"))
       elif .protocol == "snell" then
         (.server_address | string)
         and (.snell_version | IN(5, 6))
@@ -371,7 +378,7 @@ state_validate() {
       and (.core_update_policy | IN("manual", "notify", "patch", "stable"))
       and (.cloudflared_update_policy | IN("manual", "notify", "patch", "stable")))
     and (.tunnel | type == "object"
-      and (.mode | IN("none", "fixed", "quick"))
+      and (.mode | IN("none", "fixed", "quick", "managed"))
       and ((.node_id | type) == "string" or (.node_id | type) == "null")
       and ((.domain | type) == "string" or (.domain | type) == "null")
       and ((.client_address | type) == "string" or (.client_address | type) == "null")
@@ -421,7 +428,7 @@ state_validate() {
     and all(.node_templates[];
       type == "object"
       and (.name | string and test("^[a-z0-9][a-z0-9._-]{0,47}$"))
-      and (.protocol | IN("vmess-ws-cf", "shadowsocks", "anytls", "hysteria2", "trojan", "tuic", "vless", "naive", "shadowtls", "snell"))
+      and (.protocol | IN("vmess-ws-cf", "shadowsocks", "anytls", "hysteria2", "trojan", "tuic", "vless", "naive", "shadowtls", "snell", "socks", "http", "mixed"))
       and (.defaults | type == "object"))
     and (.certificates | type == "array")
     and all(.certificates[];
@@ -555,6 +562,10 @@ snapshot_create() {
   [[ -d "$SBM_CERTS" ]] && cp -a "$SBM_CERTS" "$dir/certs"
   [[ -d "$SBM_SUBSCRIPTIONS" ]] && cp -a "$SBM_SUBSCRIPTIONS" "$dir/subscriptions"
   [[ -f "$SBM_TRAFFIC_USAGE" ]] && cp -a "$SBM_TRAFFIC_USAGE" "$dir/traffic-usage.json"
+  if [[ "$reason" == *restore* ]] && declare -F substore_backup_payload >/dev/null 2>&1; then
+    substore_backup_payload "$dir/substore" || return 1
+    touch "$dir/substore-restore-scope"
+  fi
   printf '%s\n' "$dir"
 }
 
@@ -594,6 +605,11 @@ snapshot_restore_payload() {
   else
     rm -f "$SBM_TRAFFIC_USAGE"
   fi
+  if [[ -f "$snapshot/substore-restore-scope" ]]; then
+    if [[ "$SBM_SKIP_INIT" != 1 ]] && service_exists "$SBM_SUBSTORE_SERVICE"; then service_stop "$SBM_SUBSTORE_SERVICE" || return 1; fi
+    rm -rf "$SBM_SUBSTORE_DIR/app" "$SBM_SUBSTORE_DIR/data"
+    if [[ -d "$snapshot/substore" ]]; then mkdir -p "$SBM_SUBSTORE_DIR" && cp -a "$snapshot/substore/app" "$snapshot/substore/data" "$SBM_SUBSTORE_DIR/" || return 1; fi
+  fi
   state_init_dirs
   return 0
 }
@@ -623,12 +639,13 @@ snapshot_restore() {
   if declare -F subscription_reconcile >/dev/null 2>&1; then
     subscription_reconcile 1 || return 1
   fi
+  if [[ -f "$snapshot/substore-restore-scope" ]] && declare -F substore_reconcile >/dev/null 2>&1; then substore_reconcile 1 || return 1; fi
 }
 
 _state_transaction_run() {
   local reason=$1 fn=$2 backup rc=0
   shift 2
-  backup=$(snapshot_create "pre-$reason")
+  backup=$(snapshot_create "pre-$reason") || return 1
   if (
     export SBM_OPERATION_SNAPSHOT="$backup"
     "$fn" "$@"

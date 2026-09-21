@@ -18,6 +18,7 @@ _backup_create() {
   [[ -f "$SBM_CONFIG" ]] && cp -a "$SBM_CONFIG" "$stage/etc/config.json"
   [[ -d "$SBM_SUBSCRIPTIONS" ]] && cp -a "$SBM_SUBSCRIPTIONS" "$stage/var/subscriptions"
   [[ -f "$SBM_TRAFFIC_USAGE" ]] && cp -a "$SBM_TRAFFIC_USAGE" "$stage/var/traffic-usage.json"
+  if declare -F substore_backup_payload >/dev/null 2>&1; then substore_backup_payload "$stage/var/substore" || return 1; fi
   {
     printf 'manager_version=%s\n' "$SBM_VERSION"
     printf 'created_at=%s\n' "$(now_iso)"
@@ -102,6 +103,13 @@ _restore_backup() {
     chmod 0600 "$SBM_TRAFFIC_USAGE.restore"
   fi
   state_init_dirs
+  if [[ -d "$stage/var/substore" ]]; then
+    [[ -f "$stage/var/substore/app/manifest.json" && -f "$stage/var/substore/app/sub-store.bundle.js" && -d "$stage/var/substore/data" ]] || die 'Sub-Store 备份不完整。'
+    verify_asset_digest "$stage/var/substore/app/sub-store.bundle.js" "sha256:$(jq -r '.backend.sha256' "$stage/var/substore/app/manifest.json")" || die 'Sub-Store 备份摘要不匹配。'
+    if [[ "$SBM_SKIP_INIT" != 1 ]] && service_exists "$SBM_SUBSTORE_SERVICE"; then service_stop "$SBM_SUBSTORE_SERVICE" || return 1; fi
+    rm -rf "$SBM_SUBSTORE_DIR/app" "$SBM_SUBSTORE_DIR/data"
+    mkdir -p "$SBM_SUBSTORE_DIR" && cp -a "$stage/var/substore/app" "$stage/var/substore/data" "$SBM_SUBSTORE_DIR/" || return 1
+  fi
   find "$SBM_SECRETS" -type f -exec chmod 0600 {} + 2>/dev/null || true
   chmod 0700 "$SBM_SECRETS/nodes" 2>/dev/null || true
   if [[ -f ${SBM_TUNNEL_TOKEN_FILE:-$SBM_SECRETS/cloudflared.token} ]]; then
@@ -119,6 +127,7 @@ _restore_backup() {
   while IFS= read -r d; do cert_hook "$d" || return 1; done < <(jq -r '.certificates[].domain' "$SBM_STATE")
   tunnel_reconcile 1 || return 1
   if declare -F subscription_reconcile >/dev/null 2>&1; then subscription_reconcile 1 || return 1; fi
+  if declare -F substore_reconcile >/dev/null 2>&1; then substore_reconcile 1 || return 1; fi
   log_ok "恢复完成。恢复前备份：$safety"
 }
 
@@ -137,7 +146,7 @@ backup_validate_archive() {
     path=${path%/}
     [[ -n "$path" && "$path" != /* && "$path" != *$'\n'* ]] || return 1
     case "$path" in
-      etc|etc/state.json|etc/config.json|etc/secrets|etc/secrets/*|etc/certs|etc/certs/*|meta|meta/manifest.txt|var|var/subscriptions|var/subscriptions/*|var/traffic-usage.json) ;;
+      etc|etc/state.json|etc/config.json|etc/secrets|etc/secrets/*|etc/certs|etc/certs/*|meta|meta/manifest.txt|var|var/subscriptions|var/subscriptions/*|var/traffic-usage.json|var/substore|var/substore/app|var/substore/app/*|var/substore/data|var/substore/data/*) ;;
       *) return 1 ;;
     esac
     IFS=/ read -r -a parts <<<"$path"

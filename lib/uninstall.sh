@@ -36,6 +36,14 @@ uninstall_manager() {
   fi
   if [[ "$assume_yes" != 1 ]]; then confirm "$message" N || return 0; fi
 
+  if [[ -f "$SBM_SHAPING_DIR/baseline.json" ]]; then
+    with_lock shaping_restore || die "无法恢复 tc 队列；卸载已取消，请检查 $SBM_SHAPING_DIR。"
+  fi
+  if [[ "$SBM_SKIP_INIT" != 1 ]] && service_exists "$SBM_SUBSTORE_SERVICE"; then
+    service_disable "$SBM_SUBSTORE_SERVICE" && service_stop "$SBM_SUBSTORE_SERVICE" || die 'Sub-Store 停止失败，取消卸载。'
+  fi
+  rm -f "$SBM_SYSTEMD_DIR/$SBM_SUBSTORE_SERVICE" "$SBM_OPENRC_DIR/${SBM_SUBSTORE_SERVICE%.service}"
+
   if [[ -e "$SBM_TCP_BACKUP_DIR/original" || -e "$SBM_TCP_BACKUP_DIR/pending" ]] || tcp_tuning_managed; then
     tcp_tuning_disable || die "无法恢复 TCP 调优前的 sysctl；卸载已取消，请检查 $SBM_TCP_BACKUP_DIR。"
   fi

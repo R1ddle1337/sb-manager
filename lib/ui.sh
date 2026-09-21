@@ -155,6 +155,7 @@ ui_add_node() {
     '8. NaiveProxy（HTTPS/QUIC）' \
     '9. ShadowTLS v3' \
     '10. Snell v5/v6（需要 sing-box 1.14+）' \
+    '11. SOCKS5 / HTTP / mixed 认证代理' \
     '0. 返回'
   prompt_value choice '选择协议' '0'
   case "$choice" in
@@ -274,6 +275,15 @@ ui_add_node() {
         *) log_error '选择无效';;
       esac
       ;;
+    11)
+      local proxy_type proxy_listen
+      prompt_value proxy_type '代理类型（socks/http/mixed）' 'mixed'
+      prompt_value proxy_listen '监听地址（127.0.0.1/::1/0.0.0.0/::）' '127.0.0.1'
+      prompt_value address '客户端连接地址' '127.0.0.1'
+      prompt_value port '监听端口' '1080'
+      prompt_value name '节点名称' '认证代理'
+      node_add "$proxy_type" --listen "$proxy_listen" --address "$address" --port "$port" --name "$name"
+      ;;
     0) return;; *) log_error '选择无效';;
   esac
 }
@@ -282,7 +292,7 @@ ui_manage_nodes() {
   local id action value remark region purpose line tags
   ui_select_node id || return
   node_show "$id"
-  printf '\n1. 显示分享链接\n2. 启用\n3. 停用\n4. 修改端口\n5. 修改客户端地址\n6. 修改名称\n7. 修改备注、地区与标签\n8. 轮换凭据\n9. 删除\n0. 返回\n'
+  printf '\n1. 显示分享链接\n2. 启用\n3. 停用\n4. 修改端口\n5. 修改客户端地址\n6. 修改名称\n7. 修改备注、地区与标签\n8. 轮换凭据\n9. 删除\n10. 设置/延长节点有效期\n11. 清除节点到期策略\n0. 返回\n'
   prompt_value action '选择操作' '0'
   case "$action" in
     1) node_share "$id" 1;; 2) node_enable "$id";; 3) node_disable "$id";;
@@ -299,6 +309,8 @@ ui_manage_nodes() {
       ;;
     8) confirm '轮换后旧链接会立即失效，继续？' N && node_rotate "$id";;
     9) confirm "确认删除 $id？" N && node_delete "$id";;
+    10) prompt_value value '续期天数（从当前到期日或今天起算）' '30'; node_expiry_cli "$id" --days "$value";;
+    11) node_expiry_cli "$id" --clear;;
   esac
 }
 
@@ -349,7 +361,7 @@ ui_cert_menu() {
 
 ui_tunnel_menu() {
   local c id domain address
-  printf '1. 查看 Tunnel 状态\n2. 安装/更新 cloudflared\n3. 配置固定 Tunnel\n4. 启动 Quick Tunnel\n5. 刷新 Quick Tunnel 域名\n6. 更换固定 Tunnel Token\n7. 停止 Tunnel\n0. 返回\n'
+  printf '1. 查看 Tunnel 状态\n2. 安装/更新 cloudflared\n3. 配置固定 Tunnel\n4. 启动 Quick Tunnel\n5. 刷新 Quick Tunnel 域名\n6. 更换固定 Tunnel Token\n7. 停止 Tunnel\n8. 多域名/路径路由管理\n0. 返回\n'
   prompt_value c '选择操作' '0'
   case "$c" in
     1) tunnel_status;;
@@ -357,6 +369,7 @@ ui_tunnel_menu() {
     3) ui_select_node id || return; prompt_value domain 'Tunnel 公网域名' ''; prompt_value address '客户端 add 地址' "$domain"; tunnel_setup_fixed "$id" "$domain" '' "$address";;
     4) ui_select_node id || return; tunnel_setup_quick "$id";;
     5) tunnel_refresh_quick;; 6) tunnel_set_token;; 7) confirm '停止 Tunnel？' N && tunnel_stop;;
+    8) ui_tunnel_routes_menu;;
   esac
 }
 
@@ -412,7 +425,7 @@ ui_realm_menu() {
 
 ui_doctor_menu() {
   local c host count family
-  printf '1. 运行完整诊断\n2. 自动修复权限、配置与服务\n3. 低风险自动修复（不改防火墙/SSH/内核）\n4. 协调/重启 sing-box 服务\n5. 查看 sing-box 最近日志\n6. 网络延迟、丢包与抖动检测\n0. 返回\n'
+  printf '1. 运行完整诊断\n2. 自动修复权限、配置与服务\n3. 低风险自动修复（不改防火墙/SSH/内核）\n4. 协调/重启 sing-box 服务\n5. 查看 sing-box 最近日志\n6. 网络延迟、丢包与抖动检测\n7. 吞吐测速与前后对比\n0. 返回\n'
   prompt_value c '选择操作' '0'
   case "$c" in
     1) doctor_run || true;;
@@ -426,6 +439,7 @@ ui_doctor_menu() {
       prompt_value family 'IP 协议（auto/4/6）' 'auto'
       network_ping "$host" "$count" "$family" || true
       ;;
+    7) ui_network_benchmark_menu;;
   esac
 }
 
@@ -608,7 +622,7 @@ ui_notification_health_menu() {
 ui_traffic_menu() {
   local c id quota reset_day upload_rate download_rate mode mode_choice
   traffic_status all
-  printf '\n1. 配置/启用节点流量控制\n2. 停用节点流量控制\n3. 立即重置节点统计\n4. 移除配置与累计用量\n5. 重新加载运行规则\n0. 返回\n'
+  printf '\n1. 配置/启用节点流量控制\n2. 停用节点流量控制\n3. 立即重置节点统计\n4. 移除配置与累计用量\n5. 重新加载运行规则\n6. 多节点共享配额\n7. tc 下行平滑限速\n0. 返回\n'
   prompt_value c '选择操作' '0'
   case "$c" in
     1)
@@ -632,6 +646,87 @@ ui_traffic_menu() {
     3) ui_select_node id 1 || return; confirm "确认清零 $id 的本周期流量统计？" N && traffic_reset "$id" ;;
     4) ui_select_node id || return; confirm "确认移除 $id 的流量控制配置和累计用量？" N && traffic_remove "$id" ;;
     5) traffic_reconcile ;;
+    6) ui_traffic_group_menu;;
+    7) ui_shaping_menu;;
+  esac
+}
+
+ui_network_benchmark_menu() {
+  local c host port seconds streams direction before after
+  printf '1. iperf3 吞吐测速\n2. 查看测速记录\n3. 比较两次测速\n4. 安装测速依赖\n0. 返回\n'
+  prompt_value c '选择操作' '0'
+  case "$c" in
+    1)
+      prompt_value host '目标 iperf3 服务器' ''; prompt_value port '端口' '5201'
+      prompt_value seconds '测试秒数（1–30）' '10'; prompt_value streams '并发连接（1–16）' '1'
+      prompt_value direction '方向（up 上传 / down 下载）' 'down'
+      network_speed "$host" "$port" "$seconds" "$streams" "$direction" 0;;
+    2) network_history;;
+    3) network_history; prompt_value before '对比前记录 ID' ''; prompt_value after '对比后记录 ID' ''; network_compare "$before" "$after";;
+    4) dependency_require_feature benchmark;;
+  esac
+}
+
+ui_traffic_group_menu() {
+  local c id members quota day mode
+  printf '1. 查看共享配额\n2. 创建/修改共享配额\n3. 移除配额组\n4. 重置组用量\n0. 返回\n'
+  prompt_value c '选择操作' '0'
+  case "$c" in
+    1) traffic_group_cli status;;
+    2)
+      prompt_value id '配额组 ID' ''; prompt_value members '成员节点 ID（逗号分隔）' ''
+      prompt_value quota '共享月配额（如 500G）' '500G'; prompt_value day '每月重置日（1–28）' '1'
+      prompt_value mode '统计模式（total 双向 / download 下行）' 'total'
+      traffic_group_cli set "$id" --nodes "$members" --quota "$quota" --reset-day "$day" --quota-mode "$mode";;
+    3) prompt_value id '配额组 ID' ''; traffic_group_cli remove "$id";;
+    4) prompt_value id '配额组 ID' ''; confirm '确认清零组累计用量？' N && traffic_group_cli reset "$id";;
+  esac
+}
+
+ui_shaping_menu() {
+  local c interface capacity
+  printf '1. 查看 tc 整形设置\n2. 预览并启用下行平滑限速\n3. 停用并恢复网卡队列\n4. 安装 tc 依赖\n0. 返回\n'
+  prompt_value c '选择操作' '0'
+  case "$c" in
+    1) shaping_cli status;;
+    2)
+      prompt_value interface '出口网卡名' ''; prompt_value capacity '网卡带宽容量（如 1G）' '1G'
+      shaping_cli plan "$interface" --capacity "$capacity" || return
+      confirm '将管理该网卡的出口队列，应用以上整形？' N && shaping_cli enable "$interface" --capacity "$capacity";;
+    3) shaping_cli disable;;
+    4) dependency_require_feature shaping;;
+  esac
+}
+
+ui_tunnel_routes_menu() {
+  local c id credentials host url path
+  printf '1. 查看路由\n2. 导入命名 Tunnel 凭据\n3. 添加/修改路由\n4. 删除路由\n0. 返回\n'
+  prompt_value c '选择操作' '0'
+  case "$c" in
+    1) tunnel_routes_cli route list;;
+    2) prompt_value id 'Tunnel UUID' ''; prompt_value credentials '凭据 JSON 文件路径' ''; tunnel_routes_cli managed "$id" "$credentials";;
+    3)
+      prompt_value id '路由 ID' ''; prompt_value host '公网域名' ''
+      prompt_value url '本机 HTTP(S) 地址（如 http://127.0.0.1:3001）' ''
+      prompt_value path '路径正则（留空匹配整个域名）' ''
+      tunnel_routes_cli route add "$id" "$host" "$url" "$path";;
+    4) prompt_value id '路由 ID' ''; tunnel_routes_cli route remove "$id";;
+  esac
+}
+
+ui_substore_menu() {
+  local c port version frontend file name
+  printf '1. 查看状态\n2. 安装/升级 Sub-Store\n3. 启用\n4. 停用\n5. 查看本机访问地址\n6. 同步当前节点到 Sub-Store\n7. 备份 Sub-Store\n8. 恢复 Sub-Store\n0. 返回\n'
+  prompt_value c '选择操作' '0'
+  case "$c" in
+    1) substore_cli status;;
+    2)
+      prompt_value port '本机端口' '3001'; prompt_value version '后端版本' 'latest'; prompt_value frontend '前端版本' 'latest'
+      substore_cli install --port "$port" --version "$version" --frontend-version "$frontend";;
+    3) substore_cli enable;; 4) substore_cli disable;; 5) substore_cli access;;
+    6) prompt_value name 'Sub-Store 本地订阅名称' 'sb-manager'; substore_cli sync "$name";;
+    7) prompt_value file '备份文件路径' "$SBM_BACKUPS/substore-$(now_stamp).tar.gz"; substore_cli backup "$file";;
+    8) prompt_value file '备份文件路径' ''; confirm '恢复会覆盖 Sub-Store 当前数据，继续？' N && substore_cli restore "$file";;
   esac
 }
 
@@ -640,7 +735,7 @@ ui_main() {
   local choice
   while true; do
     ui_header
-    printf '1. 查看统一运行状态\n2. 添加协议节点\n3. 管理现有节点\n4. 分享链接与客户端导出\n5. 完整客户端配置导出\n6. 域名与证书管理\n7. Cloudflare Tunnel 管理\n8. 核心与组件更新\n9. sing-box API/Dashboard\n10. Hysteria Realm\n11. 日志\n12. 诊断与修复\n13. 备份与恢复\n14. 全局设置\n15. 防火墙与协议端口\n16. 流量统计、配额与限速\n17. 通知与定时健康检查\n18. 节点模板与批量操作\n19. 卸载与彻底清理\n0. 退出\n\n'
+    printf '1. 查看统一运行状态\n2. 添加协议节点\n3. 管理现有节点\n4. 分享链接与客户端导出\n5. 完整客户端配置导出\n6. 域名与证书管理\n7. Cloudflare Tunnel 管理\n8. 核心与组件更新\n9. sing-box API/Dashboard\n10. Hysteria Realm\n11. 日志\n12. 诊断与修复\n13. 备份与恢复\n14. 全局设置\n15. 防火墙与协议端口\n16. 流量统计、配额与限速\n17. 通知与定时健康检查\n18. 节点模板与批量操作\n19. 卸载与彻底清理\n20. Sub-Store 组件与订阅同步\n0. 退出\n\n'
     prompt_value choice '请选择' '0'
     case "$choice" in
       1) status_summary || true;; 2) ui_add_node;; 3) ui_manage_nodes;;
@@ -649,6 +744,7 @@ ui_main() {
       17) ui_notification_health_menu;;
       18) ui_template_menu;;
       19) ui_uninstall_menu; [[ ${SBM_UNINSTALLED:-0} == 1 ]] && return;;
+      20) ui_substore_menu;;
       0) return;; *) log_error '选择无效';;
     esac
     ui_pause

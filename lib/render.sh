@@ -5,7 +5,7 @@ node_transport_kinds() {
   local node=$1 protocol network
   protocol=$(jq -r '.protocol' <<<"$node")
   case "$protocol" in
-    vmess-ws-cf|anytls|trojan|vless|shadowtls|snell) printf 'tcp\n' ;;
+    vmess-ws-cf|anytls|trojan|vless|shadowtls|snell|http|socks|mixed) printf 'tcp\n' ;;
     hysteria2|tuic) printf 'udp\n' ;;
     naive) jq -r '.network // "tcp"' <<<"$node" ;;
     shadowsocks)
@@ -54,7 +54,7 @@ validate_state_semantics() {
     port=$(jq -r '.port' <<<"$node")
     validate_node_id "$id" || die "节点 ID 不规范：$id"
     validate_port "$port" || die "节点 $id 的端口无效：$port"
-    case "$protocol" in vmess-ws-cf|shadowsocks|anytls|hysteria2|trojan|tuic|vless|naive|shadowtls|snell) ;; *) die "节点 $id 使用未知协议：$protocol" ;; esac
+    case "$protocol" in vmess-ws-cf|shadowsocks|anytls|hysteria2|trojan|tuic|vless|naive|shadowtls|snell|socks|http|mixed) ;; *) die "节点 $id 使用未知协议：$protocol" ;; esac
     if [[ $(jq -r '.enabled' <<<"$node") == true ]]; then
       if [[ "$protocol" != vmess-ws-cf ]]; then
         local endpoint_address
@@ -131,6 +131,7 @@ render_inbound_for_node() {
     trojan) protocol_trojan_render "$node" "$credentials" ;;
     tuic) protocol_tuic_render "$node" "$credentials" ;;
     vless) protocol_vless_render "$node" "$credentials" "$node_secret" ;;
+    socks|http|mixed) protocol_proxy_render "$node" "$credentials" ;;
     naive) protocol_naive_render "$node" "$credentials" ;;
     shadowtls) protocol_shadowtls_render "$node" "$credentials" ;;
     snell) protocol_snell_render "$node" "$credentials" "$node_secret" ;;
@@ -176,7 +177,7 @@ render_config_from_state() {
     dns_advanced=true
   fi
   [[ "$api_enabled" != true ]] || api_secret=$(state_get_secret api | jq -r '.secret')
-  jq -n --arg level "$log_level" --arg strategy "$strategy" --argjson inbounds "$inbounds" --argjson api_enabled "$api_enabled" \
+  jq -n --argjson metered_proxies "$(jq '[.nodes[]|select(.enabled and .traffic.enabled and (.protocol|IN("socks","mixed")))|"in-"+.id]' "$state")" --arg level "$log_level" --arg strategy "$strategy" --argjson inbounds "$inbounds" --argjson api_enabled "$api_enabled" \
     --arg secret "$api_secret" --argjson api_port "$api_port" --argjson dashboard "$dashboard" --arg dashboard_path "$SBM_VAR/dashboard" \
     --argjson dns_advanced "$dns_advanced" --argjson dns_optimistic "$dns_optimistic" --arg dns_optimistic_timeout "$dns_optimistic_timeout" --arg dns_timeout "$dns_timeout" \
     --argjson realm_enabled "$realm_enabled" --arg realm_listen "$realm_listen" --argjson realm_port "$realm_port" --arg realm_url "$realm_url" --arg realm_token "$realm_token" --arg realm_user "$realm_user" --argjson realm_max "$realm_max" --arg realm_domain "$realm_domain" --arg cert_dir "$SBM_CERTS" '{
@@ -187,6 +188,7 @@ render_config_from_state() {
     outbounds:[{type:"direct",tag:"direct"}],
     route:{default_domain_resolver:"dns-local",final:"direct"}
   }
+  | if ($metered_proxies|length)>0 then .route.rules=[{inbound:$metered_proxies,network:"udp",action:"reject"}] else . end
   | if $dns_advanced then
       .dns.timeout=$dns_timeout
       | .dns.optimistic=(if $dns_optimistic then {enabled:true,timeout:$dns_optimistic_timeout} else false end)

@@ -7,6 +7,28 @@
   "additionalProperties": true,
   "properties": {
     "schema_version": {"const": 2},
+    "traffic_groups": {
+      "type": "array", "maxItems": 64,
+      "items": {"type": "object", "required": ["id", "nodes", "quota_bytes", "reset_day", "quota_mode"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,47}$"},
+          "nodes": {"type": "array", "minItems": 1, "maxItems": 128, "uniqueItems": true, "items": {"type": "string"}},
+          "quota_bytes": {"type": "integer", "minimum": 1, "maximum": 9000000000000000},
+          "reset_day": {"type": "integer", "minimum": 1, "maximum": 28},
+          "quota_mode": {"enum": ["total", "download"]}
+        }
+      }
+    },
+    "shaping": {
+      "type": "object", "required": ["enabled", "interface", "capacity_bps"],
+      "properties": {"enabled": {"type": "boolean"}, "interface": {"type": "string"},
+        "capacity_bps": {"type": "integer", "minimum": 1000, "maximum": 1000000000000}}
+    },
+    "substore": {
+      "type": "object", "required": ["enabled", "port", "version", "frontend_version"],
+      "properties": {"enabled": {"type": "boolean"}, "port": {"type": "integer", "minimum": 1024, "maximum": 65535},
+        "version": {"type": "string"}, "frontend_version": {"type": "string"}}
+    },
     "manager_version": {"type": "string", "minLength": 1},
     "created_at": {"type": "string", "minLength": 1},
     "updated_at": {"type": "string", "minLength": 1},
@@ -31,7 +53,14 @@
       "required": ["mode", "node_id", "domain", "client_address", "protocol"],
       "additionalProperties": true,
       "properties": {
-        "mode": {"enum": ["none", "fixed", "quick"]},
+        "mode": {"enum": ["none", "fixed", "quick", "managed"]},
+        "tunnel_id": {"type": "string", "pattern": "^[a-fA-F0-9]{8}(-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}$"},
+        "routes": {"type": "array", "maxItems": 128, "items": {
+          "type": "object", "required": ["id", "hostname", "service", "path"], "properties": {
+            "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,47}$"}, "hostname": {"type": "string"},
+            "service": {"type": "string"}, "path": {"type": "string", "maxLength": 512}
+          }
+        }},
         "node_id": {"type": ["string", "null"]},
         "domain": {"type": ["string", "null"]},
         "client_address": {"type": ["string", "null"]},
@@ -113,7 +142,7 @@
         "type": "object", "required": ["name", "protocol", "defaults"], "additionalProperties": true,
         "properties": {
           "name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,47}$"},
-          "protocol": {"enum": ["vmess-ws-cf", "shadowsocks", "anytls", "hysteria2", "trojan", "tuic", "vless", "naive", "shadowtls", "snell"]},
+          "protocol": {"enum": ["vmess-ws-cf", "shadowsocks", "anytls", "hysteria2", "trojan", "tuic", "vless", "naive", "shadowtls", "snell", "socks", "http", "mixed"]},
           "defaults": {"type": "object"}
         }
       }
@@ -128,11 +157,16 @@
         "properties": {
           "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,47}$"},
           "name": {"type": "string"},
-          "protocol": {"enum": ["vmess-ws-cf", "shadowsocks", "anytls", "hysteria2", "trojan", "tuic", "vless", "naive", "shadowtls", "snell"]},
+          "protocol": {"enum": ["vmess-ws-cf", "shadowsocks", "anytls", "hysteria2", "trojan", "tuic", "vless", "naive", "shadowtls", "snell", "socks", "http", "mixed"]},
           "enabled": {"type": "boolean"},
           "listen": {"type": "string", "minLength": 1},
           "port": {"type": "integer", "minimum": 1, "maximum": 65535},
           "created_at": {"type": "string", "minLength": 1},
+          "expiry": {
+            "type": "object", "required": ["at", "suspended", "resume_enabled"],
+            "properties": {"at": {"type": ["integer", "null"], "minimum": 1, "maximum": 253402300799},
+              "suspended": {"type": "boolean"}, "resume_enabled": {"type": "boolean"}}
+          },
           "metadata": {
             "type": "object",
             "required": ["remark", "region", "purpose", "line", "tags"],

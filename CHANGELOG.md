@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+## 0.1.0-alpha.32
+
+- Add bounded iperf3 throughput tests, protected history, and comparison of
+  runs with matching endpoints, direction, duration, and stream count.
+- Add authenticated SOCKS5, HTTP, and mixed nodes with loopback defaults,
+  multi-user credentials, exports, templates, and panel controls. Block dynamic
+  SOCKS UDP forwarding when port-based traffic policies are enabled so it
+  cannot bypass node or shared quotas.
+- Add node expiry/renewal with scheduled suspension, preserved credentials,
+  and deduplicated expiry notifications.
+- Add shared node quotas with independent billing cycles, nftables enforcement,
+  retained group usage, backups, and threshold alerts.
+- Add optional tc HTB/fq_codel shaping for direct-node downstream traffic on
+  one selected interface, with queue ownership checks and restore support.
+- Add locally managed Cloudflare credentials and multi-host/path ingress
+  routes validated by Cloudflared before service activation.
+- Add native Sub-Store frontend/backend installation with verified Release
+  digests, systemd/OpenRC services, node synchronization, transactional updates,
+  dedicated backups, and integration with full manager backups.
+- Add isolated fault injection and Alpine 3.21–3.24 coverage, plus real proxy,
+  Sub-Store, Cloudflared, iperf3, tc, and nftables tests. Remote VPS acceptance
+  remains pending because no test host is available.
+
 ## 0.1.0-alpha.31
 
 - Add bandwidth/RTT-based TCP buffer planning and tuning with memory/cgroup

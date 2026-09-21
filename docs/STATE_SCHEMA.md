@@ -5,7 +5,7 @@ Simplified example:
 ```json
 {
   "schema_version": 2,
-  "manager_version": "0.1.0-alpha.31",
+  "manager_version": "0.1.0-alpha.32",
   "settings": {
     "log_level": "info",
     "default_server_address": "edge.example.com",
@@ -110,3 +110,36 @@ installation, and service reconciliation. A failed operation restores the
 state/config pair plus secrets, certificates, subscriptions, and service
 definitions from the operation snapshot. Core upgrades additionally retain a
 known-good binary/config pair for compatibility-aware rollback.
+
+
+## Optional operations (alpha.32)
+
+Existing v2 states remain valid; no destructive migration is required. The
+`socks`, `http`, and `mixed` node protocols store authenticated user secrets as
+`{username,password}` in the existing protected user-secret files. Their default
+listener is `127.0.0.1`.
+
+A node may have `expiry:{at:null|UNIX_SECONDS,suspended:false,resume_enabled:false}`.
+The expiry tick records the previous enabled state when suspending a node;
+renewal restores that state, while manual disable cancels automatic resumption.
+
+`traffic_groups` is an optional array of `{id,nodes:[NODE_ID],quota_bytes,
+quota_mode,reset_day}`. Members must have traffic accounting enabled and cannot
+belong to two groups. Group counters live in `traffic-usage.json.groups`, using
+the same cycle/upload/download fields as node counters, and survive membership
+changes. Group and node billing cycles are independent.
+
+`shaping:{enabled,interface,capacity_bps}` configures optional downstream tc
+shaping. Original qdiscs and the last applied plan are protected runtime recovery
+files in `var/shaping`; they are specific to the host interface, not generated
+sing-box configuration.
+
+Tunnel mode `managed` adds `tunnel_id` and `routes:[{id,hostname,service,path}]`.
+The credential is stored separately as `secrets/cloudflared-credentials.json`.
+Generated ingress JSON has a final 404 rule; it is not persistent input state.
+
+`substore:{enabled,port,version,frontend_version}` describes the optional service.
+Its random API path is in `secrets/substore.json`; app and mutable data reside
+under `var/substore`. Full backups include those directories. Restore operations
+snapshot component payloads for rollback; ordinary node snapshots avoid copying
+large unrelated component data.
