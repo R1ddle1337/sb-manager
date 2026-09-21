@@ -6,7 +6,7 @@ SBM_LIB="${SBM_LIB:-${SBM_PREFIX}/lib/sb-manager}"
 SBM_BIN_DIR="${SBM_BIN_DIR:-${SBM_PREFIX}/bin}"
 if [[ -z ${SBM_VERSION:-} ]]; then
   if [[ -r "$SBM_LIB/VERSION" ]]; then SBM_VERSION=$(tr -d '[:space:]' <"$SBM_LIB/VERSION" 2>/dev/null || true); fi
-SBM_VERSION=${SBM_VERSION:-0.1.0-alpha.32}
+SBM_VERSION=${SBM_VERSION:-0.1.0-alpha.33}
 fi
 SBM_ETC="${SBM_ETC:-/etc/sb-manager}"
 SBM_VAR="${SBM_VAR:-/var/lib/sb-manager}"
@@ -338,18 +338,34 @@ confirm() {
   local prompt=$1 default=${2:-N} reply
   [[ ${SBM_ASSUME_YES:-0} != 1 ]] || return 0
   if [[ ! -t 0 ]]; then [[ "$default" =~ ^[Yy]$ ]]; return; fi
-  if [[ "$default" =~ ^[Yy]$ ]]; then read -r -p "$prompt [Y/n] " reply; reply=${reply:-Y}; else read -r -p "$prompt [y/N] " reply; reply=${reply:-N}; fi
+  if [[ "$default" =~ ^[Yy]$ ]]; then
+    read -r -p "$prompt [Y/n] " reply || { prompt_input_closed; return 1; }; reply=${reply:-Y}
+  else
+    read -r -p "$prompt [y/N] " reply || { prompt_input_closed; return 1; }; reply=${reply:-N}
+  fi
+  if [[ ${SBM_UI_WORKER:-0} == 1 && ! "$reply" =~ ^[Yy]$ ]]; then printf '已取消。\n'; exit 204; fi
   [[ "$reply" =~ ^[Yy]$ ]]
+}
+
+prompt_input_closed() {
+  [[ ${SBM_UI_WORKER:-0} != 1 ]] || exit 201
+  return 1
 }
 
 prompt_value() {
   local __var=$1 prompt=$2 default=${3:-} input_value
-  if [[ -n "$default" ]]; then read -r -p "$prompt [$default]: " input_value; input_value=${input_value:-$default}; else read -r -p "$prompt: " input_value; fi
+  if [[ -n "$default" ]]; then
+    read -r -p "$prompt [$default]: " input_value || { prompt_input_closed; return 1; }
+    input_value=${input_value:-$default}
+  else
+    read -r -p "$prompt: " input_value || { prompt_input_closed; return 1; }
+  fi
+  if [[ ${SBM_UI_WORKER:-0} == 1 && "$input_value" == q ]]; then printf '已取消。\n'; exit 204; fi
   printf -v "$__var" '%s' "$input_value"
 }
 prompt_secret() {
   local __var=$1 prompt=$2 value
-  read -r -s -p "$prompt: " value; printf '\n'
+  read -r -s -p "$prompt: " value || { printf '\n'; prompt_input_closed; return 1; }; printf '\n'
   printf -v "$__var" '%s' "$value"
 }
 

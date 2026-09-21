@@ -26,6 +26,7 @@ for test in \
   tests/hy2-udp-buffer-smoke.sh \
   tests/operations-smoke.sh \
   tests/ui-menu-smoke.sh \
+  tests/ui-flow-smoke.sh \
   tests/firewall-smoke.sh \
   tests/firewall-security-smoke.sh \
   tests/traffic-control-smoke.sh \

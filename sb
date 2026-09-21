@@ -199,6 +199,7 @@ main() {
 
   case "$cmd" in
     menu) ui_main ;;
+    __ui-step) shift; ui_worker "$@" ;;
     substore) shift; substore_cli "$@" ;;
     status)
       local json=${SBM_OUTPUT_JSON:-0} arg

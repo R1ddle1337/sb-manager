@@ -22,6 +22,27 @@ state.json + secret files + certificates
 
 The generated sing-box configuration is never treated as the source of truth. Users edit state only through `sb`; protocol modules render the complete configuration every time.
 
+## Interactive panel lifecycle
+
+`lib/ui.sh` keeps each menu page in a loop and runs its selected action in a
+fresh Bash process through the internal, whitelisted `__ui-step` command.
+The worker performs the same dependency and state initialization as the CLI,
+and retains backend locking, validation, and rollback. Catching a function
+failure with `if` or `||` in the menu's own shell would suppress Bash errexit
+inside that function; the separate process preserves strict error handling.
+
+Worker statuses 200–205 distinguish back, EOF, completed uninstall, manager
+reload, cancellation, and parent-page redraw from ordinary action failures.
+Nested loops propagate session-ending statuses to the main menu. Global
+yes/dry-run/quiet/no-color options survive worker launches and reloads.
+Selectors return IDs through caller variables, and edits load defaults from
+state. No persistent UI state or new runtime dependency is required.
+
+`tests/ui-flow-smoke.sh` creates a private program copy and isolated runtime
+paths; `tests/ui-pty.py` drives real terminal input with injected backend
+failures and update/uninstall outcomes. The same interaction suite runs on
+Alpine 3.21–3.24. These checks do not replace remote VPS acceptance.
+
 ## Traffic control plane
 
 ```text

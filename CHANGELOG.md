@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## 0.1.0-alpha.33
+
+- Keep panel pages open after actions, cancellations, and failures; preserve
+  the selected node and return one submenu level at a time. Validate menu
+  choices, support q to cancel ordinary input, and exit cleanly on EOF.
+- Run panel actions in fresh Bash workers so backend failures stop execution
+  without terminating the menu. Reload after manager updates, exit after
+  completed uninstall, and preserve global execution/color options.
+- Add numbered selectors for quota groups, members, interfaces, Tunnel routes,
+  and compatible benchmark records, with readable operation summaries.
+- Retain existing node/group/route/settings values and Sub-Store ports during
+  edits; allow clearing optional metadata and route paths. Suggest available
+  proxy ports and listener-aware client addresses.
+- Add isolated PTY coverage for failures, cancellation, nested navigation,
+  node edits, update/reload, uninstall, and option propagation. Verify Alpine
+  3.21–3.24 interactions; remote Debian/VPS acceptance remains pending because
+  no test host is available.
+
 ## 0.1.0-alpha.32
 
 - Add bounded iperf3 throughput tests, protected history, and comparison of

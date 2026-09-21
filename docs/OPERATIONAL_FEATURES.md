@@ -1,8 +1,17 @@
-# 可选运维功能（0.1.0-alpha.32）
+# 可选运维功能（0.1.0-alpha.32 起）
 
 参考 vps-tcp-tune 的测速、端口计费、代理入口、Tunnel 与 Sub-Store 管理思路，
 按 sb-manager 的状态、凭据和事务模型实现。全部按需启用；默认安装不增加
 Node.js、Python、iperf3 或 tc 依赖。兼容 Debian/systemd 和 Alpine/OpenRC。
+
+从 alpha.33 起，子菜单支持连续操作：`0` 逐级返回，普通输入中 `q` 取消，
+空输入时 `Ctrl-D` 退出。操作失败后按 Enter 可在当前页重试。编辑时按 Enter
+保留显示值；组成员支持逗号分隔的编号或 ID，重复成员自动去重；网卡优先选中
+已配置网卡或默认路由网卡。测速对比第二次仅列出同条件记录。Tunnel 路由路径
+可输入 `-` 清空，Sub-Store 升级保留现有端口并显示当前组件版本。
+
+认证代理向导按监听地址建议客户端地址：本机监听保留 loopback，公网监听
+使用检测到的服务器地址，无法取得时要求填写；端口建议会避开已占用端口。
 
 ## 吞吐测速与对比
 
@@ -164,6 +173,10 @@ Tunnel/Nginx loopback 回源和其他网卡的流量继续使用 nftables 限速
 systemd/OpenRC 服务定义。Alpine 3.21–3.24 容器覆盖新增功能。真实测试覆盖
 sing-box 认证与转发、Sub-Store 前端和同步、Cloudflared ingress、iperf3 双向
 测速，以及独立网络命名空间内的 tc/nftables 安装与恢复。
+
+alpha.33 增加 `tests/ui-flow-smoke.sh` 与 Python PTY 测试，验证操作失败后
+不继续执行、取消无副作用、菜单逐级返回、节点编辑、脚本更新重载、卸载退出
+及全局选项保留。面板本身仍只依赖 Bash 与既有基础工具，Python 仅用于测试。
 
 当前没有远程测试机，未做远程 Debian/VPS 验收、真实公网 Tunnel、实机重启
 或实际业务线路的吞吐提升验收。
