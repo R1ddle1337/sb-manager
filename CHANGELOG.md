@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## 0.1.0-alpha.34
+
+- Add opt-in live subscriptions with stable token URLs, finite or revocable
+  non-expiring access, ID-based revocation, and optional HTTPS entry URLs.
+  Existing snapshot subscriptions retain their original behavior.
+- Publish one atomic live generation after successful state transactions;
+  node/user changes and credential rotation update both sing-box profiles and
+  Sub-Store links. Publication failure rolls back the state transaction.
+- Change Sub-Store node synchronization to a reusable live source, and add
+  remote source registration, checks, removal, and automatic collection
+  membership. Preserve source processors and collection order/settings;
+  failed registration restores previous definitions where the API is available.
+- Add panel controls for remote sources and live subscription creation/status/
+  revocation. Bypass source caching so client subscription refreshes retrieve
+  current nodes; Sub-Store is only required on the aggregation server.
+- Add isolated live-feed and real Sub-Store merge/failure tests, including
+  Alpine 3.21–3.24 and low-privilege feed access. Remote VPS acceptance remains
+  pending because no test host is available.
+
 ## 0.1.0-alpha.33
 
 - Keep panel pages open after actions, cancellations, and failures; preserve

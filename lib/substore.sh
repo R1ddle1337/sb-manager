@@ -268,21 +268,127 @@ substore_api() {
   return "$rc"
 }
 
+# Resource bodies contain subscription credentials; keep them out of status output.
+substore_resource_list() {
+  local resource=$1 response
+  response=$(substore_api GET "/api/${resource}s") || return 1
+  jq -e '.status=="success" and (.data|type=="array")' <<<"$response" >/dev/null || return 1
+  jq '.data' <<<"$response"
+}
+
+substore_resource_write() {
+  local resource=$1 name=$2 body=$3 exists=$4 response method=POST path="/api/${1}s"
+  if [[ "$exists" == true ]]; then method=PATCH; path="/api/$resource/$name"; fi
+  response=$(substore_api "$method" "$path" "$body") || return 1
+  jq -e '.status=="success"' <<<"$response" >/dev/null
+}
+
+substore_resource_restore() {
+  local resource=$1 name=$2 body=$3 current exists response
+  current=$(substore_resource_list "$resource") || return 1
+  exists=$(jq --arg name "$name" 'any(.[];.name==$name)' <<<"$current") || return 1
+  if [[ $(jq -r 'type' "$body") == null ]]; then
+    [[ "$exists" == true ]] || return 0
+    response=$(substore_api DELETE "/api/$resource/$name") || return 1
+    jq -e '.status=="success"' <<<"$response" >/dev/null
+  else substore_resource_write "$resource" "$name" "$body" "$exists"; fi
+}
+
+substore_validate_source_url() {
+  local url=$1
+  [[ ${#url} -le 4096 && ! "$url" =~ [[:space:][:cntrl:]] ]] || return 1
+  printf '%s' "$url" | python3 -c '
+import sys
+from urllib.parse import urlsplit
+try:
+    url = urlsplit(sys.stdin.read())
+    valid = bool(url.hostname) and not url.username and not url.password and not url.fragment
+    valid = valid and (url.port is None or 1 <= url.port <= 65535)
+    valid = valid and (url.scheme == "https" or (url.scheme == "http" and url.hostname in {"127.0.0.1", "localhost", "::1"}))
+    sys.exit(0 if valid else 1)
+except ValueError:
+    sys.exit(1)
+'
+}
+
+_substore_source_set() {
+  local name=$1 url=$2 collection=${3:-sb-manager-all} subs collections stage existed col_existed rollback=0
+  validate_node_id "$name" && validate_node_id "$collection" || usage_die '来源和组合名称须为有效 ID。'
+  [[ $(jq -r '.substore.enabled // false' "$SBM_STATE") == true ]] || usage_die '请先启用 Sub-Store。'
+  substore_validate_source_url "$url" || usage_die '请使用 HTTPS 订阅 URL（SSH 转发可用本机 HTTP），不带用户名、密码或 # 片段。'
+  subs=$(substore_resource_list sub) && collections=$(substore_resource_list collection) || return 1
+  stage=$(mktemp -d "$SBM_RUN/substore-source.XXXXXX") || return 1
+  chmod 0700 "$stage" || return 1
+  jq --arg name "$name" 'first(.[]|select(.name==$name)) // null' <<<"$subs" >"$stage/source.json" || return 1
+  jq --arg name "$collection" 'first(.[]|select(.name==$name)) // null' <<<"$collections" >"$stage/collection.json" || return 1
+  existed=$(jq '.!=null' "$stage/source.json"); col_existed=$(jq '.!=null' "$stage/collection.json")
+  jq --arg name "$name" --arg url "$url#noCache" '(. // {}) + {name:$name,source:"remote",url:$url,content:""} | del(.mergeSources)' "$stage/source.json" >"$stage/new-source.json" || return 1
+  jq --arg name "$collection" --arg source "$name" '(. // {}) | .name=$name | .subscriptions=((.subscriptions // []) | if index($source)==null then .+[$source] else . end)' "$stage/collection.json" >"$stage/new-collection.json" || return 1
+  chmod 0600 "$stage"/*.json || return 1
+  if substore_resource_write sub "$name" "$stage/new-source.json" "$existed" &&
+    substore_resource_write collection "$collection" "$stage/new-collection.json" "$col_existed"; then
+    rm -rf "$stage"
+    log_ok "已接入来源 $name，加入组合 $collection；后续更新订阅时自动拉取。"
+    return 0
+  fi
+  # A timed-out request may already have committed. Restore both resources.
+  substore_resource_restore collection "$collection" "$stage/collection.json" || rollback=1
+  substore_resource_restore sub "$name" "$stage/source.json" || rollback=1
+  if (( rollback )); then log_error "接入失败，自动恢复未完成；原定义保留在 $stage。"
+  else rm -rf "$stage"; log_error '接入失败，已恢复原来源和组合。'; fi
+  return 1
+}
+
+substore_source_list() {
+  local json=${1:-0} subs collections data
+  subs=$(substore_resource_list sub) && collections=$(substore_resource_list collection) || return 1
+  data=$(jq --argjson collections "$collections" '[.[] | . as $sub |
+    {name,source,collections:[$collections[]|select((.subscriptions // [])|index($sub.name))|.name]}]' <<<"$subs") || return 1
+  if [[ "$json" == 1 ]]; then printf '%s\n' "$data"
+  else jq -r 'if length==0 then "暂无订阅来源。" else .[]|"\(.name)  \(.source)  组合：\(.collections|join(","))" end' <<<"$data"; fi
+}
+
+_substore_source_remove() {
+  local name=$1 response
+  validate_node_id "$name" || usage_die '来源名称无效。'
+  response=$(substore_api DELETE "/api/sub/$name") || return 1
+  jq -e '.status=="success"' <<<"$response" >/dev/null || return 1
+  log_ok "已移除订阅来源：$name。原服务器的订阅令牌仍可单独撤销。"
+}
+
+substore_source_check() {
+  local name=$1 response
+  validate_node_id "$name" || usage_die '来源名称无效。'
+  response=$(substore_api GET "/download/$name?target=JSON&noCache=true") || return 1
+  jq -e 'type=="array"' <<<"$response" >/dev/null || { log_error '来源拉取或节点解析失败。'; return 1; }
+  log_ok "来源 $name 可用，解析到 $(jq length <<<"$response") 个节点。"
+}
+
 _substore_sync() {
-  local name=${1:-sb-manager} links body method=POST path=/api/subs result
+  local name=${1:-sb-manager} subs url token='' digest created='' meta
   validate_node_id "$name" || usage_die 'Sub-Store 订阅名称无效。'
   [[ $(jq -r '.substore.enabled // false' "$SBM_STATE") == true ]] || usage_die '请先启用 Sub-Store。'
-  links=$(mktemp "$SBM_RUN/substore-links.XXXXXX") || return 1
-  body=$(mktemp "$SBM_RUN/substore-body.XXXXXX") || { rm -f "$links"; return 1; }
-  export_substore_links "$links" || { rm -f "$links" "$body"; return 1; }
-  jq -n --arg name "$name" --rawfile content "$links" '{name:$name,source:"local",content:$content}' >"$body" || return 1
-  chmod 0600 "$body" || return 1
-  if substore_api GET "/api/sub/$name" >/dev/null 2>&1; then method=PATCH; path="/api/sub/$name"; fi
-  if ! result=$(substore_api "$method" "$path" "$body") || ! jq -e '.status=="success"' <<<"$result" >/dev/null; then
-    rm -f "$links" "$body"; log_error 'Sub-Store 同步失败，请检查本机服务。'; return 1
+  subs=$(substore_resource_list sub) || return 1
+  url=$(jq -r --arg name "$name" 'first(.[]|select(.name==$name)|.url) // ""' <<<"$subs") || return 1
+  if [[ "$url" == "http://127.0.0.1:$SBM_SUBSCRIPTION_PORT/sub/"* ]]; then
+    token=${url#*/sub/}; token=${token%%\?*}
+    digest=$(printf '%s' "$token" | sha256sum | awk '{print $1}')
+    meta="$SBM_SUBSCRIPTIONS/$digest.meta.json"
+    if [[ ! -f "$meta" ]] || ! jq -e '.live==true and .expires_at_epoch==null' "$meta" >/dev/null; then token=''; fi
   fi
-  rm -f "$links" "$body"
-  log_ok "已同步启用节点到 Sub-Store 本地订阅：$name"
+  if [[ -z "$token" ]]; then
+    created=$(mktemp "$SBM_RUN/substore-live.XXXXXX") || return 1
+    if ! _subscription_create never mixed true >"$created"; then rm -f "$created"; return 1; fi
+    token=$(sed -n 's#^本机 URL：.*/sub/##p' "$created")
+    rm -f "$created"
+    [[ "$token" =~ ^[A-Za-z0-9_-]{32,128}$ ]] || return 1
+  else subscription_refresh_live || return 1; fi
+  url="http://127.0.0.1:$SBM_SUBSCRIPTION_PORT/sub/$token?format=substore"
+  if ! _substore_source_set "$name" "$url"; then
+    [[ -z "$created" ]] || _subscription_revoke "$token" >/dev/null
+    return 1
+  fi
+  log_ok "本机节点已接入动态订阅：$name；节点变更后自动更新。"
 }
 
 substore_cli() {
@@ -304,6 +410,14 @@ substore_cli() {
     backup) [[ $# == 1 ]] || usage_die '用法：sb substore backup FILE'; with_lock _substore_backup "$1";;
     restore) [[ $# == 1 ]] || usage_die '用法：sb substore restore FILE'; substore_restore "$1";;
     sync) [[ $# -le 1 ]] || usage_die '用法：sb substore sync [NAME]'; with_lock _substore_sync "${1:-sb-manager}";;
-    *) usage_die '用法：sb substore install|update|enable|disable|status|access|backup|restore|sync';;
+    source)
+      case "${1:-list}" in
+        list) [[ $# -le 2 && ${2:---json} == --json ]] || usage_die '用法：sb substore source list [--json]'; substore_source_list "$([[ ${2:-} == --json || ${SBM_OUTPUT_JSON:-0} == 1 ]] && echo 1 || echo 0)";;
+        add) [[ $# == 3 || $# == 4 ]] || usage_die '用法：sb substore source add NAME URL [COLLECTION]'; with_lock _substore_source_set "$2" "$3" "${4:-sb-manager-all}";;
+        remove) [[ $# == 2 ]] || usage_die '用法：sb substore source remove NAME'; with_lock _substore_source_remove "$2";;
+        check) [[ $# == 2 ]] || usage_die '用法：sb substore source check NAME'; substore_source_check "$2";;
+        *) usage_die '用法：sb substore source list|add|remove|check';;
+      esac;;
+    *) usage_die '用法：sb substore install|update|enable|disable|status|access|backup|restore|sync|source';;
   esac
 }

@@ -13,7 +13,7 @@ ui_clear() { [[ -t 1 && -n ${TERM:-} && ${TERM:-} != dumb ]] && command_exists c
 # would disable it inside the backend and could let failed actions continue.
 ui_worker_allowed() {
   case "$1" in
-    ui_add_node|ui_manage_nodes|ui_share_export_menu|ui_client_export_menu|ui_cert_menu|ui_tunnel_menu|ui_update_menu|ui_api_menu|ui_realm_menu|ui_doctor_menu|ui_uninstall_menu|ui_backup_menu|ui_nginx_stream_menu|ui_settings_menu|ui_tcp_tuning_menu|ui_template_menu|ui_firewall_menu|ui_notification_health_menu|ui_traffic_menu|ui_network_benchmark_menu|ui_traffic_group_menu|ui_shaping_menu|ui_tunnel_routes_menu|ui_substore_menu|ui_config_menu|ui_dns_menu|ui_bbr_menu|ui_hy2_buffer_menu|ui_outbound_menu|status_summary|show_logs) return 0;;
+    ui_add_node|ui_manage_nodes|ui_share_export_menu|ui_client_export_menu|ui_cert_menu|ui_tunnel_menu|ui_update_menu|ui_api_menu|ui_realm_menu|ui_doctor_menu|ui_uninstall_menu|ui_backup_menu|ui_nginx_stream_menu|ui_settings_menu|ui_tcp_tuning_menu|ui_template_menu|ui_firewall_menu|ui_notification_health_menu|ui_traffic_menu|ui_network_benchmark_menu|ui_traffic_group_menu|ui_shaping_menu|ui_tunnel_routes_menu|ui_substore_menu|ui_config_menu|ui_dns_menu|ui_bbr_menu|ui_hy2_buffer_menu|ui_outbound_menu|ui_substore_sources_menu|ui_subscription_menu|status_summary|show_logs) return 0;;
     *) return 1;;
   esac
 }
@@ -971,8 +971,8 @@ ui_tunnel_routes_menu() {
 
 ui_substore_menu() {
   local c port version frontend file name current current_frontend
-  printf '1. 查看状态\n2. 安装/升级 Sub-Store\n3. 启用\n4. 停用\n5. 查看本机访问地址\n6. 同步当前节点到 Sub-Store\n7. 备份 Sub-Store\n8. 恢复 Sub-Store\n0. 返回\n'
-  ui_menu_choice c '选择操作' '0' 8
+  printf '1. 查看状态\n2. 安装/升级 Sub-Store\n3. 启用\n4. 停用\n5. 查看本机访问地址\n6. 接入本机节点（自动更新）\n7. 备份 Sub-Store\n8. 恢复 Sub-Store\n9. 其他服务器来源与自动合并\n10. 本机动态订阅地址管理\n0. 返回\n'
+  ui_menu_choice c '选择操作' '0' 10
   case "$c" in
     1) jq -r '(.substore // {enabled:false,port:3001,version:"",frontend_version:""})|"Sub-Store：\(if .version=="" then "未安装" elif .enabled then "已启用" else "已停用" end)；本机端口：\(.port)","后端版本：\(.version)；前端版本：\(.frontend_version)"' "$SBM_STATE";;
     2)
@@ -982,9 +982,53 @@ ui_substore_menu() {
       prompt_value version "后端版本（当前 $current）" 'latest'; prompt_value frontend "前端版本（当前 $current_frontend）" 'latest'
       substore_cli install --port "$port" --version "$version" --frontend-version "$frontend";;
     3) substore_cli enable;; 4) substore_cli disable;; 5) substore_cli access;;
-    6) prompt_value name 'Sub-Store 本地订阅名称' 'sb-manager'; substore_cli sync "$name";;
+    6) prompt_value name 'Sub-Store 来源名称' 'sb-manager'; substore_cli sync "$name";;
     7) prompt_value file '备份文件路径' "$SBM_BACKUPS/substore-$(now_stamp).tar.gz"; substore_cli backup "$file";;
     8) prompt_value file '备份文件路径' ''; confirm '恢复会覆盖 Sub-Store 当前数据，继续？' N && substore_cli restore "$file";;
+    9) ui_open_submenu ui_substore_sources_menu;;
+    10) ui_open_submenu ui_subscription_menu;;
+  esac
+}
+
+ui_substore_sources_menu() {
+  local c name url collection items
+  printf '1. 查看来源与组合\n2. 添加/更新服务器来源（自动加入组合）\n3. 测试来源拉取\n4. 移除来源\n0. 返回\n'
+  ui_menu_choice c '选择操作' '0' 4
+  case "$c" in
+    1) substore_cli source list;;
+    2|3|4)
+      items=$(substore_source_list 1 | jq '[.[]|{id:.name,label:(.name+"（"+.source+"）")}]')
+      ui_select_json name '订阅来源' "$items" '' "$([[ "$c" == 2 ]] && echo 1 || echo 0)" || { ui_cancel; return; }
+      case "$c" in
+        2)
+          printf '填写对方服务器生成的动态订阅 URL；首次接入后无需重复导入节点。\n'
+          prompt_secret url '订阅 URL（输入隐藏）'
+          prompt_value collection '组合名称' 'sb-manager-all'
+          substore_cli source add "$name" "$url" "$collection";;
+        3) substore_cli source check "$name";;
+        4) confirm "确认从 Sub-Store 移除来源 $name？" N && substore_cli source remove "$name";;
+      esac;;
+  esac
+}
+
+ui_subscription_menu() {
+  local c base duration id items
+  printf '1. 生成动态订阅地址（节点变更后自动更新）\n2. 查看有效期与状态\n3. 撤销订阅地址\n0. 返回\n'
+  ui_menu_choice c '选择操作' '0' 3
+  case "$c" in
+    1)
+      base=$(jq -r --arg service "http://127.0.0.1:$SBM_SUBSCRIPTION_PORT" 'first(.tunnel.routes[]?|select(.service==$service and .path=="")|"https://"+.hostname) // ""' "$SBM_STATE")
+      printf '公网入口需已通过 HTTPS/Tunnel 转发到本机订阅服务；SSH 转发可留空。\n'
+      ui_prompt_optional base '已有 HTTPS 订阅入口（如 https://sub.example.com）' "$base"
+      prompt_value duration '有效期（如 30d；never 持续有效，直至撤销）' 'never'
+      local -a args=("$duration" mixed --live)
+      [[ -z "$base" ]] || args+=(--base-url "$base")
+      subscription_create_cli "${args[@]}";;
+    2) subscription_list;;
+    3)
+      items=$(subscription_list 1 | jq '[.[]|{id,label:(.id+"（"+.status+", "+(if .live then "动态" else "快照" end)+"）")}]')
+      ui_select_json id '订阅地址' "$items" || { ui_cancel; return; }
+      confirm "确认撤销订阅 $id？使用此地址的客户端将无法再拉取。" N && subscription_revoke "$id";;
   esac
 }
 

@@ -5,7 +5,7 @@ Simplified example:
 ```json
 {
   "schema_version": 2,
-  "manager_version": "0.1.0-alpha.33",
+  "manager_version": "0.1.0-alpha.34",
   "settings": {
     "log_level": "info",
     "default_server_address": "edge.example.com",
@@ -111,6 +111,18 @@ state/config pair plus secrets, certificates, subscriptions, and service
 definitions from the operation snapshot. Core upgrades additionally retain a
 known-good binary/config pair for compatibility-aware rollback.
 
+
+## Live subscriptions (alpha.34)
+
+Live subscriptions (alpha.34) keep authorization metadata in protected
+`subscriptions/<token-sha256>.meta.json`: `live` defaults to false for old
+files, and `expires_at_epoch: null` is valid only for live subscriptions.
+`subscriptions/live.json` is an atomic derived bundle of current Sub-Store
+links and mixed/TUN profiles. State and protected node secrets remain the
+source of truth. Full backups include metadata and generations; restored live
+content is regenerated after the restore transaction. Remote source URLs and
+collection definitions belong to the protected Sub-Store database and its
+backups, never to public status output.
 
 ## Optional operations (alpha.32)
 

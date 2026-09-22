@@ -91,8 +91,8 @@ sb-manager：状态驱动的 sing-box 多协议管理器
   sb share all
   sb export outbounds
   sb export config [文件] [--mode mixed|tun] [--tun-dns-mode disabled|native|hijack] [--tun-dns-address IP]
-  sb subscription create [7d|24h] [mixed|tun]
-  sb subscription list|status|revoke <TOKEN>
+  sb subscription create [7d|never] [mixed|tun] [--live] [--base-url HTTPS_URL]
+  sb subscription list|status|revoke <ID_OR_TOKEN>
   sb api enable [PORT] [--dashboard]|disable|status [--json]|show-token|cli <COMMAND> [ARGS]
   sb realm enable PORT PUBLIC_URL [--listen ADDRESS] [--tls-domain DOMAIN] [--max-realms N]
   sb realm disable|status [--json]|show-token
@@ -124,6 +124,7 @@ sb-manager：状态驱动的 sing-box 多协议管理器
 
   sb substore install|update [--version VERSION] [--frontend-version VERSION] [--port PORT]
   sb substore enable|disable|status [--json]|access|sync [NAME]|backup FILE|restore FILE
+  sb substore source add NAME URL [COLLECTION]|list [--json]|remove NAME|check NAME
   sb tunnel managed UUID CREDENTIALS_JSON
   sb tunnel route list|add ID DOMAIN LOCAL_URL [PATH_REGEX]|remove ID
   sb tunnel fixed <NODE_ID> <DOMAIN> [TOKEN] [CLIENT_ADDRESS]
@@ -340,11 +341,11 @@ main() {
     subscription)
       local action=${2:-status}
       case "$action" in
-        create) subscription_create "${3:-7d}" "${4:-mixed}" ;;
+        create) shift 2; subscription_create_cli "$@" ;;
         list) subscription_list "$([[ ${3:-} == --json || ${SBM_OUTPUT_JSON:-0} == 1 ]] && echo 1 || echo 0)" ;;
         status) subscription_status "$([[ ${3:-} == --json || ${SBM_OUTPUT_JSON:-0} == 1 ]] && echo 1 || echo 0)" ;;
-        revoke) subscription_revoke "${3:?缺少完整订阅令牌}" ;;
-        *) usage_die '用法：sb subscription create [7d|24h] [mixed|tun] | list | status | revoke TOKEN' ;;
+        revoke) [[ $# == 3 ]] || usage_die '用法：sb subscription revoke ID_OR_TOKEN'; subscription_revoke "$3" ;;
+        *) usage_die '用法：sb subscription create [7d|never] [mixed|tun] [--live] [--base-url HTTPS_URL] | list | status | revoke ID_OR_TOKEN' ;;
       esac
       ;;
     api)

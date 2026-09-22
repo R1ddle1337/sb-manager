@@ -41,6 +41,7 @@ for test in \
   tests/protocol-suite-smoke.sh \
   tests/probe-smoke.sh \
   tests/subscription-smoke.sh \
+  tests/subscription-live-smoke.sh \
   tests/subscription-systemd-smoke.sh \
   tests/backup-age-smoke.sh \
   tests/core-paired-rollback-smoke.sh \
@@ -61,6 +62,10 @@ for test in \
   tests/core-download-smoke.sh; do
   run_stable "$test"
 done
+
+if [[ -n ${SBM_TEST_COMPONENT_ASSETS:-} ]]; then
+  run_stable tests/substore-sources-smoke.sh
+fi
 
 printf '\n===== tests/api-preview-smoke.sh (preview) =====\n'
 SBM_TEST_SING_BOX="$PREVIEW" bash "$PROJECT/tests/api-preview-smoke.sh"

@@ -29,6 +29,7 @@ done
 if curl -fsS --max-time 2 --noproxy '' --proxy http://127.0.0.1:28783 http://127.0.0.1:28784/probe.txt >/dev/null 2>&1; then exit 1; fi
 printf 'REAL PROXY HANDSHAKES PASSED\n'
 
+export SBM_SUBSCRIPTION_PORT=28787
 substore_install latest latest 28785 >/dev/null
 "$SBM_SUBSTORE_DIR/run.sh" >"$ROOT/substore.log" 2>&1 & pids+=("$!")
 for ((i=0;i<50;i++)); do
@@ -40,7 +41,13 @@ curl -fsS --max-time 3 http://127.0.0.1:28785/ | grep -qi '<html'
 code=$(curl -s --max-time 3 -o /dev/null -w '%{http_code}' http://127.0.0.1:28785/api/subs)
 [[ "$code" == 404 ]]
 with_lock _substore_sync sb-manager
-substore_api GET /api/sub/sb-manager | jq -e '.status=="success" and (.data.content|contains("socks5://"))' >/dev/null
+substore_api GET /api/sub/sb-manager | jq -e '.status=="success" and .data.source=="remote" and (.data.url|contains("format=substore"))' >/dev/null
+python3 "$PROJECT/libexec/subscription_server.py" --root "$SBM_SUBSCRIPTIONS" --port "$SBM_SUBSCRIPTION_PORT" >"$ROOT/subscription.log" 2>&1 & pids+=("$!")
+for ((i=0;i<30;i++)); do
+  if substore_api GET '/download/sb-manager?target=JSON&noCache=true' >"$ROOT/parsed-nodes.json" 2>/dev/null; then break; fi
+  sleep 0.2
+done
+jq -e 'length==3' "$ROOT/parsed-nodes.json" >/dev/null
 with_lock _substore_sync sb-manager
 printf 'REAL SUBSTORE UI AND SYNC PASSED\n'
 

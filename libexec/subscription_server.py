@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Loopback-only, token-gated static profile server for sb-manager."""
+"""Loopback-only profile server; live generations are published by the manager."""
 
 import argparse
 import hashlib
@@ -58,11 +58,25 @@ class Handler(BaseHTTPRequestHandler):
             content_type = "application/json; charset=utf-8"
         try:
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
-            if int(meta["expires_at_epoch"]) <= int(time.time()):
+            live = meta.get("live") is True
+            expires = meta["expires_at_epoch"]
+            if expires is None and not live:
+                raise ValueError("only live subscriptions may have no expiry")
+            if expires is not None and int(expires) <= int(time.time()):
                 self.send_error(410, "Subscription expired")
                 return
-            data = profile_path.read_bytes()
-        except (OSError, ValueError, KeyError, json.JSONDecodeError):
+            if live:
+                bundle = json.loads((self.root / "live.json").read_text(encoding="utf-8"))
+                if output_format == "substore":
+                    data = bundle["substore"].encode("utf-8")
+                else:
+                    mode = meta["mode"]
+                    if mode not in {"mixed", "tun"} or not isinstance(bundle["profiles"][mode], dict):
+                        raise ValueError("missing live profile")
+                    data = json.dumps(bundle["profiles"][mode], ensure_ascii=False).encode("utf-8")
+            else:
+                data = profile_path.read_bytes()
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
             self.send_error(404)
             return
         if len(data) > 10 * 1024 * 1024:

@@ -57,7 +57,7 @@ state_init
 chown root:daemon "$SBM_VAR"
 node_add ss --id subscription-systemd --port 28388 --address 192.0.2.1 >/dev/null
 created=$(subscription_create 24h mixed)
-token=$(sed -n "s#.*127\\.0\\.0\\.1:$PORT/sub/##p" <<<"$created")
+token=$(sed -n "s#^本机 URL：http://127\\.0\\.0\\.1:$PORT/sub/##p" <<<"$created")
 [[ "$token" =~ ^[A-Za-z0-9_-]{32,128}$ ]]
 systemctl is-active --quiet "$UNIT"
 systemctl show "$UNIT" -p User | grep -Fx 'User=daemon'

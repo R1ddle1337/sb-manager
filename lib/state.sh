@@ -648,7 +648,8 @@ _state_transaction_run() {
   backup=$(snapshot_create "pre-$reason") || return 1
   if (
     export SBM_OPERATION_SNAPSHOT="$backup"
-    "$fn" "$@"
+    "$fn" "$@" || exit "$?"
+    if declare -F subscription_refresh_live >/dev/null 2>&1; then subscription_refresh_live || exit 1; fi
   ); then
     snapshot_prune 20
     return 0

@@ -132,8 +132,9 @@ sb substore enable
 通过 Release API 的 SHA-256 校验。只监听 `127.0.0.1`，后端使用随机访问路径；
 `access` 显示前后端地址。可用 SSH 转发，或显式配置 Tunnel 路由访问。
 
-`sync` 将启用节点导入同名 Sub-Store 本地订阅，再次执行则更新内容；修改节点
-或凭据后需要重新同步。凭据保存在 secrets 目录，程序和数据位于
+`sync` 一次接入本机动态来源，后续节点变更自动更新，再次执行复用有效令牌。
+首次执行也会把来源加入默认组合 `sb-manager-all`。原有本地订阅在对同名来源
+执行 `sync` 时转为动态来源，已有处理规则保留。凭据保存在 secrets 目录，程序和数据位于
 `/var/lib/sb-manager/substore/`。服务使用现有服务账号，支持 systemd/OpenRC。
 更新或恢复失败会回退程序、数据和设置。
 
@@ -143,6 +144,63 @@ sb substore enable
 压缩 / 512 MiB 解压上限；独立恢复为 128 MiB 压缩 / 256 MiB 解压上限。
 
 面板主菜单：“Sub-Store 组件与订阅同步”。
+
+## 多服务器接入与动态订阅（alpha.34）
+
+只有中心服务器需要安装 Sub-Store。其他使用 sb-manager 的服务器提供动态
+订阅地址，中心登记一次，客户端以后更新组合订阅时自动拉取最新节点。
+节点增删、启停、地址/端口变更、用户变更和凭据轮换都会更新动态内容。
+客户端仍需按自身的订阅刷新周期拉取，已导入的配置不会被主动推送替换。
+
+在每台来源服务器创建动态地址：
+
+```bash
+sb subscription create never mixed --live --base-url https://sub.example.com
+# 或仅在 30 天内有效：
+sb subscription create 30d mixed --live --base-url https://sub.example.com
+```
+
+`--base-url` 填写**已配置好**的 HTTPS 入口，需把 `/sub/` 请求转发到该服务器
+的 `127.0.0.1:9080`。可使用已有 Tunnel 路由或 TLS 反向代理；该选项只生成
+对外链接，不配置域名、DNS、TLS 或防火墙。使用 SSH 转发时可省略此选项，
+登记中心机能够访问的本机转发地址。来源服务器只需订阅服务的 Python 依赖。
+
+在中心机接入本机和远程来源：
+
+```bash
+sb substore sync local-server
+sb substore source add server-b 'https://sub.example.com/sub/TOKEN?format=substore'
+sb substore source list
+sb substore source check server-b
+sb substore source remove server-b
+# 最后一个参数可选择另一个组合；默认 sb-manager-all：
+sb substore source add server-c 'https://other.example.com/sub/TOKEN?format=substore' my-servers
+```
+
+打开 Sub-Store 网页中的 `sb-manager-all` 组合，选择支持所用协议的客户端
+格式并导出订阅。后续无需复制节点或重建组合。添加同名来源更新其 URL，并
+保留处理规则；加入组合时保留已有成员顺序和其他设置。移除来源由 Sub-Store
+清理组合中的引用，不自动撤销原服务器令牌。其他脚本的 HTTPS 订阅也可接入。
+来源地址不接受 URL 用户名/密码、空白或 `#` 片段；系统自动添加 `#noCache`
+参数，确保拉取时读取最新内容。源站不可达时由 Sub-Store 报告拉取失败。
+
+面板入口：“Sub-Store → 接入本机节点（自动更新）/其他服务器来源与自动合并/
+本机动态订阅地址管理”。来源 URL 在输入时隐藏，列表不显示 URL 或令牌。
+面板会根据已有的整域名 Tunnel 路由建议 HTTPS 入口；首次仍须配置网络可达性。
+
+`--live` 为显式启用选项；不带它创建的订阅仍是有期限的快照。`never` 仅用于
+动态订阅，表示持续有效直至撤销，并允许访问以后新增的启用节点。令牌只在
+创建时显示，节点变更不会换令牌；发现泄露时在来源服务器按 ID 撤销并重新接入：
+
+```bash
+sb subscription list
+sb subscription revoke SUBSCRIPTION_ID
+```
+
+状态事务成功后，管理器把当前订阅内容写入一个原子替换的文件。订阅 HTTP
+服务继续使用低权限账号，只读预生成内容；生成失败会触发状态回滚。完整
+备份保留动态元数据，恢复后重新发布与恢复状态一致的内容。Sub-Store 接入
+失败会尝试还原来源和组合；API 持续不可用时保留受保护的原定义供恢复。
 
 ## tc 下行平滑限速
 
@@ -176,7 +234,12 @@ sing-box 认证与转发、Sub-Store 前端和同步、Cloudflared ingress、ipe
 
 alpha.33 增加 `tests/ui-flow-smoke.sh` 与 Python PTY 测试，验证操作失败后
 不继续执行、取消无副作用、菜单逐级返回、节点编辑、脚本更新重载、卸载退出
-及全局选项保留。面板本身仍只依赖 Bash 与既有基础工具，Python 仅用于测试。
+及全局选项保留。终端交互测试依赖 Python；订阅服务与 Sub-Store 的 Python
+依赖按需安装。
+
+alpha.34 使用 `tests/subscription-live-smoke.sh` 验证动态更新、快照兼容、撤销、
+过期、权限和发布失败回滚；`tests/substore-sources-smoke.sh` 使用经过摘要校验的
+官方 Sub-Store 前后端验证两个 HTTP 来源的实际合并、缓存刷新和接入失败恢复。
 
 当前没有远程测试机，未做远程 Debian/VPS 验收、真实公网 Tunnel、实机重启
 或实际业务线路的吞吐提升验收。

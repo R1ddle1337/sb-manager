@@ -165,6 +165,24 @@ optional sing-box 1.14 API/Dashboard is version-gated, loopback-only, and uses a
 separate secret file; stable 1.13 configurations never contain its `services`
 or `http_clients` fields.
 
+Live subscription metadata explicitly sets `live: true`; a null expiry is
+allowed only for this opt-in mode. A successful state transaction renders all
+active live modes and Sub-Store links into one `live.json` generation, then
+atomically replaces it with mode 0640 and the service group. Publication errors
+fail and roll back the transaction, including node secrets and the previous
+generation. The HTTP worker serves this bundle without reading manager state
+or executing privileged code. Snapshot subscriptions continue to use their
+token-specific files. Revocation works with the displayed short ID or token.
+
+Sub-Store sync registers a reusable local live URL; remote source registration
+adds a URL and collection membership through its API. URLs stay in protected
+Sub-Store data, while CLI lists expose only names and membership. Sources use
+the Sub-Store `noCache` URL option so each downstream refresh sees current
+upstream data. API registration retains processor/collection settings and
+compensates partial failures from protected before-images. Failed recovery
+retains those images for an operator; neither API unavailability nor remote
+source failure blocks ordinary node transactions.
+
 The optional sing-box 1.14 `hysteria-realm` service is rendered alongside the
 API service from the top-level `realm` state object. Its bearer token is kept in
 `secrets/realm.json`, never in `state.json` or generated client metadata. A
